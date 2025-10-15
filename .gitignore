@@ -1,0 +1,28 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Audio files (optional - remove these lines if you want to include audio files)
+# *.m4a
+# *.wav
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
