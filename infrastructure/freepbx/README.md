@@ -19,13 +19,7 @@ The setup includes:
 
 ## Installation & Running
 
-1. **Clone or download** this Docker Compose file to your server
-2. **Update configuration** (optional but recommended):
-   * Change `VIRTUAL_HOST=hostname.example.com` to your actual domain or IP
-   * Update database credentials for security:
-     * `MYSQL_ROOT_PASSWORD`
-     * `DB_PASS` and `MYSQL_PASSWORD` (should match)
-3. **Start the services** :
+1. **Start the services** :
 
 ```bash
    docker-compose up -d
@@ -45,10 +39,8 @@ Both `freepbx-app` and `freepbx-db` containers should show as "running"
 1. **Open your browser** and navigate to:
 
    ```
-   http://YOUR_SERVER_IP/admin
+   https://pbx.aminraay.ir/
    ```
-
-   Replace `YOUR_SERVER_IP` with your server's actual IP address
 2. **Default credentials** :
 
 * Username: `admin`
@@ -136,15 +128,26 @@ To execute commands inside the FreePBX container or view detailed logs:
    exit
 ```
 
-## Troubleshooting
+## Fail2Ban
 
-* **Can't access admin panel** : Verify firewall allows port 80/443, check if containers are running with `docker-compose ps`
-* **Extensions not connecting** : Ensure RTP ports (18000-18100) are not blocked by firewall. Check Asterisk logs with `tail -f /var/log/asterisk/full`
-* **Database connection errors** : Verify `DB_HOST` IP is accessible and database credentials match in both services
-* **Fail2ban issues** : Fail2ban is enabled by default; disable with `ENABLE_FAIL2BAN=FALSE` if causing problems
-* **Check SIP registration** : Inside the container, run `asterisk -rx "sip show peers"` to see connected extensions
-
-## Additional Resources
-
-* FreePBX Documentation: https://docs.freepbx.org/
-* Asterisk SIP Configuration: https://www.asterisk.org/
+Create a new Fail2Ban jail for Asterisk
+```bash
+sudo vi /etc/fail2ban/jail.d/asterisk.conf
+```
+adding the following content:
+```bash
+[asterisk-iptables]
+enabled = true
+filter = asterisk
+action = iptables-allports[name=asterisk, protocol=all]
+logpath = /var/log/asterisk/full
+maxretry = 3
+findtime = 300
+bantime = 86400
+```
+Save the file, then restart Fail2Ban:
+```bash
+sudo systemctl restart fail2ban
+sudo fail2ban-client status
+sudo fail2ban-client status asterisk-iptables
+```
