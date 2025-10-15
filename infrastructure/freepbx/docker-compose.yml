@@ -23,7 +23,7 @@ services:
       - DB_EMBEDDED=FALSE ## Use for External MySQL Server
 
       ### These are only necessary if DB_EMBEDDED=FALSE
-      - DB_HOST=178.239.151.95
+      - DB_HOST=127.0.0.1
       - DB_PORT=3306
       - DB_NAME=asterisk
       - DB_USER=asterisk
