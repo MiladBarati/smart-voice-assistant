@@ -131,21 +131,26 @@ To execute commands inside the FreePBX container or view detailed logs:
 ## Fail2Ban
 
 Create a new Fail2Ban jail for Asterisk
+
 ```bash
 sudo vi /etc/fail2ban/jail.d/asterisk.conf
 ```
+
 adding the following content:
+
 ```bash
 [asterisk-iptables]
 enabled = true
 filter = asterisk
 action = iptables-allports[name=asterisk, protocol=all]
 logpath = /var/log/asterisk/full
-maxretry = 3
+maxretry = 20
 findtime = 300
 bantime = 86400
 ```
+
 Save the file, then restart Fail2Ban:
+
 ```bash
 sudo systemctl restart fail2ban
 sudo fail2ban-client status
