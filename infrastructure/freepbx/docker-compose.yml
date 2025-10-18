@@ -1,0 +1,56 @@
+services:
+  freepbx-app:
+    restart: always
+    container_name: freepbx-app
+    image: tiredofit/freepbx
+    network_mode: "host"
+    volumes:
+      - freepbx_certs:/certs
+      - freepbx_data:/data
+      - freepbx_www:/var/www/html
+      - /var/log/asterisk:/var/log/asterisk # For host fail2ban
+    environment:
+      - VIRTUAL_HOST=pbx.aminraay.ir
+      - VIRTUAL_PORT=443
+      - VIRTUAL_PROTO=https
+      - ENABLE_ZABBIX=FALSE
+      - ENABLE_FAIL2BAN=FALSE
+      - RTP_START=18000
+      - RTP_FINISH=18100
+      - DB_EMBEDDED=FALSE ## Use for External MySQL Server
+
+      ### These are only necessary if DB_EMBEDDED=FALSE
+      - DB_HOST=127.0.0.1
+      - DB_PORT=3306
+      - DB_NAME=asterisk
+      - DB_USER=asterisk
+      - DB_PASS=fyrkekykt&rCVpGkPASS
+
+      ### If you are using TLS Support for Apache to listen on 443 in the container drop them in /certs and set these:
+      #- TLS_CERT=cert.pem
+      #- TLS_KEY=key.pem
+
+  freepbx-db:
+    container_name: freepbx-db
+    image: tiredofit/mariadb
+    network_mode: "host"
+    restart: always
+    volumes:
+      - freepbx_db_data:/var/lib/mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=nD!35*Edt9mrBvV*
+      - MYSQL_DATABASE=asterisk
+      - MYSQL_USER=asterisk
+      - MYSQL_PASSWORD=fyrkekykt&rCVpGkPASS
+
+volumes:
+  freepbx_certs:
+    driver: local
+  freepbx_data:
+    driver: local
+  freepbx_logs:
+    driver: local
+  freepbx_www:
+    driver: local
+  freepbx_db_data:
+    driver: local
