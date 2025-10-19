@@ -2,11 +2,30 @@ import argparse
 import signal
 import sys
 import time
+import wave
+import os
 
 import pjsua2 as pj
 
 
 # ---------- Helpers ----------
+
+def get_wav_duration(file_path: str) -> float:
+    """Get the duration of a WAV file in seconds."""
+    try:
+        if not os.path.exists(file_path):
+            print(f"***Warning: File {file_path} not found, using default duration")
+            return 5.0  # Default fallback
+        
+        with wave.open(file_path, 'rb') as wav_file:
+            frames = wav_file.getnframes()
+            sample_rate = wav_file.getframerate()
+            duration = frames / float(sample_rate)
+            print(f"***WAV file duration: {duration:.2f} seconds")
+            return duration
+    except Exception as e:
+        print(f"***Error reading WAV file duration: {e}, using default duration")
+        return 5.0  # Default fallback
 
 def pump_events(ep: pj.Endpoint, ms_per_iter: int = 50) -> None:
     """Pump the PJSUA2 event loop once."""
@@ -89,11 +108,8 @@ class OutCall(pj.Call):
                     if getattr(self._acc_ref, "play_file", None):
                         try:
                             self._player = pj.AudioMediaPlayer()
-                            # second arg (loop) may not be available in all bindings; use False when present
-                            try:
-                                self._player.createPlayer(self._acc_ref.play_file, False)
-                            except TypeError:
-                                self._player.createPlayer(self._acc_ref.play_file)
+                            # Create player with loop=False to play only once
+                            self._player.createPlayer(self._acc_ref.play_file, False)
                             self._player.startTransmit(call_media)  # file -> remote
                             call_media.startTransmit(playback)      # remote -> local speakers (monitor)
                             print(f"***Media: playing file to remote: {self._acc_ref.play_file}")
@@ -114,6 +130,11 @@ class AnyCall(pj.Call):
         super().__init__(acc, call_id)
         self._acc_ref = acc  # keep backref for settings
         self._player = None
+        self._playback_started = False
+        self._playback_finished = False
+        self._hangup_time = None
+        self._stop_player_time = None
+        self._call_media = None
 
     def onCallState(self, prm):
         ci = self.getInfo()
@@ -141,13 +162,22 @@ class AnyCall(pj.Call):
                     if getattr(self._acc_ref, "play_file", None):
                         try:
                             self._player = pj.AudioMediaPlayer()
-                            try:
-                                self._player.createPlayer(self._acc_ref.play_file, False)
-                            except TypeError:
-                                self._player.createPlayer(self._acc_ref.play_file)
+                            # Create player with loop=False to play only once
+                            self._player.createPlayer(self._acc_ref.play_file, False)
                             self._player.startTransmit(call_media)  # file -> remote
                             call_media.startTransmit(playback)      # remote -> local speakers (monitor)
                             print(f"***Media: playing file to remote: {self._acc_ref.play_file}")
+                            
+                            # Mark playback as started and set a timer to stop transmission
+                            if not self._playback_started:
+                                self._playback_started = True
+                                print("***Welcome message playback started")
+                                # Set a timer to stop the player transmission after actual duration
+                                message_duration = getattr(self._acc_ref, 'message_duration', 5)
+                                self._stop_player_time = time.time() + message_duration
+                                print(f"***Will stop player after {message_duration:.2f} seconds")
+                                # Store the call media for later use
+                                self._call_media = call_media
                         except Exception as e:
                             print(f"***Media player error: {e}")
                     else:
@@ -157,6 +187,53 @@ class AnyCall(pj.Call):
                         print("***Media: audio bridged to sound device")
                 except Exception as e:
                     print(f"***Media error: {e}")
+    
+    def check_playback_status(self):
+        """Check if playback has finished and set hangup time if needed."""
+        if not self._playback_started or self._playback_finished:
+            return
+            
+        current_time = time.time()
+        
+        # Check if it's time to stop the player transmission
+        if self._stop_player_time and current_time >= self._stop_player_time:
+            if self._player and self._call_media:
+                try:
+                    # Stop the transmission from player to call media
+                    self._player.stopTransmit(self._call_media)
+                    print("***Stopped player transmission to prevent looping")
+                    
+                    # Also stop the call media to playback transmission to break the audio path
+                    adm = pj.Endpoint.instance().audDevManager()
+                    playback = adm.getPlaybackDevMedia()
+                    self._call_media.stopTransmit(playback)
+                    print("***Stopped call media to playback transmission")
+                    
+                    # Destroy the player completely
+                    self._player = None
+                    print("***Destroyed player")
+                    
+                except Exception as e:
+                    print(f"***Error stopping player transmission: {e}")
+            
+            # Set hangup time
+            if not self._hangup_time:
+                hangup_delay = getattr(self._acc_ref, 'hangup_delay', 2)
+                self._hangup_time = time.time() + hangup_delay
+                print(f"***Welcome message finished. Will hang up in {hangup_delay} seconds")
+                self._playback_finished = True
+    
+    def _set_hangup_time(self):
+        """Set the time when the call should be hung up (2 seconds after playback finishes)."""
+        hangup_delay = getattr(self._acc_ref, 'hangup_delay', 2)
+        self._hangup_time = time.time() + hangup_delay
+        print(f"***Welcome message finished. Will hang up in {hangup_delay} seconds")
+    
+    def should_hangup(self):
+        """Check if it's time to hang up the call."""
+        if self._hangup_time and time.time() >= self._hangup_time:
+            return True
+        return False
 
 
 # ---------- Main ----------
@@ -172,14 +249,17 @@ def main() -> None:
     parser.add_argument("--local-port", type=int, default=5060)
     parser.add_argument("--wait-seconds", type=int, default=10, help="Time to wait for registration/connect")
     parser.add_argument("--stay-online", action="store_true", help="Keep endpoint running to receive calls")
-    parser.add_argument("--auto-answer", action="store_true", help="Answer incoming calls with 200 OK")
+    parser.add_argument("--auto-answer", action="store_true", help="Answer incoming calls with 200 OK (default: True)")
+    parser.add_argument("--no-auto-answer", action="store_true", help="Disable auto-answering of incoming calls")
     parser.add_argument("--dest", default=None, help="Destination SIP URI or extension (sip:1002@host or just 1002)")
     parser.add_argument("--hangup-seconds", type=int, default=0, help="Auto hangup after N seconds of connection; 0 to disable")
     parser.add_argument("--outbound-proxy", default=None, help="Outbound proxy URI, e.g. sip:host:5060;lr")
     parser.add_argument("--transport", choices=["udp", "tcp", "tls"], default="udp", help="SIP transport")
     parser.add_argument("--tls-verify", action="store_true", help="Verify TLS server certificate (when --transport tls)")
     parser.add_argument("--log-level", type=int, default=3, help="Endpoint log level (0-6)")
-    parser.add_argument("--play-file", default=None, help="Path to WAV file to play to remote when call media is active")
+    parser.add_argument("--play-file", default="welcome_message.wav", help="Path to WAV file to play to remote when call media is active (default: welcome_message.wav)")
+    parser.add_argument("--hangup-delay", type=int, default=2, help="Seconds to wait after welcome message before hanging up (default: 2)")
+    parser.add_argument("--message-duration", type=int, default=5, help="Fallback duration in seconds if WAV file cannot be read (default: 5)")
     args = parser.parse_args()
 
     # Create and initialize the library
@@ -244,8 +324,18 @@ def main() -> None:
 
         # Create the account
         acc = Account()
-        acc.auto_answer = args.auto_answer
+        # Default to auto-answer unless explicitly disabled
+        acc.auto_answer = args.auto_answer or not args.no_auto_answer
         acc.play_file = args.play_file
+        acc.hangup_delay = args.hangup_delay
+        
+        # Get actual duration from the WAV file, or use command line argument as fallback
+        if args.play_file:
+            actual_duration = get_wav_duration(args.play_file)
+            acc.message_duration = actual_duration
+            print(f"***Using actual WAV duration: {actual_duration:.2f} seconds")
+        else:
+            acc.message_duration = args.message_duration
         # Disable SIP Outbound & ICE temporarily
         try:
             acfg.natConfig.sipOutboundUse = pj.PJSUA_SIP_OUTBOUND_DISABLED
@@ -314,6 +404,20 @@ def main() -> None:
             print("***Online: waiting for incoming calls (Ctrl+C to exit)")
             while not stopping["flag"]:
                 pump_events(ep, 50)
+                
+                # Check for calls that should be hung up
+                for call in list(acc.calls.values()):
+                    if hasattr(call, 'check_playback_status'):
+                        call.check_playback_status()
+                    
+                    if hasattr(call, 'should_hangup') and call.should_hangup():
+                        try:
+                            if call.isActive():
+                                print("***Auto-hanging up after welcome message")
+                                op = pj.CallOpParam()
+                                call.hangup(op)
+                        except Exception as e:
+                            print(f"***Hangup error: {e}")
 
     finally:
         try:

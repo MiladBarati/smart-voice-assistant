@@ -29,6 +29,9 @@ This project provides Python scripts for interacting with SIP servers (like Aste
 - **Inbound Call Handling**: Accept and process incoming calls with auto-answer capability
 - **Outbound Calls**: Make calls to SIP extensions or full URIs
 - **Audio Playback**: Play WAV files to remote party during calls (e.g., welcome messages, IVR)
+- **Automatic Audio Duration Detection**: Reads WAV file duration for precise playback timing
+- **Auto-Answer**: Automatically answer incoming calls (enabled by default)
+- **Smart Hangup**: Automatically hang up after audio playback completes with configurable delay
 - **Multiple Transports**: Support for UDP, TCP, and TLS
 - **NAT Traversal**: Proper handling of NAT scenarios
 - **Event-Driven**: Non-blocking event loop with proper PJSUA2 event pumping
@@ -146,8 +149,7 @@ python register_bot.py \
   --user YOUR_EXTENSION \
   --password YOUR_PASSWORD \
   --domain YOUR_SIP_SERVER \
-  --stay-online \
-  --auto-answer
+  --stay-online
 ```
 
 **Example**:
@@ -156,18 +158,20 @@ python register_bot.py \
   --user 1001 \
   --password secret123 \
   --domain 192.168.1.100 \
-  --stay-online \
-  --auto-answer
+  --stay-online
 ```
 
 **What happens**:
 1. Bot registers with the SIP server
 2. Waits for incoming calls
-3. Automatically answers any call with "200 OK"
-4. Bridges audio between your microphone/speakers and the remote caller
-5. Press **Ctrl+C** to exit
+3. **Automatically answers any call with "200 OK"** (auto-answer is enabled by default)
+4. Plays the welcome message (if `welcome_message.wav` exists)
+5. Hangs up 2 seconds after the message finishes playing
+6. Press **Ctrl+C** to exit
 
-**Test it**: Call the extension from another phone and you should be connected!
+**Test it**: Call the extension from another phone and you should hear the welcome message!
+
+**Note**: To disable auto-answer, add the `--no-auto-answer` flag.
 
 ### Step 5: Make an Outbound Call
 
@@ -212,10 +216,10 @@ If you have `welocme_voice.m4a` (or any audio file), convert it to WAV format:
 # Mac: brew install ffmpeg
 
 # Convert to WAV (8kHz mono, telephony quality)
-ffmpeg -i welocme_voice.m4a -ar 8000 -ac 1 -sample_fmt s16 welocme_voice.wav
+ffmpeg -i welocme_voice.m4a -ar 8000 -ac 1 -sample_fmt s16 welcome_message.wav
 ```
 
-**Result**: You now have `welocme_voice.wav` ready to use!
+**Result**: You now have `welcome_message.wav` ready to use!
 
 #### B. Run Bot with Audio Playback
 
@@ -225,23 +229,41 @@ python register_bot.py \
   --password secret123 \
   --domain 192.168.1.100 \
   --stay-online \
-  --auto-answer \
-  --play-file welocme_voice.wav
+  --play-file welcome_message.wav
 ```
 
 **What happens**:
 1. Bot registers and waits for calls
 2. When someone calls, bot auto-answers
-3. **Plays `welocme_voice.wav` to the caller**
-4. You can hear the caller's audio locally (for monitoring)
+3. **Reads the WAV file duration automatically** (e.g., 6.2 seconds)
+4. **Plays `welcome_message.wav` to the caller exactly once** (no looping)
+5. **Waits 2 seconds after the message finishes**
+6. **Automatically hangs up the call**
+7. You can hear the caller's audio locally (for monitoring)
 
 **Test it**: Call the extension from another phone and you'll hear the welcome message!
+
+#### C. Customize Hangup Delay
+
+Control how long to wait after the message finishes before hanging up:
+
+```bash
+python register_bot.py \
+  --user 1001 \
+  --password secret123 \
+  --domain 192.168.1.100 \
+  --stay-online \
+  --play-file welcome_message.wav \
+  --hangup-delay 5
+```
+
+This will wait 5 seconds after the message finishes before hanging up.
 
 ### Step 7: Advanced Scenarios
 
 #### Scenario A: IVR/Auto-Attendant System
 
-Create a menu prompt and let callers hear it:
+Create a menu prompt and let callers hear it, then automatically hang up:
 
 ```bash
 # 1. Create menu.wav with text-to-speech or record it
@@ -251,9 +273,11 @@ python register_bot.py \
   --password ivrpass \
   --domain pbx.local \
   --stay-online \
-  --auto-answer \
-  --play-file menu.wav
+  --play-file menu.wav \
+  --hangup-delay 3
 ```
+
+The bot will automatically detect the menu.wav duration, play it once, wait 3 seconds, and hang up.
 
 #### Scenario B: Automated Announcement System
 
@@ -373,11 +397,17 @@ python register_bot.py --user 1001 --password secret123 --domain pbx.local --sta
 # Test registration only
 python mwe_register.py --user 1001 --password pass --domain pbx.local
 
-# Answer calls automatically
-python register_bot.py --user 1001 --password pass --domain pbx.local --stay-online --auto-answer
+# Answer calls automatically (auto-answer enabled by default)
+python register_bot.py --user 1001 --password pass --domain pbx.local --stay-online
 
-# Answer with welcome message
-python register_bot.py --user 1001 --password pass --domain pbx.local --stay-online --auto-answer --play-file welcome.wav
+# Answer with welcome message (auto-detects duration, plays once, hangs up after 2s)
+python register_bot.py --user 1001 --password pass --domain pbx.local --stay-online --play-file welcome.wav
+
+# Answer with welcome message and custom hangup delay
+python register_bot.py --user 1001 --password pass --domain pbx.local --stay-online --play-file welcome.wav --hangup-delay 5
+
+# Disable auto-answer (manual call handling)
+python register_bot.py --user 1001 --password pass --domain pbx.local --stay-online --no-auto-answer
 
 # Make outbound call
 python register_bot.py --user 1001 --password pass --domain pbx.local --dest 1002
@@ -564,14 +594,17 @@ python register_bot.py \
 | `--local-port` | int | 5060 | Local SIP port to bind |
 | `--wait-seconds` | int | 10 | Time to wait for registration/connect |
 | `--stay-online` | flag | `False` | Keep endpoint running to receive calls |
-| `--auto-answer` | flag | `False` | Answer incoming calls with 200 OK |
+| `--auto-answer` | flag | `True` | Answer incoming calls with 200 OK (enabled by default) |
+| `--no-auto-answer` | flag | `False` | Disable auto-answering of incoming calls |
 | `--dest` | string | `None` | Destination SIP URI or extension for outbound call |
 | `--hangup-seconds` | int | 0 | Auto hangup after N seconds of connection; 0 to disable |
 | `--outbound-proxy` | string | `None` | Outbound proxy URI (e.g., `sip:host:5060;lr`) |
 | `--transport` | choice | `udp` | SIP transport: udp, tcp, or tls |
 | `--tls-verify` | flag | `False` | Verify TLS server certificate (when using TLS) |
 | `--log-level` | int | 3 | Endpoint log level (0-6, higher = more verbose) |
-| `--play-file` | string | `None` | Path to WAV file to play to remote when call connects |
+| `--play-file` | string | `welcome_message.wav` | Path to WAV file to play to remote when call connects |
+| `--hangup-delay` | int | 2 | Seconds to wait after welcome message before hanging up |
+| `--message-duration` | int | 5 | Fallback duration if WAV file cannot be read (auto-detected from file) |
 
 ### Environment Variables
 
@@ -609,9 +642,28 @@ done
 ### How It Works
 
 - When a call's media becomes active, if `--play-file` is specified, an `AudioMediaPlayer` is created
-- The audio file is transmitted to the remote party
+- **The bot automatically reads the WAV file duration** using Python's `wave` module
+- The audio file is transmitted to the remote party **exactly once** (no looping)
+- After the message finishes playing, the bot **waits for the configured delay** (default: 2 seconds)
+- The call is **automatically hung up** after the delay
 - Local speakers still receive audio from the remote side (for monitoring)
 - The player is released when the call disconnects
+
+### Automatic Duration Detection
+
+The bot intelligently detects the actual duration of your WAV file:
+
+```
+***WAV file duration: 6.23 seconds
+***Using actual WAV duration: 6.23 seconds
+***Welcome message playback started
+***Will stop player after 6.23 seconds
+***Stopped player transmission to prevent looping
+***Welcome message finished. Will hang up in 2 seconds
+***Auto-hanging up after welcome message
+```
+
+This ensures precise timing and prevents the message from replaying!
 
 ## 🔧 Troubleshooting
 
@@ -645,6 +697,17 @@ done
 - Verify file path is correct and accessible
 - Check that call media state becomes `ACTIVE` (look for "Media: playing file" log)
 - Test with a simple beep/tone WAV file first
+- Verify the bot shows "***WAV file duration: X seconds" at startup
+
+### Audio Keeps Looping
+
+**Problem**: Welcome message plays multiple times instead of once
+
+**Solutions**:
+- This should be fixed automatically - the bot stops player transmission after the detected duration
+- Check logs for "***Stopped player transmission to prevent looping"
+- Adjust `--message-duration` if the auto-detection is incorrect
+- Ensure your WAV file is properly formatted (corrupted files may have incorrect duration metadata)
 
 ### Call Drops Immediately
 
@@ -700,7 +763,17 @@ These can be re-enabled for complex NAT scenarios if needed.
 
 - PJSUA2 callbacks run in library threads
 - Event pumping happens in the main thread
+- **All PJSUA2 API calls must be made from the main event loop thread** (not from background threads)
+- The bot uses time-based flags checked in the main loop for automatic hangup (thread-safe approach)
 - No manual threading required; PJSUA2 handles internal threading
+
+### Audio Playback Control
+
+- **Duration Detection**: Uses Python's `wave` module to read WAV file metadata at startup
+- **Playback Timer**: Sets a stop time based on actual file duration
+- **Loop Prevention**: Actively stops player transmission after the calculated duration
+- **Precise Hangup**: Waits for configurable delay after message finishes before hanging up
+- **Thread-Safe**: All operations happen in the main event loop, avoiding PJSUA2 threading issues
 
 ## 📝 License
 
@@ -716,6 +789,7 @@ Contributions are welcome! Areas for improvement:
 - Multiple simultaneous calls
 - SIP MESSAGE support
 - Presence/subscription handling
+- Enhanced audio playback completion detection (using PJSUA2 callbacks if available)
 
 ## 📚 Resources
 
@@ -737,4 +811,3 @@ For issues specific to:
 **Last Updated**: October 2025  
 **Python**: 3.11+  
 **PJSUA2**: Compatible with PJSIP 2.x
-
