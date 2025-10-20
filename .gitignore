@@ -8,3 +8,12 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Local environment files (secrets)
+.env
+.env.*
+
+# Project docs
+GitCommitPractices
+GitCommitPractices.md
+infrastructure

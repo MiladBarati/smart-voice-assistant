@@ -18,6 +18,7 @@ A comprehensive Python toolkit for SIP/VoIP functionality using PJSUA2, includin
 - [Audio File Playback](#audio-file-playback)
 - [Troubleshooting](#troubleshooting)
 - [Technical Details](#technical-details)
+- [Elasticsearch Integration](#elasticsearch-integration)
 
 ## 🎯 Overview
 
@@ -74,6 +75,9 @@ PJSUA2 Python bindings typically need to be compiled from source or installed vi
    ```bash
    pip install pjsua2  # If available via pip
    # Otherwise, ensure PJSUA2 is installed system-wide or in venv
+
+# Install Elasticsearch client (version compatible with server)
+pip install "elasticsearch>=7.0.0,<8.0.0"
    ```
 
 ## 🚦 Getting Started - Quick Guide
@@ -430,6 +434,95 @@ python register_bot.py --user 1001 --password pass --domain pbx.local --stay-onl
 ## 📁 Project Structure
 
 ```
+
+## Elasticsearch Integration
+
+This project supports structured logging to Elasticsearch for registration, call, media, and summarized call record documents.
+
+### Install Client
+
+Use the 7.x Python client for compatibility with Elasticsearch 8.x servers:
+
+```bash
+pip install "elasticsearch>=7.0.0,<8.0.0"
+```
+
+### Configuration
+
+The integration is enabled by default via the internal logger. Connection defaults:
+
+- Host: `185.243.48.247`
+- Port: `9200`
+- Protocol: `http`
+- Username: `elastic`
+- Password: configured in `elasticsearch_client.py`
+
+You can change these in `elasticsearch_client.py` if needed.
+
+### Index Patterns
+
+The following time-based indices are created:
+
+- `pjsua-calls-registration-YYYY.MM.DD` — Registration events
+- `pjsua-calls-call-YYYY.MM.DD` — Call state events
+- `pjsua-calls-media-YYYY.MM.DD` — Media/playback events
+- `pjsua-calls-callrecord-YYYY.MM.DD` — One summarized document per call on disconnect
+
+In Kibana (Stack Management → Index Patterns) create:
+
+- `pjsua-calls-registration-*`
+- `pjsua-calls-call-*`
+- `pjsua-calls-media-*`
+- `pjsua-calls-callrecord-*`
+
+### Structured Call Record Schema
+
+On call disconnect, the bot writes one document that matches this mapping (example mapping shown; create in Elasticsearch if you need strict types):
+
+```json
+{
+  "mappings": {
+    "properties": {
+      "call_id":        {"type":"keyword"},
+      "caller_number":  {"type":"keyword"},
+      "callee_ext":     {"type":"keyword"},
+      "start_time":     {"type":"date"},
+      "end_time":       {"type":"date"},
+      "duration_sec":   {"type":"integer"},
+      "status":         {"type":"keyword"},
+      "direction":      {"type":"keyword"},
+      "media":          {"type":"object","enabled": true},
+      "bot":            {"type":"object","enabled": true},
+      "host":           {"type":"keyword"},
+      "ingest_ts":      {"type":"date"}
+    }
+  }
+}
+```
+
+Fields populated by the bot on disconnect:
+
+- `call_id`: internal call identifier
+- `caller_number`: parsed from remote SIP URI
+- `callee_ext`: parsed from local SIP URI
+- `start_time`, `end_time`: UTC ISO8601
+- `duration_sec`: integer seconds (computed)
+- `status`: `disconnected`
+- `direction`: `inbound` (outbound support can be extended)
+- `media`: `{ file_played, playback_started, playback_finished }`
+- `bot`: `{ auto_answer, domain, user }`
+- `host`: machine hostname
+- `ingest_ts`: set at index time
+
+### Testing Integration
+
+Quick test script:
+
+```bash
+python test_elasticsearch.py
+```
+
+Expected successful output includes cluster health and ✅ for each sample event type. Then, verify data in Kibana (`Discover`) using the index patterns above.
 pjsua-installation/
 ├── register_bot.py       # Full-featured SIP bot with all options
 ├── mwe_register.py       # Minimal working example for registration
