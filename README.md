@@ -76,8 +76,11 @@ PJSUA2 Python bindings typically need to be compiled from source or installed vi
    pip install pjsua2  # If available via pip
    # Otherwise, ensure PJSUA2 is installed system-wide or in venv
 
-# Install Elasticsearch client (version compatible with server)
-pip install "elasticsearch>=7.0.0,<8.0.0"
+   # Install Elasticsearch client (version compatible with server)
+   pip install "elasticsearch>=7.0.0,<8.0.0"
+   
+   # Install python-dotenv for environment variable support
+   pip install python-dotenv
    ```
 
 ## 🚦 Getting Started - Quick Guide
@@ -445,19 +448,46 @@ Use the 7.x Python client for compatibility with Elasticsearch 8.x servers:
 
 ```bash
 pip install "elasticsearch>=7.0.0,<8.0.0"
+pip install python-dotenv
 ```
 
 ### Configuration
 
-The integration is enabled by default via the internal logger. Connection defaults:
+The integration is enabled by default via the internal logger. All configuration is now done through environment variables for security and flexibility.
 
-- Host: `185.243.48.247`
+#### Environment Variables
+
+Create a `.env` file in the project root with your Elasticsearch configuration:
+
+```bash
+# Elasticsearch Configuration
+ES_HOST="your-elasticsearch-host"
+ES_PORT="9200"
+ES_USERNAME="elastic"
+ES_PASSWORD="your-password"
+ES_USE_SSL="false"
+ES_VERIFY_CERTS="false"
+ELASTIC_INDEX_PREFIX="pjsua-calls"
+```
+
+#### Default Values
+
+If environment variables are not set, the following defaults are used:
+
+- Host: `localhost`
 - Port: `9200`
-- Protocol: `http`
 - Username: `elastic`
-- Password: configured in `elasticsearch_client.py`
+- Password: (empty)
+- SSL: `false`
+- Verify Certs: `false`
+- Index Prefix: `pjsua-calls`
 
-You can change these in `elasticsearch_client.py` if needed.
+#### Security Benefits
+
+- **No hardcoded credentials** in source code
+- **Environment-specific configuration** for dev/staging/prod
+- **Easy credential rotation** without code changes
+- **Version control safety** - credentials not committed to repository
 
 ### Index Patterns
 
@@ -527,7 +557,13 @@ pjsua-installation/
 ├── register_bot.py       # Full-featured SIP bot with all options
 ├── mwe_register.py       # Minimal working example for registration
 ├── main.py               # Basic project entry point
+├── elasticsearch_client.py # Elasticsearch integration with environment variables
+├── test_connectivity.py  # Elasticsearch connectivity testing
+├── test_elasticsearch.py # Elasticsearch integration testing
 ├── welocme_voice.m4a     # Sample audio file (needs conversion to WAV)
+├── welcome_message.wav   # Sample WAV file for testing
+├── .env                  # Environment variables (not in git)
+├── .env.example          # Example environment file
 ├── pyproject.toml        # Project configuration
 ├── README.md             # This file
 └── venv/                 # Virtual environment (not in git)
@@ -538,6 +574,11 @@ pjsua-installation/
 - **`register_bot.py`**: Production-ready bot with comprehensive features including call handling, audio playback, multiple transports, and extensive CLI options.
 - **`mwe_register.py`**: Minimal working example demonstrating basic SIP registration with proper event pumping.
 - **`main.py`**: Simple placeholder entry point.
+- **`elasticsearch_client.py`**: Elasticsearch integration client with environment variable configuration and structured logging.
+- **`test_connectivity.py`**: Script to test Elasticsearch connectivity and troubleshoot connection issues.
+- **`test_elasticsearch.py`**: Comprehensive test script for Elasticsearch integration functionality.
+- **`.env`**: Environment variables file (not committed to version control for security).
+- **`.env.example`**: Example environment file showing required variables.
 
 ## 💻 Usage
 
@@ -703,6 +744,92 @@ python register_bot.py \
 
 Currently, all configuration is done via CLI arguments. Environment variable support can be added if needed.
 
+## 🔧 Environment Variables
+
+This project uses environment variables for secure configuration management, particularly for Elasticsearch integration.
+
+### Elasticsearch Configuration
+
+Create a `.env` file in your project root with the following variables:
+
+```bash
+# Elasticsearch Configuration
+ES_HOST="your-elasticsearch-host"
+ES_PORT="9200"
+ES_USERNAME="elastic"
+ES_PASSWORD="your-secure-password"
+ES_USE_SSL="false"
+ES_VERIFY_CERTS="false"
+ELASTIC_INDEX_PREFIX="pjsua-calls"
+```
+
+### Environment Variable Reference
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ES_HOST` | `localhost` | Elasticsearch server hostname or IP |
+| `ES_PORT` | `9200` | Elasticsearch server port |
+| `ES_USERNAME` | `elastic` | Username for Elasticsearch authentication |
+| `ES_PASSWORD` | (empty) | Password for Elasticsearch authentication |
+| `ES_USE_SSL` | `false` | Whether to use HTTPS for Elasticsearch connection |
+| `ES_VERIFY_CERTS` | `false` | Whether to verify SSL certificates |
+| `ELASTIC_INDEX_PREFIX` | `pjsua-calls` | Prefix for Elasticsearch index names |
+
+### Security Best Practices
+
+1. **Never commit `.env` files** to version control
+2. **Use different `.env` files** for different environments (dev, staging, prod)
+3. **Rotate credentials regularly** by updating environment variables
+4. **Use strong passwords** for production environments
+5. **Enable SSL/TLS** in production (`ES_USE_SSL="true"`)
+
+### Example `.env` Files
+
+#### Development Environment
+```bash
+# .env.dev
+ES_HOST="localhost"
+ES_PORT="9200"
+ES_USERNAME="elastic"
+ES_PASSWORD="dev-password"
+ES_USE_SSL="false"
+ES_VERIFY_CERTS="false"
+ELASTIC_INDEX_PREFIX="pjsua-calls-dev"
+```
+
+#### Production Environment
+```bash
+# .env.prod
+ES_HOST="elasticsearch.production.com"
+ES_PORT="9200"
+ES_USERNAME="elastic"
+ES_PASSWORD="super-secure-production-password"
+ES_USE_SSL="true"
+ES_VERIFY_CERTS="true"
+ELASTIC_INDEX_PREFIX="pjsua-calls-prod"
+```
+
+### Loading Environment Variables
+
+The application automatically loads environment variables from the `.env` file using `python-dotenv`. You can also:
+
+1. **Set variables in your shell**:
+   ```bash
+   export ES_HOST="your-host"
+   export ES_PASSWORD="your-password"
+   ```
+
+2. **Use different `.env` files**:
+   ```bash
+   # Load specific environment file
+   python -c "from dotenv import load_dotenv; load_dotenv('.env.prod')"
+   ```
+
+3. **Override at runtime**:
+   ```bash
+   ES_HOST="override-host" python register_bot.py --user 1001 --password pass --domain pbx.local
+   ```
+
 ## 🔊 Audio File Playback
 
 The `--play-file` option allows you to play audio files to the remote party during a call.
@@ -822,6 +949,24 @@ This ensures precise timing and prevents the message from replaying!
 - Check certificate validity and CA trust chain
 - Verify server certificate includes correct hostname/IP
 
+### Elasticsearch Connection Issues
+
+**Problem**: Elasticsearch logging fails or connection errors
+
+**Solutions**:
+- Verify `.env` file exists and contains correct credentials
+- Check Elasticsearch server is running and accessible
+- Test connectivity: `python test_connectivity.py`
+- Verify environment variables are loaded: `python -c "from dotenv import load_dotenv; load_dotenv(); import os; print('ES_HOST:', os.getenv('ES_HOST'))"`
+- Check firewall rules for Elasticsearch port (default 9200)
+- Ensure `python-dotenv` is installed: `pip install python-dotenv`
+
+**Common Error Messages**:
+- `ModuleNotFoundError: No module named 'dotenv'` → Install python-dotenv
+- `ConnectionError` → Check ES_HOST and ES_PORT in .env file
+- `AuthenticationException` → Verify ES_USERNAME and ES_PASSWORD
+- `SSLHandshakeError` → Set `ES_USE_SSL="false"` or fix SSL configuration
+
 ## 🔬 Technical Details
 
 ### Event Loop Architecture
@@ -878,11 +1023,14 @@ Contributions are welcome! Areas for improvement:
 - Add DTMF handling
 - Implement call recording
 - Add configuration file support
-- Environment variable configuration
+- ~~Environment variable configuration~~ ✅ **Completed**
 - Multiple simultaneous calls
 - SIP MESSAGE support
 - Presence/subscription handling
 - Enhanced audio playback completion detection (using PJSUA2 callbacks if available)
+- SIP credential environment variable support
+- Docker containerization
+- Kubernetes deployment manifests
 
 ## 📚 Resources
 

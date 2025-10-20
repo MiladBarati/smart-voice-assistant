@@ -4,42 +4,47 @@ Elasticsearch client configuration and logging utilities for PJSUA2 call monitor
 
 import json
 import logging
+import os
 from datetime import datetime
 from typing import Dict, Any, Optional
 from elasticsearch import Elasticsearch
 from elasticsearch.exceptions import ConnectionError, RequestError
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 class ElasticsearchLogger:
     """Elasticsearch logging client for call events and monitoring."""
     
     def __init__(self, 
-                 host: str = "185.243.48.247", 
-                 port: int = 9200,
-                 username: str = "elastic", 
-                 password: str = "h2xzKBNaD2Qub5zVE12",
-                 use_ssl: bool = False,
-                 verify_certs: bool = False,
-                 index_prefix: str = "pjsua-calls"):
+                 host: str = None, 
+                 port: int = None,
+                 username: str = None, 
+                 password: str = None,
+                 use_ssl: bool = None,
+                 verify_certs: bool = None,
+                 index_prefix: str = None):
         """
         Initialize Elasticsearch client.
         
         Args:
-            host: Elasticsearch host
-            port: Elasticsearch port
-            username: Username for authentication
-            password: Password for authentication
-            use_ssl: Whether to use SSL/TLS
-            verify_certs: Whether to verify SSL certificates
-            index_prefix: Prefix for index names
+            host: Elasticsearch host (defaults to ES_HOST env var)
+            port: Elasticsearch port (defaults to ES_PORT env var)
+            username: Username for authentication (defaults to ES_USERNAME env var)
+            password: Password for authentication (defaults to ES_PASSWORD env var)
+            use_ssl: Whether to use SSL/TLS (defaults to ES_USE_SSL env var)
+            verify_certs: Whether to verify SSL certificates (defaults to ES_VERIFY_CERTS env var)
+            index_prefix: Prefix for index names (defaults to ELASTIC_INDEX_PREFIX env var)
         """
-        self.host = host
-        self.port = port
-        self.username = username
-        self.password = password
-        self.use_ssl = use_ssl
-        self.verify_certs = verify_certs
-        self.index_prefix = index_prefix
+        self.host = host or os.getenv('ES_HOST', 'localhost')
+        self.port = int(port or os.getenv('ES_PORT', '9200'))
+        self.username = username or os.getenv('ES_USERNAME', 'elastic')
+        self.password = password or os.getenv('ES_PASSWORD', '')
+        self.use_ssl = use_ssl if use_ssl is not None else os.getenv('ES_USE_SSL', 'false').lower() == 'true'
+        self.verify_certs = verify_certs if verify_certs is not None else os.getenv('ES_VERIFY_CERTS', 'false').lower() == 'true'
+        self.index_prefix = index_prefix or os.getenv('ELASTIC_INDEX_PREFIX', 'pjsua-calls')
         self.client = None
         self.connected = False
         

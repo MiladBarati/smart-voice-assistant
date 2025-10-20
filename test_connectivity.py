@@ -4,19 +4,24 @@ Simple connectivity test for Elasticsearch.
 This script tests basic network connectivity and Elasticsearch access.
 """
 
+import os
 import requests
 import urllib3
 from urllib3.exceptions import InsecureRequestWarning
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Disable SSL warnings for testing
 urllib3.disable_warnings(InsecureRequestWarning)
 
 def test_basic_connectivity():
     """Test basic HTTP connectivity to Elasticsearch."""
-    host = "185.243.48.247"
-    port = 9200
-    username = "elastic"
-    password = "h2xzKBNaD2Qub5zVE12"
+    host = os.getenv('ES_HOST', 'localhost')
+    port = int(os.getenv('ES_PORT', '9200'))
+    username = os.getenv('ES_USERNAME', 'elastic')
+    password = os.getenv('ES_PASSWORD', '')
     
     print(f"Testing connectivity to {host}:{port}")
     
@@ -100,25 +105,33 @@ def test_elasticsearch_client():
     try:
         from elasticsearch import Elasticsearch
         
+        # Get configuration from environment variables
+        host = os.getenv('ES_HOST', 'localhost')
+        port = int(os.getenv('ES_PORT', '9200'))
+        username = os.getenv('ES_USERNAME', 'elastic')
+        password = os.getenv('ES_PASSWORD', '')
+        use_ssl = os.getenv('ES_USE_SSL', 'false').lower() == 'true'
+        verify_certs = os.getenv('ES_VERIFY_CERTS', 'false').lower() == 'true'
+        
         # Try different configurations
         configs = [
             # Config 1: HTTPS with verify_certs=False
             {
-                'hosts': ['https://185.243.48.247:9200'],
-                'basic_auth': ('elastic', 'h2xzKBNaD2Qub5zVE12'),
+                'hosts': [f'https://{host}:{port}'],
+                'basic_auth': (username, password),
                 'verify_certs': False,
                 'request_timeout': 10
             },
             # Config 2: HTTP
             {
-                'hosts': ['http://185.243.48.247:9200'],
-                'basic_auth': ('elastic', 'h2xzKBNaD2Qub5zVE12'),
+                'hosts': [f'http://{host}:{port}'],
+                'basic_auth': (username, password),
                 'request_timeout': 10
             },
-            # Config 3: Different port
+            # Config 3: Different port (443)
             {
-                'hosts': ['https://185.243.48.247:443'],
-                'basic_auth': ('elastic', 'h2xzKBNaD2Qub5zVE12'),
+                'hosts': [f'https://{host}:443'],
+                'basic_auth': (username, password),
                 'verify_certs': False,
                 'request_timeout': 10
             }
