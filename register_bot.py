@@ -92,24 +92,33 @@ class Account(pj.Account):
         self.auto_answer = False
         self.calls = {}  # keep strong refs to live calls
         self.play_file = None  # optional WAV file to play on connect
+        # Batch logging - collect events during account lifetime
+        self._collected_events = []
+
+    def _collect_event(self, event_type: str, **kwargs):
+        """Collect an event for batch logging."""
+        event = {
+            "event_type": event_type,
+            "@timestamp": datetime.utcnow().isoformat() + "Z",
+            **kwargs
+        }
+        self._collected_events.append(event)
 
     def onRegState(self, prm):
         print(f"***OnRegState: {prm.reason}")
         info = self.getInfo()
         print(f"***RegStatus: active={info.regIsActive} code={info.regStatus}")
         
-        # Log registration event to Elasticsearch
+        # Collect registration event
         event_type = "registration_success" if (info.regIsActive and info.regStatus == 200) else "registration_failed"
-        es_logger.log_registration_event(
+        self._collect_event(
             event_type=event_type,
             user=getattr(self, 'username', 'unknown'),
             domain=getattr(self, 'domain', 'unknown'),
             status=prm.reason,
             code=info.regStatus,
-            additional_data={
-                "active": info.regIsActive,
-                "reason": prm.reason
-            }
+            active=info.regIsActive,
+            reason=prm.reason
         )
         
         if info.regIsActive and info.regStatus == 200:
@@ -121,14 +130,12 @@ class Account(pj.Account):
             call = AnyCall(self, prm.callId)
             self.calls[prm.callId] = call  # <-- keep it!
             
-            # Log incoming call event to Elasticsearch
-            es_logger.log_call_event(
+            # Collect incoming call event
+            self._collect_event(
                 event_type="incoming_call",
                 call_id=str(prm.callId),
                 call_state="ringing",
-                additional_data={
-                    "auto_answer": self.auto_answer
-                }
+                auto_answer=self.auto_answer
             )
             
             op = pj.CallOpParam()
@@ -137,8 +144,8 @@ class Account(pj.Account):
                 call.answer(op)
                 print("***IncomingCall: auto-answered 200 OK")
                 
-                # Log call answered event
-                es_logger.log_call_event(
+                # Collect call answered event
+                self._collect_event(
                     event_type="call_answered",
                     call_id=str(prm.callId),
                     call_state="answered",
@@ -149,8 +156,8 @@ class Account(pj.Account):
                 call.answer(op)
                 print("***IncomingCall: sent 180 Ringing")
                 
-                # Log call ringing event
-                es_logger.log_call_event(
+                # Collect call ringing event
+                self._collect_event(
                     event_type="call_ringing",
                     call_id=str(prm.callId),
                     call_state="ringing",
@@ -158,12 +165,12 @@ class Account(pj.Account):
                 )
         except Exception as e:
             print(f"***IncomingCall error: {e}")
-            # Log error event
-            es_logger.log_call_event(
+            # Collect error event
+            self._collect_event(
                 event_type="call_error",
                 call_id=str(prm.callId),
                 call_state="error",
-                additional_data={"error": str(e)}
+                error=str(e)
             )
 
 
@@ -173,42 +180,38 @@ class OutCall(pj.Call):
         self.connected = False
         self._acc_ref = acc
         self._player = None
+        # Batch logging - collect events during call
+        self._collected_events = []
+
+    def _collect_event(self, event_type: str, **kwargs):
+        """Collect an event for batch logging at the end of the call."""
+        event = {
+            "event_type": event_type,
+            "@timestamp": datetime.utcnow().isoformat() + "Z",
+            "call_id": str(self.getId()) if hasattr(self, 'getId') else "unknown",
+            **kwargs
+        }
+        self._collected_events.append(event)
 
     def onCallState(self, prm):
         ci = self.getInfo()
         print(f"***CallState: state={ci.stateText} code={ci.lastStatusCode}")
         
-        # Log call state change to Elasticsearch
-        es_logger.log_call_event(
+        # Collect call state change event
+        self._collect_event(
             event_type="call_state_change",
-            call_id=str(ci.id),
             call_state=ci.stateText,
             call_code=ci.lastStatusCode,
-            additional_data={
-                "state": ci.state,
-                "state_text": ci.stateText,
-                "last_status_code": ci.lastStatusCode
-            }
+            state=ci.state,
+            state_text=ci.stateText,
+            last_status_code=ci.lastStatusCode
         )
         
         if ci.state == pj.PJSIP_INV_STATE_CONFIRMED:
             self.connected = True
-            # Log call connected event
-            es_logger.log_call_event(
-                event_type="call_connected",
-                call_id=str(ci.id),
-                call_state="connected",
-                call_code=ci.lastStatusCode
-            )
         if ci.state == pj.PJSIP_INV_STATE_DISCONNECTED:
             self.connected = False
-            # Log call disconnected event
-            es_logger.log_call_event(
-                event_type="call_disconnected",
-                call_id=str(ci.id),
-                call_state="disconnected",
-                call_code=ci.lastStatusCode
-            )
+            
             # drop player reference so it can be cleaned up
             self._player = None
 
@@ -217,10 +220,9 @@ class OutCall(pj.Call):
         for mi in ci.media:
             if mi.type == pj.PJMEDIA_TYPE_AUDIO and mi.status == pj.PJSUA_CALL_MEDIA_ACTIVE:
                 try:
-                    # Log media active event
-                    es_logger.log_media_event(
+                    # Collect media active event
+                    self._collect_event(
                         event_type="media_active",
-                        call_id=str(ci.id),
                         media_type="audio",
                         media_status="active"
                     )
@@ -238,21 +240,19 @@ class OutCall(pj.Call):
                             call_media.startTransmit(playback)      # remote -> local speakers (monitor)
                             print(f"***Media: playing file to remote: {self._acc_ref.play_file}")
                             
-                            # Log playback started event
-                            es_logger.log_media_event(
+                            # Collect playback started event
+                            self._collect_event(
                                 event_type="playback_started",
-                                call_id=str(ci.id),
                                 media_type="audio",
                                 file_played=self._acc_ref.play_file
                             )
                         except Exception as e:
                             print(f"***Media player error: {e}")
-                            # Log media error event
-                            es_logger.log_media_event(
+                            # Collect media error event
+                            self._collect_event(
                                 event_type="media_error",
-                                call_id=str(ci.id),
                                 media_type="audio",
-                                additional_data={"error": str(e)}
+                                error=str(e)
                             )
                     else:
                         capture = adm.getCaptureDevMedia()
@@ -261,21 +261,19 @@ class OutCall(pj.Call):
                         capture.startTransmit(call_media)     # mic -> remote
                         print("***Media: audio bridged to sound device")
                         
-                        # Log audio bridge event
-                        es_logger.log_media_event(
+                        # Collect audio bridge event
+                        self._collect_event(
                             event_type="audio_bridged",
-                            call_id=str(ci.id),
                             media_type="audio",
                             media_status="bridged"
                         )
                 except Exception as e:
                     print(f"***Media error: {e}")
-                    # Log media error event
-                    es_logger.log_media_event(
+                    # Collect media error event
+                    self._collect_event(
                         event_type="media_error",
-                        call_id=str(ci.id),
                         media_type="audio",
-                        additional_data={"error": str(e)}
+                        error=str(e)
                     )
 
 
@@ -295,22 +293,31 @@ class AnyCall(pj.Call):
         self._direction = None  # inbound/outbound
         self._caller_number = None
         self._callee_ext = None
+        # Batch logging - collect events during call
+        self._collected_events = []
+
+    def _collect_event(self, event_type: str, **kwargs):
+        """Collect an event for batch logging at the end of the call."""
+        event = {
+            "event_type": event_type,
+            "@timestamp": datetime.utcnow().isoformat() + "Z",
+            "call_id": str(self.getId()) if hasattr(self, 'getId') else "unknown",
+            **kwargs
+        }
+        self._collected_events.append(event)
 
     def onCallState(self, prm):
         ci = self.getInfo()
         print(f"***CallState: state={ci.stateText} code={ci.lastStatusCode}")
         
-        # Log call state change to Elasticsearch
-        es_logger.log_call_event(
+        # Collect call state change event
+        self._collect_event(
             event_type="call_state_change",
-            call_id=str(ci.id),
             call_state=ci.stateText,
             call_code=ci.lastStatusCode,
-            additional_data={
-                "state": ci.state,
-                "state_text": ci.stateText,
-                "last_status_code": ci.lastStatusCode
-            }
+            state=ci.state,
+            state_text=ci.stateText,
+            last_status_code=ci.lastStatusCode
         )
         
         # Mark start when early state observed
@@ -332,15 +339,7 @@ class AnyCall(pj.Call):
             pass
 
         if ci.state == pj.PJSIP_INV_STATE_DISCONNECTED:
-            # Log call disconnected event
-            es_logger.log_call_event(
-                event_type="call_disconnected",
-                call_id=str(ci.id),
-                call_state="disconnected",
-                call_code=ci.lastStatusCode
-            )
-
-            # Build and send structured call record
+            # Build call record and send as a single log
             try:
                 self._end_time_utc = datetime.utcnow()
                 start_iso = self._start_time_utc.isoformat() + "Z" if self._start_time_utc else None
@@ -350,6 +349,7 @@ class AnyCall(pj.Call):
                     duration_sec = int((self._end_time_utc - self._start_time_utc).total_seconds())
 
                 call_record = {
+                    "event_type": "call_record",
                     "call_id": str(ci.id),
                     "caller_number": self._caller_number,
                     "callee_ext": self._callee_ext,
@@ -368,11 +368,13 @@ class AnyCall(pj.Call):
                         "domain": getattr(self._acc_ref, 'domain', None),
                         "user": getattr(self._acc_ref, 'username', None)
                     },
-                    "host": socket.gethostname()
+                    "host": socket.gethostname(),
+                    "ingest_ts": datetime.utcnow().isoformat() + "Z"
                 }
                 es_logger.log_call_record(call_record)
+                
             except Exception as e:
-                print(f"***Error sending call record: {e}")
+                print(f"***Error sending single call record: {e}")
             
             # cleanup: drop strong reference so GC can collect safely now
             try:
@@ -407,10 +409,9 @@ class AnyCall(pj.Call):
                                 self._playback_started = True
                                 print("***Welcome message playback started")
                                 
-                                # Log playback started event
-                                es_logger.log_media_event(
+                                # Collect playback started event
+                                self._collect_event(
                                     event_type="playback_started",
-                                    call_id=str(ci.id),
                                     media_type="audio",
                                     file_played=self._acc_ref.play_file
                                 )
@@ -465,10 +466,9 @@ class AnyCall(pj.Call):
                 self._hangup_time = time.time() + hangup_delay
                 print(f"***Welcome message finished. Will hang up in {hangup_delay} seconds")
                 
-                # Log playback finished event
-                es_logger.log_media_event(
+                # Collect playback finished event
+                self._collect_event(
                     event_type="playback_finished",
-                    call_id=str(self.getId()) if hasattr(self, 'getId') else "unknown",
                     media_type="audio",
                     file_played=getattr(self._acc_ref, 'play_file', None)
                 )
@@ -635,6 +635,8 @@ def main() -> None:
         if not registered:
             info = acc.getInfo()
             print(f"***Warning: not registered (active={info.regIsActive} code={info.regStatus}). Continuing...")
+        
+        # Do not send registration events individually; only send one record at call end
 
         # Outbound call (optional)
         if args.dest:
@@ -643,10 +645,9 @@ def main() -> None:
             prm = pj.CallOpParam(True)
             print(f"***Dialing: {dest_uri}")
             
-            # Log outbound call attempt
-            es_logger.log_call_event(
+            # Collect outbound call attempt
+            call._collect_event(
                 event_type="outbound_call",
-                call_id="outbound",
                 call_state="dialing",
                 remote_uri=dest_uri,
                 local_uri=f"sip:{args.user}@{args.domain}"

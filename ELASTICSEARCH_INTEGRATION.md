@@ -24,10 +24,9 @@ The integration connects to your Elasticsearch cluster with the following config
 
 ### Index Structure
 
-Data is stored in time-based indices with the following patterns:
-- `pjsua-calls-call-YYYY.MM.DD` - Call events
-- `pjsua-calls-registration-YYYY.MM.DD` - Registration events  
-- `pjsua-calls-media-YYYY.MM.DD` - Media events
+Data is stored in a single unified index:
+
+- `pjsua-calls` - Contains all events (registration, call, media, call records)
 
 ## Event Types
 
@@ -129,10 +128,8 @@ This will:
 
 1. Access Kibana at: https://kibana.aminraay.ir
 2. Login with the provided credentials
-3. Create index patterns for:
-   - `pjsua-calls-call-*`
-   - `pjsua-calls-registration-*`
-   - `pjsua-calls-media-*`
+3. Create index pattern for:
+   - `pjsua-calls`
 4. Explore the data in the Discover section
 
 ## Monitoring and Alerts

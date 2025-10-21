@@ -440,7 +440,7 @@ python register_bot.py --user 1001 --password pass --domain pbx.local --stay-onl
 
 ## Elasticsearch Integration
 
-This project supports structured logging to Elasticsearch for registration, call, media, and summarized call record documents.
+This project logs exactly one structured document per call to Elasticsearch. The single document is created and sent only once at call end (disconnect) and contains the complete call record (caller/callee, timing, duration, status, media and bot metadata). No per-event or per-stage logs are sent during the call.
 
 ### Install Client
 
@@ -489,21 +489,15 @@ If environment variables are not set, the following defaults are used:
 - **Easy credential rotation** without code changes
 - **Version control safety** - credentials not committed to repository
 
-### Index Patterns
+### Index Pattern
 
-The following time-based indices are created:
+All call records are stored in a single unified index:
 
-- `pjsua-calls-registration-YYYY.MM.DD` — Registration events
-- `pjsua-calls-call-YYYY.MM.DD` — Call state events
-- `pjsua-calls-media-YYYY.MM.DD` — Media/playback events
-- `pjsua-calls-callrecord-YYYY.MM.DD` — One summarized document per call on disconnect
+- `pjsua-calls` — Contains one record per call
 
 In Kibana (Stack Management → Index Patterns) create:
 
-- `pjsua-calls-registration-*`
-- `pjsua-calls-call-*`
-- `pjsua-calls-media-*`
-- `pjsua-calls-callrecord-*`
+- `pjsua-calls`
 
 ### Structured Call Record Schema
 
@@ -546,7 +540,7 @@ Fields populated by the bot on disconnect:
 
 ### Testing Integration
 
-Quick test script:
+Quick test script (connectivity and basic indexing checks):
 
 ```bash
 python test_elasticsearch.py

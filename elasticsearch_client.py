@@ -7,9 +7,9 @@ import logging
 import os
 from datetime import datetime
 from typing import Dict, Any, Optional
+from dotenv import load_dotenv
 from elasticsearch import Elasticsearch
 from elasticsearch.exceptions import ConnectionError, RequestError
-from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
@@ -19,27 +19,40 @@ class ElasticsearchLogger:
     """Elasticsearch logging client for call events and monitoring."""
     
     def __init__(self, 
-                 host: str = None, 
-                 port: int = None,
-                 username: str = None, 
-                 password: str = None,
-                 use_ssl: bool = None,
-                 verify_certs: bool = None,
-                 index_prefix: str = None):
+                 host: Optional[str] = None, 
+                 port: Optional[int] = None,
+                 username: Optional[str] = None, 
+                 password: Optional[str] = None,
+                 use_ssl: Optional[bool] = None,
+                 verify_certs: Optional[bool] = None,
+                 index_prefix: Optional[str] = None):
         """
         Initialize Elasticsearch client.
         
+        All configuration is loaded from environment variables by default.
+        Parameters can be explicitly provided to override environment variables.
+        
+        Environment variables:
+            ES_HOST: Elasticsearch host
+            ES_PORT: Elasticsearch port
+            ES_USERNAME: Username for authentication
+            ES_PASSWORD: Password for authentication
+            ES_USE_SSL: Whether to use SSL/TLS (true/false)
+            ES_VERIFY_CERTS: Whether to verify SSL certificates (true/false)
+            ELASTIC_INDEX_PREFIX: Prefix for index names
+        
         Args:
-            host: Elasticsearch host (defaults to ES_HOST env var)
-            port: Elasticsearch port (defaults to ES_PORT env var)
-            username: Username for authentication (defaults to ES_USERNAME env var)
-            password: Password for authentication (defaults to ES_PASSWORD env var)
-            use_ssl: Whether to use SSL/TLS (defaults to ES_USE_SSL env var)
-            verify_certs: Whether to verify SSL certificates (defaults to ES_VERIFY_CERTS env var)
-            index_prefix: Prefix for index names (defaults to ELASTIC_INDEX_PREFIX env var)
+            host: Elasticsearch host (overrides ES_HOST)
+            port: Elasticsearch port (overrides ES_PORT)
+            username: Username for authentication (overrides ES_USERNAME)
+            password: Password for authentication (overrides ES_PASSWORD)
+            use_ssl: Whether to use SSL/TLS (overrides ES_USE_SSL)
+            verify_certs: Whether to verify SSL certificates (overrides ES_VERIFY_CERTS)
+            index_prefix: Prefix for index names (overrides ELASTIC_INDEX_PREFIX)
         """
+        # Load configuration from environment variables with fallbacks
         self.host = host or os.getenv('ES_HOST', 'localhost')
-        self.port = int(port or os.getenv('ES_PORT', '9200'))
+        self.port = port or int(os.getenv('ES_PORT', '9200'))
         self.username = username or os.getenv('ES_USERNAME', 'elastic')
         self.password = password or os.getenv('ES_PASSWORD', '')
         self.use_ssl = use_ssl if use_ssl is not None else os.getenv('ES_USE_SSL', 'false').lower() == 'true'
@@ -105,9 +118,8 @@ class ElasticsearchLogger:
             return False
     
     def _get_index_name(self, doc_type: str = "call") -> str:
-        """Generate index name with date suffix."""
-        date_str = datetime.now().strftime("%Y.%m.%d")
-        return f"{self.index_prefix}-{doc_type}-{date_str}"
+        """Generate unified index name for all logs."""
+        return self.index_prefix
 
     def log_call_record(self, call_record: Dict[str, Any]) -> bool:
         """Index a structured call record document matching the requested schema.
@@ -128,12 +140,63 @@ class ElasticsearchLogger:
             # Provide host if missing
             doc.setdefault("host", self.host)
 
-            # Index name dedicated for call records
-            index_name = self._get_index_name("callrecord")
+            # Use unified index for all logs
+            index_name = self._get_index_name()
             self.client.index(index=index_name, body=doc, refresh=False)
             return True
         except Exception as e:
             self.logger.error(f"Error logging call record: {e}")
+            return False
+    
+    def log_batch_events(self, events: list) -> bool:
+        """Log multiple events in a single batch operation for better performance."""
+        if not self.connected:
+            if not self._connect():
+                return False
+        
+        if not events:
+            return True
+            
+        try:
+            # Prepare bulk operations
+            bulk_operations = []
+            for event in events:
+                event_type = event.get('event_type', 'unknown')
+                doc_type = event.get('doc_type', 'call')
+                
+                # Ensure timestamp is present
+                if "@timestamp" not in event:
+                    event["@timestamp"] = datetime.utcnow().isoformat() + "Z"
+                
+                # Add host if missing
+                event.setdefault("host", self.host)
+                
+                # Create bulk operation
+                bulk_operations.append({
+                    "index": {
+                        "_index": self._get_index_name(doc_type)
+                    }
+                })
+                bulk_operations.append(event)
+            
+            # Execute bulk operation
+            if bulk_operations:
+                response = self.client.bulk(body=bulk_operations, refresh=False)
+                
+                # Check for errors
+                if response.get('errors'):
+                    error_items = [item for item in response['items'] if 'error' in item.get('index', {})]
+                    if error_items:
+                        self.logger.error(f"Bulk operation had {len(error_items)} errors")
+                        return False
+                
+                self.logger.debug(f"Successfully logged {len(events)} events in batch")
+                return True
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error logging batch events: {e}")
             return False
     
     def log_call_event(self, 
@@ -187,8 +250,8 @@ class ElasticsearchLogger:
             # Remove None values
             doc = {k: v for k, v in doc.items() if v is not None}
             
-            # Index the document
-            index_name = self._get_index_name("call")
+            # Index the document in unified index
+            index_name = self._get_index_name()
             response = self.client.index(
                 index=index_name,
                 body=doc,
@@ -254,8 +317,8 @@ class ElasticsearchLogger:
             # Remove None values
             doc = {k: v for k, v in doc.items() if v is not None}
             
-            # Index the document
-            index_name = self._get_index_name("registration")
+            # Index the document in unified index
+            index_name = self._get_index_name()
             response = self.client.index(
                 index=index_name,
                 body=doc,
@@ -314,8 +377,8 @@ class ElasticsearchLogger:
             # Remove None values
             doc = {k: v for k, v in doc.items() if v is not None}
             
-            # Index the document
-            index_name = self._get_index_name("media")
+            # Index the document in unified index
+            index_name = self._get_index_name()
             response = self.client.index(
                 index=index_name,
                 body=doc,

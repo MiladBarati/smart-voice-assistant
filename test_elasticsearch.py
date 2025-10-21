@@ -18,10 +18,10 @@ def test_elasticsearch_connection():
     print(f"Health check result: {health}")
     
     if health.get("status") != "connected":
-        print("❌ Failed to connect to Elasticsearch")
+        print("FAILED Failed to connect to Elasticsearch")
         return False
     
-    print("✅ Successfully connected to Elasticsearch")
+    print("SUCCESS Successfully connected to Elasticsearch")
     
     # Test logging different types of events
     print("\nTesting event logging...")
@@ -35,7 +35,7 @@ def test_elasticsearch_connection():
         code=200,
         additional_data={"test": True}
     )
-    print(f"Registration event logged: {'✅' if success else '❌'}")
+    print(f"Registration event logged: {'SUCCESS' if success else 'FAILED'}")
     
     # Test call event
     success = es_logger.log_call_event(
@@ -47,7 +47,7 @@ def test_elasticsearch_connection():
         local_uri="sip:test_user@test.example.com",
         additional_data={"test": True}
     )
-    print(f"Call event logged: {'✅' if success else '❌'}")
+    print(f"Call event logged: {'SUCCESS' if success else 'FAILED'}")
     
     # Test media event
     success = es_logger.log_media_event(
@@ -57,7 +57,7 @@ def test_elasticsearch_connection():
         file_played="welcome_message.wav",
         additional_data={"test": True}
     )
-    print(f"Media event logged: {'✅' if success else '❌'}")
+    print(f"Media event logged: {'SUCCESS' if success else 'FAILED'}")
     
     # Test call state change
     success = es_logger.log_call_event(
@@ -68,7 +68,7 @@ def test_elasticsearch_connection():
         duration=5.5,
         additional_data={"test": True}
     )
-    print(f"Call state change logged: {'✅' if success else '❌'}")
+    print(f"Call state change logged: {'SUCCESS' if success else 'FAILED'}")
     
     # Test call end
     success = es_logger.log_call_event(
@@ -79,11 +79,11 @@ def test_elasticsearch_connection():
         duration=8.2,
         additional_data={"test": True}
     )
-    print(f"Call end logged: {'✅' if success else '❌'}")
+    print(f"Call end logged: {'SUCCESS' if success else 'FAILED'}")
     
-    print("\n✅ All tests completed!")
+    print("\nSUCCESS All tests completed!")
     print("Check your Elasticsearch cluster at https://kibana.aminraay.ir to see the logged data.")
-    print("Look for indices with pattern: pjsua-calls-*")
+    print("Look for index: pjsua-calls")
     
     return True
 
