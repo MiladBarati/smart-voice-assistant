@@ -9,4 +9,12 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "requests>=2.25.0",
     "urllib3>=1.26.0",
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+    "pytest-cov>=7.0.0",
 ]
