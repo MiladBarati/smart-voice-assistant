@@ -1,0 +1,35 @@
+# Core dependencies for PJSUA2 call monitoring system
+# Python 3.11+ required
+
+# PJSUA2 - PJSIP Python bindings (native library)
+# Note: This typically needs to be installed separately as it's a native library
+# Installation instructions in README.md
+pjsua2
+
+# Elasticsearch client for logging and monitoring
+# Version constraint based on compatibility with Elasticsearch server
+elasticsearch>=7.0.0,<8.0.0
+
+# Environment variable management
+python-dotenv>=1.0.0
+
+# HTTP requests library (used in test_connectivity.py)
+requests>=2.25.0
+
+# URL handling utilities (used in test_connectivity.py)
+urllib3>=1.26.0
+
+# Standard library dependencies (included with Python):
+# - argparse (command line argument parsing)
+# - signal (signal handling)
+# - sys (system-specific parameters)
+# - time (time-related functions)
+# - wave (WAV file handling)
+# - os (operating system interface)
+# - logging (logging framework)
+# - socket (socket interface)
+# - datetime (date and time handling)
+# - uuid (UUID generation)
+# - json (JSON data handling)
+# - typing (type hints)
+# - random (random number generation)
