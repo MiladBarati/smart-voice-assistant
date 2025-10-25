@@ -33,6 +33,7 @@ This project provides Python scripts for interacting with SIP servers (like Aste
 - **Automatic Audio Duration Detection**: Reads WAV file duration for precise playback timing
 - **Auto-Answer**: Automatically answer incoming calls (enabled by default)
 - **Smart Hangup**: Automatically hang up after audio playback completes with configurable delay
+- **Unique Call IDs**: Uses UUID-based call IDs to prevent duplicates across program restarts
 - **Multiple Transports**: Support for UDP, TCP, and TLS
 - **NAT Traversal**: Proper handling of NAT scenarios
 - **Event-Driven**: Non-blocking event loop with proper PJSUA2 event pumping
@@ -499,6 +500,22 @@ In Kibana (Stack Management → Index Patterns) create:
 
 - `pjsua-calls`
 
+### Unique Call ID System
+
+The bot now uses UUID-based call IDs to ensure uniqueness across program restarts. This solves the issue where PJSUA2's internal call ID counter resets to zero on each restart, causing duplicate call IDs in logs.
+
+**Key Features:**
+- **UUID-based IDs**: Each call gets a globally unique identifier
+- **Cross-session persistence**: Call IDs remain unique even after program restarts
+- **Elasticsearch compatibility**: UUIDs work perfectly with Elasticsearch indexing
+- **Backward compatibility**: Original PJSUA2 call ID is preserved for reference
+
+**Implementation Details:**
+- Uses Python's `uuid.uuid4()` for generating unique identifiers
+- Each `AnyCall` instance gets a `unique_call_id` attribute
+- Call records use the UUID as the primary `call_id` field
+- Original PJSUA2 call ID is available for debugging purposes
+
 ### Structured Call Record Schema
 
 On call disconnect, the bot writes one document that matches this mapping (example mapping shown; create in Elasticsearch if you need strict types):
@@ -526,7 +543,7 @@ On call disconnect, the bot writes one document that matches this mapping (examp
 
 Fields populated by the bot on disconnect:
 
-- `call_id`: internal call identifier
+- `call_id`: **UUID-based unique identifier** (prevents duplicates across restarts)
 - `caller_number`: parsed from remote SIP URI
 - `callee_ext`: parsed from local SIP URI
 - `start_time`, `end_time`: UTC ISO8601
@@ -537,6 +554,8 @@ Fields populated by the bot on disconnect:
 - `bot`: `{ auto_answer, domain, user }`
 - `host`: machine hostname
 - `ingest_ts`: set at index time
+
+**Note**: The `call_id` field now uses UUID format (e.g., `"550e8400-e29b-41d4-a716-446655440000"`) instead of sequential integers, ensuring uniqueness across program restarts and multiple bot instances.
 
 ### Testing Integration
 
@@ -961,6 +980,12 @@ This ensures precise timing and prevents the message from replaying!
 - `AuthenticationException` → Verify ES_USERNAME and ES_PASSWORD
 - `SSLHandshakeError` → Set `ES_USE_SSL="false"` or fix SSL configuration
 
+### Duplicate Call IDs (Fixed)
+
+**Problem**: Call IDs starting from 0 on each restart causing duplicate entries
+
+**Solution**: ✅ **Fixed in current version** - The bot now uses UUID-based call IDs that are globally unique across program restarts and multiple instances. Each call gets a unique identifier like `"550e8400-e29b-41d4-a716-446655440000"` instead of sequential numbers.
+
 ## 🔬 Technical Details
 
 ### Event Loop Architecture
@@ -984,6 +1009,13 @@ These can be re-enabled for complex NAT scenarios if needed.
 - **Call References**: Calls are stored in `Account.calls` dict to maintain strong references during call lifetime
 - **Cleanup**: References are removed on call disconnect to allow proper garbage collection
 - **Media Players**: Player objects are kept as instance variables and released on disconnect
+
+### Call ID Management
+
+- **UUID Generation**: Each call instance gets a unique UUID via `uuid.uuid4()` at creation time
+- **Cross-session Uniqueness**: UUIDs ensure no duplicate call IDs even across program restarts
+- **Elasticsearch Integration**: UUIDs are stored as keyword fields for efficient querying
+- **Backward Compatibility**: Original PJSUA2 call IDs are preserved for debugging
 
 ### Signal Handling
 
@@ -1042,7 +1074,8 @@ For issues specific to:
 
 ---
 
-**Version**: 0.1.0  
-**Last Updated**: October 2025  
+**Version**: 0.2.0  
+**Last Updated**: January 2025  
 **Python**: 3.11+  
-**PJSUA2**: Compatible with PJSIP 2.x
+**PJSUA2**: Compatible with PJSIP 2.x  
+**New in v0.2.0**: UUID-based unique call IDs to prevent duplicates across program restarts

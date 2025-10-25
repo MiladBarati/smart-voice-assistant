@@ -11,8 +11,14 @@ from datetime import datetime
 import pjsua2 as pj
 from elasticsearch_client import es_logger
 
+import uuid
+
 
 # ---------- Helpers ----------
+
+def generate_unique_id() -> str:
+    """Generate a unique call ID."""
+    return str(uuid.uuid4())
 
 def _parse_sip_user(uri: str) -> str:
     """Extract user/extension from a SIP URI or display-formatted URI.
@@ -100,6 +106,7 @@ class Account(pj.Account):
         event = {
             "event_type": event_type,
             "@timestamp": datetime.utcnow().isoformat() + "Z",
+            "call_id": generate_unique_id(),
             **kwargs
         }
         self._collected_events.append(event)
@@ -281,6 +288,7 @@ class AnyCall(pj.Call):
     def __init__(self, acc: pj.Account, call_id: int):
         super().__init__(acc, call_id)
         self._acc_ref = acc  # keep backref for settings
+        self.unique_call_id = generate_unique_id()
         self._player = None
         self._playback_started = False
         self._playback_finished = False
@@ -350,7 +358,7 @@ class AnyCall(pj.Call):
 
                 call_record = {
                     "event_type": "call_record",
-                    "call_id": str(ci.id),
+                    "call_id": generate_unique_id(),
                     "caller_number": self._caller_number,
                     "callee_ext": self._callee_ext,
                     "start_time": start_iso,
