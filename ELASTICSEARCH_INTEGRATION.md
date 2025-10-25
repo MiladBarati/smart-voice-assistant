@@ -12,13 +12,25 @@ The integration adds structured logging of all call events, registration events,
 
 ## Configuration
 
+### Environment Variables
+
+Before running the application, set the following environment variables:
+
+```bash
+export ELASTICSEARCH_HOST="your-elasticsearch-host"
+export ELASTICSEARCH_PORT="9200"
+export ELASTICSEARCH_USERNAME="your-username"
+export ELASTICSEARCH_PASSWORD="your-password"
+export KIBANA_URL="https://your-kibana-url"
+```
+
 ### Elasticsearch Connection
 
 The integration connects to your Elasticsearch cluster with the following configuration:
-- **Host**: 185.243.48.247
-- **Port**: 9200
-- **Username**: elastic
-- **Password**: h2xzKBNaD2Qub5zVE12
+- **Host**: ${ELASTICSEARCH_HOST}
+- **Port**: ${ELASTICSEARCH_PORT:-9200}
+- **Username**: ${ELASTICSEARCH_USERNAME}
+- **Password**: ${ELASTICSEARCH_PASSWORD}
 - **SSL**: Enabled
 - **Certificate Verification**: Disabled
 
@@ -65,7 +77,7 @@ Data is stored in a single unified index:
   "remote_uri": "sip:caller@example.com",
   "local_uri": "sip:user@domain.com",
   "duration": 5.5,
-  "host": "185.243.48.247",
+  "host": "${ELASTICSEARCH_HOST}",
   "service": "pjsua2",
   "additional_data": {
     "auto_answer": true
@@ -82,7 +94,7 @@ Data is stored in a single unified index:
   "domain": "domain.com",
   "status": "OK",
   "code": 200,
-  "host": "185.243.48.247",
+  "host": "${ELASTICSEARCH_HOST}",
   "service": "pjsua2"
 }
 ```
@@ -96,7 +108,7 @@ Data is stored in a single unified index:
   "media_type": "audio",
   "media_status": "active",
   "file_played": "welcome_message.wav",
-  "host": "185.243.48.247",
+  "host": "${ELASTICSEARCH_HOST}",
   "service": "pjsua2"
 }
 ```
@@ -126,8 +138,8 @@ This will:
 
 ### Viewing Data in Kibana
 
-1. Access Kibana at: https://kibana.aminraay.ir
-2. Login with the provided credentials
+1. Access Kibana at: ${KIBANA_URL}
+2. Login with your configured credentials
 3. Create index pattern for:
    - `pjsua-calls`
 4. Explore the data in the Discover section
@@ -167,7 +179,7 @@ event_type:call_disconnected AND duration:>0
 
 ### Connection Issues
 - Verify Elasticsearch cluster is running
-- Check network connectivity to 185.243.48.247:9200
+- Check network connectivity to ${ELASTICSEARCH_HOST}:${ELASTICSEARCH_PORT}
 - Verify credentials are correct
 - Check SSL/TLS configuration
 
@@ -198,7 +210,7 @@ event_type:call_disconnected AND duration:>0
 
 ## Security Notes
 
-- Credentials are hardcoded for simplicity - consider using environment variables in production
+- Credentials should be configured via environment variables for security
 - SSL verification is disabled - enable for production use
 - Consider implementing proper authentication and authorization
 - Monitor access logs for security
@@ -206,7 +218,7 @@ event_type:call_disconnected AND duration:>0
 ## Future Enhancements
 
 - Configurable Elasticsearch settings via command line
-- Environment variable support for credentials
+- Enhanced environment variable support for all configuration
 - Custom log formatting and filtering
 - Real-time dashboards
 - Automated alerting
