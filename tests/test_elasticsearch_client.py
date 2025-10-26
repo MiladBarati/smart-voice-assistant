@@ -3,7 +3,7 @@ Tests for elasticsearch_client.py module.
 """
 import pytest
 from unittest.mock import Mock, patch
-from elasticsearch_client import ElasticsearchLogger
+from src.pjsua_bot.elasticsearch_client import ElasticsearchLogger
 
 
 class TestElasticsearchLogger:
@@ -11,7 +11,7 @@ class TestElasticsearchLogger:
 
     def test_init_with_default_values(self):
         """Test ElasticsearchLogger initialization with default values."""
-        with patch('elasticsearch_client.Elasticsearch') as mock_es, \
+        with patch('src.pjsua_bot.elasticsearch_client.Elasticsearch') as mock_es, \
              patch.dict('os.environ', {'ES_HOST': 'localhost', 'ES_PORT': '9200', 'ELASTIC_INDEX_PREFIX': 'pjsua-calls'}):
             client = ElasticsearchLogger()
             assert client.host == "localhost"
@@ -21,7 +21,7 @@ class TestElasticsearchLogger:
 
     def test_init_with_custom_values(self):
         """Test ElasticsearchLogger initialization with custom values."""
-        with patch('elasticsearch_client.Elasticsearch') as mock_es:
+        with patch('src.pjsua_bot.elasticsearch_client.Elasticsearch') as mock_es:
             client = ElasticsearchLogger(
                 host="test-host",
                 port=9300,

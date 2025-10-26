@@ -3,7 +3,7 @@
 Test batch logging functionality.
 """
 
-from elasticsearch_client import es_logger
+from src.pjsua_bot.elasticsearch_client import es_logger
 
 def test_batch_logging():
     """Test batch logging functionality."""

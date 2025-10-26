@@ -26,7 +26,7 @@ def run_tests(test_type="all", verbose=False, coverage=True):
     
     # Add coverage if requested
     if coverage:
-        cmd.extend(["--cov=elasticsearch_client", "--cov=main", "--cov-report=html", "--cov-report=term-missing"])
+        cmd.extend(["--cov=src.pjsua_bot.elasticsearch_client", "--cov=main", "--cov-report=html", "--cov-report=term-missing"])
     
     # Filter by test type
     if test_type == "unit":

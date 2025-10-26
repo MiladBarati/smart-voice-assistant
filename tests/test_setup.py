@@ -19,7 +19,7 @@ class TestSetup:
     def test_imports(self):
         """Test that we can import the main modules."""
         try:
-            import elasticsearch_client
+            from src.pjsua_bot import elasticsearch_client
             assert hasattr(elasticsearch_client, 'ElasticsearchLogger')
         except ImportError:
             pytest.skip("elasticsearch_client module not available")

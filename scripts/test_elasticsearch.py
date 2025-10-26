@@ -6,7 +6,7 @@ This script tests the connection and logs sample data to Elasticsearch.
 
 import sys
 import time
-from elasticsearch_client import es_logger
+from src.pjsua_bot.elasticsearch_client import es_logger
 
 
 def test_elasticsearch_connection():
