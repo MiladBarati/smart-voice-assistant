@@ -70,20 +70,35 @@ def get_wav_duration(file_path: str) -> float:
         return 5.0  # Default fallback
 
 
-def ensure_recording_directory(base_path: str) -> str:
-    """Ensure recording directory exists and return the full path for current date.
+def ensure_recording_directory(base_path: str, call_id: str = None) -> str:
+    """Ensure recording directory exists and return the full path.
     
-    Creates directory structure: {base_path}/YYYY-MM-DD/
-    Returns the full path for the current date.
+    Creates directory structure:
+    - If call_id is provided: {base_path}/YYYY-MM-DD/{call_id}/
+    - Otherwise: {base_path}/YYYY-MM-DD/
+    
+    Args:
+        base_path: Base directory for recordings
+        call_id: Optional unique call identifier to create a subdirectory for the call
+        
+    Returns:
+        Full path to the recording directory
     """
     try:
         # Create date-specific subdirectory directly under base_path
         current_date = datetime.now().strftime("%Y-%m-%d")
         date_dir = os.path.join(base_path, current_date)
-        os.makedirs(date_dir, exist_ok=True)
         
-        print(f"***Recording directory: {date_dir}")
-        return date_dir
+        # If call_id is provided, create a call-specific subdirectory
+        if call_id:
+            call_dir = os.path.join(date_dir, call_id)
+            os.makedirs(call_dir, exist_ok=True)
+            print(f"***Recording directory: {call_dir}")
+            return call_dir
+        else:
+            os.makedirs(date_dir, exist_ok=True)
+            print(f"***Recording directory: {date_dir}")
+            return date_dir
     except Exception as e:
         print(f"***Error creating recording directory: {e}")
         # Fallback to base path if date directory creation fails

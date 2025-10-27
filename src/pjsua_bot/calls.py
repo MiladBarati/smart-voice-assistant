@@ -143,6 +143,7 @@ class AnyCall(pj.Call):
         self._recording_call_media = None
         self._recording_start_time = None  # Track when recording started
         self._recording_duration = 0  # Track recording duration in seconds
+        self._call_recording_dir = None  # Call-specific recording directory
         # Outgoing audio recording infrastructure
         self._outgoing_recorder = None
         self._outgoing_recording_file = None
@@ -199,76 +200,7 @@ class AnyCall(pj.Call):
             # Clean up recording early to avoid media disconnect issues
             self._cleanup_recording()
             
-            # Build call record and send as a single log
-            try:
-                self._end_time_utc = datetime.utcnow()
-                start_iso = self._start_time_utc.isoformat() + "Z" if self._start_time_utc else None
-                end_iso = self._end_time_utc.isoformat() + "Z"
-                duration_sec = None
-                if self._start_time_utc:
-                    duration_sec = int((self._end_time_utc - self._start_time_utc).total_seconds())
-
-                # Determine voice capture status and details
-                has_incoming_recording = self._recording_file and os.path.exists(self._recording_file)
-                has_outgoing_recording = self._outgoing_recording_file and os.path.exists(self._outgoing_recording_file)
-                voice_captured = has_incoming_recording or has_outgoing_recording
-                
-                # Get primary audio file path (prefer incoming, fallback to outgoing)
-                audio_file_path = self._recording_file if has_incoming_recording else (self._outgoing_recording_file if has_outgoing_recording else None)
-                
-                # Calculate total capture duration
-                total_capture_duration = 0
-                if has_incoming_recording and self._recording_duration:
-                    total_capture_duration += self._recording_duration
-                if has_outgoing_recording and self._outgoing_recording_duration:
-                    total_capture_duration += self._outgoing_recording_duration
-                
-                call_record = {
-                    "event_type": "call_record",
-                    "call_id": generate_unique_id(),
-                    "caller_number": self._caller_number,
-                    "callee_ext": self._callee_ext,
-                    "start_time": start_iso,
-                    "end_time": end_iso,
-                    "duration_sec": duration_sec,
-                    "status": "disconnected",
-                    "direction": self._direction or "inbound",
-                    "media": {
-                        "file_played": getattr(self._acc_ref, 'play_file', None),
-                        "playback_started": self._playback_started,
-                        "playback_finished": self._playback_finished
-                    },
-                    "recording": getattr(self, '_recording_metadata', None),
-                    "voice_captured": voice_captured,
-                    "audio_file_path": audio_file_path,
-                    "capture_duration": round(total_capture_duration, 2) if total_capture_duration > 0 else 0,
-                    "bot": {
-                        "auto_answer": getattr(self._acc_ref, 'auto_answer', False),
-                        "domain": getattr(self._acc_ref, 'domain', None),
-                        "user": getattr(self._acc_ref, 'username', None)
-                    },
-                    "host": socket.gethostname(),
-                    "ingest_ts": datetime.utcnow().isoformat() + "Z"
-                }
-                es_logger.log_call_record(call_record)
-                
-            except Exception as e:
-                print(f"***Error sending single call record: {e}")
-            
-            # cleanup: drop strong reference so GC can collect safely now
-            try:
-                del self._acc_ref.calls[ci.id]   # id is the call-id index in pjsua2
-            except Exception:
-                # some bindings use self.getId() or store the key from onIncomingCall
-                # safe fallback: clear everything if unknown
-                self._acc_ref.calls = {k:v for k,v in self._acc_ref.calls.items() if v is not self}
-            # also release any active player
-            self._player = None
-            
-            # Cleanup recording
-            self._cleanup_recording()
-            
-            # Add recording metadata to call record
+            # Build recording metadata FIRST, before sending call record
             recording_metadata = {}
             
             # Add incoming recording metadata
@@ -318,6 +250,76 @@ class AnyCall(pj.Call):
             # Store recording metadata for call record
             if recording_metadata:
                 self._recording_metadata = recording_metadata
+            
+            # Build call record and send as a single log
+            try:
+                self._end_time_utc = datetime.utcnow()
+                start_iso = self._start_time_utc.isoformat() + "Z" if self._start_time_utc else None
+                end_iso = self._end_time_utc.isoformat() + "Z"
+                duration_sec = None
+                if self._start_time_utc:
+                    duration_sec = int((self._end_time_utc - self._start_time_utc).total_seconds())
+
+                # Determine voice capture status and details
+                has_incoming_recording = self._recording_file and os.path.exists(self._recording_file)
+                has_outgoing_recording = self._outgoing_recording_file and os.path.exists(self._outgoing_recording_file)
+                voice_captured = has_incoming_recording or has_outgoing_recording
+                
+                # Get primary audio file path (prefer incoming, fallback to outgoing)
+                audio_file_path = self._recording_file if has_incoming_recording else (self._outgoing_recording_file if has_outgoing_recording else None)
+                
+                # Calculate total capture duration
+                total_capture_duration = 0
+                if has_incoming_recording and self._recording_duration:
+                    total_capture_duration += self._recording_duration
+                if has_outgoing_recording and self._outgoing_recording_duration:
+                    total_capture_duration += self._outgoing_recording_duration
+                
+                # Cap capture duration to not exceed call duration
+                if duration_sec and total_capture_duration > duration_sec:
+                    total_capture_duration = duration_sec
+                
+                call_record = {
+                    "event_type": "call_record",
+                    "call_id": generate_unique_id(),
+                    "caller_number": self._caller_number,
+                    "callee_ext": self._callee_ext,
+                    "start_time": start_iso,
+                    "end_time": end_iso,
+                    "duration_sec": duration_sec,
+                    "status": "disconnected",
+                    "direction": self._direction or "inbound",
+                    "media": {
+                        "file_played": getattr(self._acc_ref, 'play_file', None),
+                        "playback_started": self._playback_started,
+                        "playback_finished": self._playback_finished
+                    },
+                    "recording": self._recording_metadata if recording_metadata else None,
+                    "voice_captured": voice_captured,
+                    "audio_file_path": audio_file_path,
+                    "capture_duration": round(total_capture_duration, 2) if total_capture_duration > 0 else 0,
+                    "bot": {
+                        "auto_answer": getattr(self._acc_ref, 'auto_answer', False),
+                        "domain": getattr(self._acc_ref, 'domain', None),
+                        "user": getattr(self._acc_ref, 'username', None)
+                    },
+                    "host": socket.gethostname(),
+                    "ingest_ts": datetime.utcnow().isoformat() + "Z"
+                }
+                es_logger.log_call_record(call_record)
+                
+            except Exception as e:
+                print(f"***Error sending single call record: {e}")
+            
+            # cleanup: drop strong reference so GC can collect safely now
+            try:
+                del self._acc_ref.calls[ci.id]   # id is the call-id index in pjsua2
+            except Exception:
+                # some bindings use self.getId() or store the key from onIncomingCall
+                # safe fallback: clear everything if unknown
+                self._acc_ref.calls = {k:v for k,v in self._acc_ref.calls.items() if v is not self}
+            # also release any active player
+            self._player = None
 
     def onCallMediaState(self, prm):
         """Handle call media state changes."""
@@ -332,31 +334,37 @@ class AnyCall(pj.Call):
                     # Voice recording setup (if enabled)
                     if getattr(self._acc_ref, 'enable_recording', False):
                         try:
-                            recording_dir = ensure_recording_directory(
-                                getattr(self._acc_ref, 'recording_path', './recordings')
-                            )
-                            # Try to get caller number if still unknown
-                            caller_id = self._caller_number or 'unknown'
-                            if caller_id == 'unknown':
-                                try:
-                                    call_info = self.getInfo()
-                                    remote_uri = call_info.remoteUri
-                                    caller_id = parse_sip_user(remote_uri) or 'unknown'
-                                    self._caller_number = caller_id
-                                    print(f"***Recording: caller identified as {caller_id}")
-                                except Exception as e:
-                                    print(f"***Recording: could not parse caller info: {e}")
+                            # Create call-specific directory if not already created
+                            if not self._call_recording_dir:
+                                # Try to get caller number if still unknown
+                                caller_id = self._caller_number or 'unknown'
+                                if caller_id == 'unknown':
+                                    try:
+                                        call_info = self.getInfo()
+                                        remote_uri = call_info.remoteUri
+                                        caller_id = parse_sip_user(remote_uri) or 'unknown'
+                                        self._caller_number = caller_id
+                                        print(f"***Recording: caller identified as {caller_id}")
+                                    except Exception as e:
+                                        print(f"***Recording: could not parse caller info: {e}")
+                                
+                                # Create call-specific directory using timestamp and caller ID
+                                call_dir_name = f"call_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{caller_id}"
+                                self._call_recording_dir = ensure_recording_directory(
+                                    getattr(self._acc_ref, 'recording_path', './recordings'),
+                                    call_id=call_dir_name
+                                )
                             
-                            filename = f"call_{datetime.now().strftime('%Y%m%d_%H%M%S')}_incoming.wav"
-                            self._recording_file = os.path.join(recording_dir, filename)
+                            # Use simple filename since files are in separate directories
+                            self._recording_file = os.path.join(self._call_recording_dir, "incoming.wav")
                             
                             # Debug: Check directory and permissions
-                            print(f"***Recording: directory exists: {os.path.exists(recording_dir)}")
-                            print(f"***Recording: directory writable: {os.access(recording_dir, os.W_OK)}")
+                            print(f"***Recording: directory exists: {os.path.exists(self._call_recording_dir)}")
+                            print(f"***Recording: directory writable: {os.access(self._call_recording_dir, os.W_OK)}")
                             print(f"***Recording: full file path: {self._recording_file}")
                             
                             # Test: Create a simple test file to verify permissions
-                            test_file = os.path.join(recording_dir, "test_permissions.tmp")
+                            test_file = os.path.join(self._call_recording_dir, "test_permissions.tmp")
                             try:
                                 with open(test_file, 'w') as f:
                                     f.write("test")
@@ -424,12 +432,17 @@ class AnyCall(pj.Call):
                             # Record outgoing audio (bot's welcome message) if recording is enabled
                             if getattr(self._acc_ref, 'enable_recording', False):
                                 try:
-                                    recording_dir = ensure_recording_directory(
-                                        getattr(self._acc_ref, 'recording_path', './recordings')
-                                    )
-                                    # Use the same caller_id that was determined for incoming recording
-                                    outgoing_filename = f"call_{datetime.now().strftime('%Y%m%d_%H%M%S')}_outgoing.wav"
-                                    self._outgoing_recording_file = os.path.join(recording_dir, outgoing_filename)
+                                    # Use the same call-specific directory created for incoming recording
+                                    if not self._call_recording_dir:
+                                        # Create directory if it wasn't created yet (shouldn't happen)
+                                        call_dir_name = f"call_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{self._caller_number or 'unknown'}"
+                                        self._call_recording_dir = ensure_recording_directory(
+                                            getattr(self._acc_ref, 'recording_path', './recordings'),
+                                            call_id=call_dir_name
+                                        )
+                                    
+                                    # Use simple filename since files are in separate directories
+                                    self._outgoing_recording_file = os.path.join(self._call_recording_dir, "outgoing.wav")
                                     
                                     self._outgoing_recorder = pj.AudioMediaRecorder()
                                     self._outgoing_recorder.createRecorder(self._outgoing_recording_file, 0, 0)
