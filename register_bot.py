@@ -864,9 +864,6 @@ def main() -> None:
         ep.libCreate()
         ep.libInit(ep_cfg)
 
-        # Set null audio device
-        ep.setNullSoundDev() 
-
         # Create SIP transport
         sipTpConfig = pj.TransportConfig()
         sipTpConfig.port = args.local_port
@@ -886,6 +883,9 @@ def main() -> None:
 
         # Start the library
         ep.libStart()
+
+        # Set null audio device
+        ep.setNullSoundDev() 
 
         # Configure account
         acfg = pj.AccountConfig()
