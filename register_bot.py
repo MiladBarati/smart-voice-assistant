@@ -848,7 +848,10 @@ def main() -> None:
     ep_cfg = pj.EpConfig()
     ep_cfg.logConfig.level = args.log_level
     ep = pj.Endpoint()
-    ep.libSetNullSndDev()
+    
+    # Set null audio device
+    adm = ep.audDevManager()
+    adm.setNullDev()
 
     # Graceful shutdown on SIGINT/SIGTERM
     stopping = {"flag": False}
