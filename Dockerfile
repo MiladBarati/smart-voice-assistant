@@ -1,69 +1,116 @@
-# Base image
-FROM python:3.11-slim
+# Multi-stage build for PJSUA2 SIP Bot
+# Stage 1: Build PJSIP/PJSUA2 from source
+FROM python:3.11-slim AS builder
 
-# Environment variables
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
-    DEBIAN_FRONTEND=noninteractive
-
-# Install system dependencies
+# Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # For PJSIP/PJSUA2
-    libpjproject-dev \
-    pjsua2 \
-    python3-pjsua2 \
-    # For audio processing
-    libsndfile1 \
-    libportaudio2 \
-    ffmpeg \
-    alsa-utils \
-    # For building packages
+    build-essential \
     gcc \
     g++ \
     make \
+    automake \
+    autoconf \
+    libtool \
     pkg-config \
-    # Network tools (debugging)
-    iputils-ping \
-    net-tools \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+    wget \
+    libssl-dev \
+    libopus-dev \
+    libspeex-dev \
+    libspeexdsp-dev \
+    libgsm1-dev \
+    libasound2-dev \
+    libv4l-dev \
+    libsdl2-dev \
+    python3-dev \
+    swig \
+    && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user for security
-RUN useradd -m -u 1000 voicebot && \
-    mkdir -p /app/data/recordings /app/assets/audio && \
-    chown -R voicebot:voicebot /app
+# Download and build PJSIP
+WORKDIR /tmp
+ENV PJSIP_VERSION=2.14
 
+RUN wget https://github.com/pjsip/pjproject/archive/refs/tags/${PJSIP_VERSION}.tar.gz \
+    && tar -xzf ${PJSIP_VERSION}.tar.gz \
+    && cd pjproject-${PJSIP_VERSION} \
+    && ./configure \
+    --enable-shared \
+    --disable-sound \
+    --disable-video \
+    --disable-opencore-amr \
+    --with-external-speex \
+    --with-external-gsm \
+    CFLAGS="-O2 -DNDEBUG" \
+    && make dep \
+    && make \
+    && make install \
+    && ldconfig
+
+# Build Python bindings
+WORKDIR /tmp/pjproject-${PJSIP_VERSION}/pjsip-apps/src/swig/python
+RUN make && python3 setup.py install
+
+# Stage 2: Runtime image
+FROM python:3.11-slim
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libssl3 \
+    libopus0 \
+    libspeex1 \
+    libspeexdsp1 \
+    libgsm1 \
+    libasound2 \
+    libsndfile1 \
+    libportaudio2 \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy PJSIP libraries from builder stage
+COPY --from=builder /usr/local/lib/libpj*.so* /usr/local/lib/
+COPY --from=builder /usr/local/lib/python3.11/site-packages/pjsua2* /usr/local/lib/python3.11/site-packages/
+RUN ldconfig
+
+# Set working directory
 WORKDIR /app
 
 # Copy dependency files
-COPY --chown=voicebot:voicebot pyproject.toml uv.lock* ./
+COPY pyproject.toml uv.lock* ./
 
-# Install uv and dependencies
-RUN pip install --no-cache-dir uv && \
-    uv pip install --system -e .
+# Install uv and Python dependencies
+RUN pip install --no-cache-dir uv \
+    && uv pip install --system -e .
 
-# Copy project code
-COPY --chown=voicebot:voicebot . .
+# Copy application code
+COPY main.py register_bot.py ./
+COPY src/ ./src/
+COPY assets/ ./assets/
 
-# Set permissions for recordings directory
-RUN chmod -R 755 /app/data
+# Create necessary directories
+RUN mkdir -p /app/data/recordings /app/logs
 
-# Switch to voicebot user
+# Create non-root user for security
+RUN useradd -m -u 1000 voicebot \
+    && chown -R voicebot:voicebot /app
+
+# Switch to non-root user
 USER voicebot
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import pjsua2; print('OK')" || exit 1
+# Environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
-# Volumes
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD python3 -c "import pjsua2; print('OK')" || exit 1
+
+# Volumes for persistent data
 VOLUME ["/app/data/recordings", "/app/assets/audio"]
 
-# Expose port range for SIP
+# Expose SIP ports
 EXPOSE 5060/udp 10000-20000/udp
 
-# Run the voicebot with full command
-CMD ["python", "register_bot.py", \
+# Run the voicebot with full arguments
+CMD ["python3", "register_bot.py", \
     "--user", "1003", \
     "--auth-user", "1003", \
     "--password", "2bcf1720c35d88bae068d0e2cfb721a1", \
