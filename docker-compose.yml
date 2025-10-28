@@ -1,0 +1,26 @@
+services:
+  sipbot:
+    image: ghcr.io/aminraay/smart-voice-assistant:latest
+    container_name: sipbot
+    restart: unless-stopped
+    environment:
+      - ES_HOST=elasticsearch
+      - ES_PORT=9200
+      - ES_USERNAME=elastic
+      - ES_PASSWORD=${ES_PASSWORD}
+      - ES_USE_SSL=false
+      - ES_VERIFY_CERTS=false
+      - ELASTIC_INDEX_PREFIX=pjsua-calls
+      - LOG_LEVEL=3
+    ports:
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+    volumes:
+      - ./recordings:/app/src/recordings
+      - ./logs:/app/src/logs
+      - ./.env:/app/src/.env:ro
+    networks:
+      - elk-stack_elk
+networks:
+  elk-stack_elk:
+    external: true
