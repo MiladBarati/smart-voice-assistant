@@ -849,9 +849,6 @@ def main() -> None:
     ep_cfg.logConfig.level = args.log_level
     ep = pj.Endpoint()
     
-    # Set null audio device
-    adm = ep.audDevManager()
-    adm.setNullDev()
 
     # Graceful shutdown on SIGINT/SIGTERM
     stopping = {"flag": False}
@@ -866,6 +863,9 @@ def main() -> None:
     try:
         ep.libCreate()
         ep.libInit(ep_cfg)
+
+        # Set null audio device
+        ep.setNullSoundDev() 
 
         # Create SIP transport
         sipTpConfig = pj.TransportConfig()
