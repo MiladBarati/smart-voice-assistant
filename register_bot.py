@@ -885,7 +885,7 @@ def main() -> None:
         ep.libStart()
 
         # Set null audio device
-        ep.setNullSoundDev() 
+        ep.audDevManager().setNullDev()
 
         # Configure account
         acfg = pj.AccountConfig()
