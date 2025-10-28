@@ -34,12 +34,12 @@ RUN wget https://github.com/pjsip/pjproject/archive/refs/tags/${PJSIP_VERSION}.t
     && cd pjproject-${PJSIP_VERSION} \
     && ./configure \
     --enable-shared \
-    --disable-sound \
     --disable-video \
     --disable-opencore-amr \
     --with-external-speex \
     --with-external-gsm \
-    CFLAGS="-O2 -DNDEBUG" \
+    --enable-libsamplerate \
+    CFLAGS="-O2 -DNDEBUG -DPJ_AUTOCONF=1" \
     && make dep \
     && make \
     && make install \
@@ -52,7 +52,7 @@ RUN make && python3 setup.py install
 # Stage 2: Runtime image
 FROM python:3.11-slim
 
-# Install runtime dependencies only
+# Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
     libopus0 \
@@ -60,12 +60,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libspeexdsp1 \
     libgsm1 \
     libasound2 \
+    libasound2-plugins \
+    alsa-utils \
     libsndfile1 \
     libportaudio2 \
+    portaudio19-dev \
     ffmpeg \
+    pulseaudio \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy ALL PJSIP libraries and binaries from builder stage
+# Copy ALL PJSIP libraries from builder stage
 COPY --from=builder /usr/local/lib/ /usr/local/lib/
 COPY --from=builder /usr/local/include/ /usr/local/include/
 COPY --from=builder /usr/local/lib/python3.11/site-packages/pjsua2* /usr/local/lib/python3.11/site-packages/
@@ -73,6 +77,10 @@ COPY --from=builder /usr/local/lib/python3.11/site-packages/_pjsua2* /usr/local/
 
 # Update library cache
 RUN ldconfig
+
+# Create ALSA config for null device
+RUN mkdir -p /etc/alsa && \
+    echo 'pcm.!default { type plug slave.pcm "null" }' > /etc/alsa/asound.conf
 
 # Set working directory
 WORKDIR /app
@@ -92,7 +100,7 @@ COPY assets/ ./assets/
 # Create necessary directories
 RUN mkdir -p /app/data/recordings /app/logs
 
-# Create non-root user for security
+# Create non-root user
 RUN useradd -m -u 1000 voicebot \
     && chown -R voicebot:voicebot /app
 
@@ -102,7 +110,8 @@ USER voicebot
 # Environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+    LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH \
+    AUDIODEV=null
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
@@ -114,7 +123,7 @@ VOLUME ["/app/data/recordings", "/app/assets/audio"]
 # Expose SIP ports
 EXPOSE 5060/udp 10000-20000/udp
 
-# Run the voicebot with full arguments
+# Run the voicebot
 CMD ["python3", "register_bot.py", \
     "--user", "1003", \
     "--auth-user", "1003", \
