@@ -125,9 +125,9 @@ EXPOSE 5060/udp 10000-20000/udp
 
 # Run the voicebot
 CMD ["python3", "register_bot.py", \
-    "--user", "1003", \
-    "--auth-user", "1003", \
-    "--password", "2bcf1720c35d88bae068d0e2cfb721a1", \
+    "--user", "1004", \
+    "--auth-user", "1004", \
+    "--password", "05e858b1bbd57d5b1f42fbdbdf5c7616", \
     "--domain", "178.239.151.95", \
     "--transport", "udp", \
     "--local-port", "0", \
