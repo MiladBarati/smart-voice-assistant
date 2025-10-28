@@ -134,7 +134,7 @@ CMD ["python3", "register_bot.py", \
     "--wait-seconds", "20", \
     "--stay-online", \
     "--auto-answer", \
-    "--play-file", "assets/audio/welcome_message.wav", \
+    "--play-file", "/app/assets/audio/welcome_message.wav", \
     "--message-duration", "8", \
     "--hangup-delay", "2", \
     "--enable-recording"]
