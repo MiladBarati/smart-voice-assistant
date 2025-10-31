@@ -16,8 +16,8 @@ services:
       - "5060:5060/udp"
       - "5060:5060/tcp"
     volumes:
-      - ./recordings:/app/src/recordings
-      - ./logs:/app/src/logs
+      - ./recordings:/app/recordings
+      - ./logs:/app/logs
       - ./.env:/app/src/.env:ro
     networks:
       - elk-stack_elk
