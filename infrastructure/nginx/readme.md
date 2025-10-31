@@ -127,8 +127,6 @@ Create regular backups of the recordings directory using tar or your preferred b
 
 ### Endpoints
 
-**GET /health** - Health check endpoint, returns "healthy"
-
 **GET /recordings/** - List all available recordings with directory browsing
 
 **GET /recordings/{date}/{call_id}/{filename}** - Download or stream a specific recording
