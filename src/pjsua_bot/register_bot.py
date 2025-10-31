@@ -9,8 +9,7 @@ import socket
 from datetime import datetime
 
 import pjsua2 as pj
-from src.pjsua_bot.elasticsearch_client import es_logger
-
+from elasticsearch_client import es_logger
 import uuid
 
 
