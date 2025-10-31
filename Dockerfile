@@ -93,7 +93,6 @@ RUN pip install --no-cache-dir uv \
     && uv pip install --system -e .
 
 # Copy application code
-COPY main.py register_bot.py ./
 COPY src/ ./src/
 COPY assets/ ./assets/
 
