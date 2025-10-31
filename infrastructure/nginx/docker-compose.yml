@@ -1,0 +1,16 @@
+services:
+  nginx-recordings:
+    image: nginx:alpine
+    container_name: nginx-recordings
+    ports:
+      - "8080:80" # You can change the port
+    volumes:
+      - ./recordings:/usr/share/nginx/html/recordings:ro # Replace recording address
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - elk-stack_elk
+    restart: unless-stopped
+
+networks:
+  elk-stack_elk:
+    external: true
