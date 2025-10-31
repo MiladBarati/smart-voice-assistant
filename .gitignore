@@ -55,9 +55,6 @@ test-results.xml
 GitCommitPractices
 GitCommitPractices.md
 
-# Infrastructure (docker, etc.)
-infrastructure/
-
 # Project-specific
 recordings/
 *.wav
