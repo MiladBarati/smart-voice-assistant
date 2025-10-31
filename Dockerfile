@@ -124,7 +124,7 @@ VOLUME ["/app/data/recordings", "/app/assets/audio"]
 EXPOSE 5060/udp 10000-20000/udp
 
 # Run the voicebot
-CMD ["python3", "register_bot.py", \
+CMD ["python3", "/app/src/pjsua_bot/register_bot.py", \
     "--user", "1004", \
     "--auth-user", "1004", \
     "--password", "05e858b1bbd57d5b1f42fbdbdf5c7616", \
