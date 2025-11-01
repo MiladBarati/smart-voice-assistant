@@ -25,9 +25,11 @@ This project provides Python scripts for interacting with SIP servers (like Aste
 - **Outbound Calls**: Make calls to SIP extensions or full URIs
 - **Audio Playback**: Play WAV files to remote party during calls (e.g., welcome messages, IVR)
 - **Voice Recording**: Capture incoming caller audio streams and outgoing bot audio to separate WAV files with organized storage
+- **Voice Activity Detection (VAD)**: Real-time speech detection using Silero VAD with automatic chunk segmentation
+- **VAD Metrics Logging**: Speech duration, chunk count, and confidence scores logged to Elasticsearch for analytics
 - **Automatic Audio Duration Detection**: Reads WAV file duration for precise playback timing
 - **Auto-Answer**: Automatically answer incoming calls (enabled by default)
-- **Smart Hangup**: Automatically hang up after audio playback completes with configurable delay
+- **Smart Hangup**: Automatically hang up after audio playback completes with configurable delay or based on VAD silence detection
 - **Unique Call IDs**: Uses UUID-based call IDs to prevent duplicates across program restarts
 - **Multiple Transports**: Support for UDP, TCP, and TLS
 - **NAT Traversal**: Proper handling of NAT scenarios
@@ -78,6 +80,9 @@ PJSUA2 Python bindings typically need to be compiled from source or installed vi
    
    # Install python-dotenv for environment variable support
    pip install python-dotenv
+   
+   # Install VAD dependencies (optional, for voice activity detection)
+   pip install torch torchaudio
    
    # Install testing dependencies
    pip install pytest pytest-cov
@@ -139,6 +144,7 @@ pjsua-installation/
 │       ├── calls.py             # Call handling classes
 │       ├── register_bot.py      # Main entry point (refactored)
 │       ├── elasticsearch_client.py # Elasticsearch integration
+│       ├── vad.py               # Voice Activity Detection (Silero VAD)
 │       └── mwe_register.py      # Minimal working example
 ├── tests/                       # Test suite
 ├── scripts/                     # Utility scripts
@@ -170,9 +176,14 @@ pjsua-installation/
 - **`account.py`** (113 lines): SIP account management
   - `Account` class with registration and incoming call handling
 
-- **`calls.py`** (658 lines): Call handling logic
+- **`calls.py`** (853 lines): Call handling logic
   - `OutCall` class for outbound calls
-  - `AnyCall` class for advanced call handling with recording and playback
+  - `AnyCall` class for advanced call handling with recording, playback, and VAD integration
+
+- **`vad.py`** (918 lines): Voice Activity Detection
+  - `SileroVAD` class for real-time speech detection
+  - Chunk segmentation and metrics calculation
+  - Speech duration, chunk count, and confidence tracking
 
 - **`register_bot.py`** (245 lines): Main entry point
   - CLI argument parsing
@@ -223,7 +234,7 @@ main()
 - **[Voice Recording](docs/VOICE_RECORDING.md)** - Recording incoming/outgoing audio streams
 
 ### Integration & Testing
-- **[Elasticsearch Integration](docs/ELASTICSEARCH.md)** - Call logging and data storage
+- **[Elasticsearch Integration](docs/ELASTICSEARCH.md)** - Call logging and data storage with VAD metrics (speech duration, chunk count, confidence scores)
 - **[Testing Framework](docs/TESTING.md)** - Unit tests and coverage reporting
 
 ### Reference
@@ -275,10 +286,11 @@ For issues specific to:
 
 ---
 
-**Version**: 0.4.0  
+**Version**: 0.4.1  
 **Last Updated**: January 2025  
 **Python**: 3.11+  
 **PJSUA2**: Compatible with PJSIP 2.x  
+**New in v0.4.1**: Voice Activity Detection (VAD) with Silero integration, automatic chunk segmentation, and VAD metrics (speech duration, chunk count, confidence) logged to Elasticsearch  
 **New in v0.4.0**: Modular codebase with separate modules for account, calls, utilities, and main entry point (77% reduction in register_bot.py)  
 **New in v0.3.0**: Comprehensive unit testing framework with pytest, coverage reporting, and mock support  
 **New in v0.2.0**: UUID-based unique call IDs to prevent duplicates across program restarts

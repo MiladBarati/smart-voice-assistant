@@ -116,3 +116,4 @@ The application automatically loads environment variables from the `.env` file u
    ES_HOST="override-host" python register_bot.py --user 1001 --password pass --domain pbx.local
    ```
 
+

@@ -88,3 +88,4 @@ Common issues and solutions for using the PJSUA2 SIP bot.
 
 **Solution**: ✅ **Fixed in current version** - The bot now uses UUID-based call IDs that are globally unique across program restarts and multiple instances. Each call gets a unique identifier like `"550e8400-e29b-41d4-a716-446655440000"` instead of sequential numbers.
 
+

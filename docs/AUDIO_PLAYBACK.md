@@ -53,3 +53,4 @@ The bot intelligently detects the actual duration of your WAV file:
 
 This ensures precise timing and prevents the message from replaying!
 
+

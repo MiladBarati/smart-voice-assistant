@@ -126,3 +126,4 @@ python test_elasticsearch.py
 
 Expected successful output includes cluster health and ✅ for each sample event type. Then, verify data in Kibana (`Discover`) using the index patterns above.
 
+
