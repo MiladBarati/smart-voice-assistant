@@ -11,6 +11,8 @@ dependencies = [
     "urllib3>=1.26.0",
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
+    "torch>=2.1.0; platform_system != 'Windows' or platform_machine != 'x86'",  # may require manual install on Windows
+    "torchaudio>=2.1.0; platform_system != 'Windows' or platform_machine != 'x86'",
 ]
 
 [dependency-groups]
