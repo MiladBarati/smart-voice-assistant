@@ -7,6 +7,7 @@ from datetime import datetime
 import pjsua2 as pj
 
 from .utils import generate_unique_id, parse_sip_user, ensure_recording_directory
+from .vad import SileroVAD, VADConfig
 from .elasticsearch_client import es_logger
 
 
@@ -130,6 +131,12 @@ class AnyCall(pj.Call):
         self._hangup_time = None
         self._stop_player_time = None
         self._call_media = None
+        # Goodbye message playback state
+        self._goodbye_player = None
+        self._goodbye_playback_started = False
+        self._goodbye_playback_finished = False
+        self._goodbye_stop_time = None
+        self._goodbye_requested = False
         # Call record tracking
         self._start_time_utc = None
         self._end_time_utc = None
@@ -144,6 +151,7 @@ class AnyCall(pj.Call):
         self._recording_start_time = None  # Track when recording started
         self._recording_duration = 0  # Track recording duration in seconds
         self._call_recording_dir = None  # Call-specific recording directory
+        self._cleanup_done = False  # Flag to prevent double cleanup
         # Outgoing audio recording infrastructure
         self._outgoing_recorder = None
         self._outgoing_recording_file = None
@@ -152,6 +160,10 @@ class AnyCall(pj.Call):
         self._outgoing_recording_duration = 0  # Track outgoing recording duration in seconds
         # Batch logging - collect events during call
         self._collected_events = []
+        # VAD related
+        self._vad: SileroVAD | None = None
+        self._silence_after_speech_sec: float = float(getattr(self._acc_ref, 'silence_after_speech_sec', 3))
+        self._vad_enabled: bool = bool(getattr(self._acc_ref, 'enable_vad', True))
 
     def _collect_event(self, event_type: str, **kwargs):
         """Collect an event for batch logging at the end of the call."""
@@ -279,6 +291,22 @@ class AnyCall(pj.Call):
                 if duration_sec and total_capture_duration > duration_sec:
                     total_capture_duration = duration_sec
                 
+                # Collect VAD metrics if VAD was enabled and available
+                vad_metrics = None
+                if self._vad and self._vad.available:
+                    try:
+                        speech_duration = self._vad.get_speech_duration()
+                        chunk_count = self._vad.get_chunk_count()
+                        vad_confidence = self._vad.get_vad_confidence()
+                        
+                        vad_metrics = {
+                            "speech_duration": speech_duration,
+                            "chunk_count": chunk_count,
+                            "vad_confidence": vad_confidence
+                        }
+                    except Exception as e:
+                        print(f"***Error calculating VAD metrics: {e}")
+                
                 call_record = {
                     "event_type": "call_record",
                     "call_id": generate_unique_id(),
@@ -298,6 +326,7 @@ class AnyCall(pj.Call):
                     "voice_captured": voice_captured,
                     "audio_file_path": audio_file_path,
                     "capture_duration": round(total_capture_duration, 2) if total_capture_duration > 0 else 0,
+                    "vad": vad_metrics,  # Add VAD metrics to call record
                     "bot": {
                         "auto_answer": getattr(self._acc_ref, 'auto_answer', False),
                         "domain": getattr(self._acc_ref, 'domain', None),
@@ -392,6 +421,25 @@ class AnyCall(pj.Call):
                             self._recording_call_media = call_media  # Store reference for cleanup
                             self._recording_start_time = datetime.utcnow()  # Track recording start time
                             print(f"***Recording: started capturing to {self._recording_file}")
+
+                            # Initialize VAD when recording starts
+                            if self._vad_enabled and not self._vad:
+                                try:
+                                    vad_threshold = float(getattr(self._acc_ref, 'vad_threshold', 0.5))
+                                    # Use the same directory as recording for chunks
+                                    chunks_output_dir = self._call_recording_dir
+                                    self._vad = SileroVAD(
+                                        self._recording_file,
+                                        VADConfig(threshold=vad_threshold),
+                                        chunks_output_dir=chunks_output_dir
+                                    )
+                                    if self._vad.available:
+                                        print(f"***VAD: Silero initialized (threshold={vad_threshold})")
+                                    else:
+                                        error_msg = getattr(self._vad, '_load_error', 'unknown error')
+                                        print(f"***VAD: unavailable - {error_msg}")
+                                except Exception as e:
+                                    print(f"***VAD init error: {e}")
                             
                             # Verify recorder was created successfully
                             if self._recorder:
@@ -495,13 +543,16 @@ class AnyCall(pj.Call):
     
     def check_playback_status(self):
         """Check if playback has finished and set hangup time if needed."""
-        if not self._playback_started or self._playback_finished:
+        # Check goodbye message status
+        self.check_goodbye_status()
+        
+        if not self._playback_started:
             return
             
         current_time = time.time()
         
         # Check if it's time to stop the player transmission
-        if self._stop_player_time and current_time >= self._stop_player_time:
+        if self._stop_player_time and current_time >= self._stop_player_time and not self._playback_finished:
             if self._player and self._call_media:
                 try:
                     # Stop the transmission from player to call media
@@ -521,11 +572,9 @@ class AnyCall(pj.Call):
                 except Exception as e:
                     print(f"***Error stopping player transmission: {e}")
             
-            # Set hangup time
+            # Mark playback finished; hangup will be controlled by VAD
             if not self._hangup_time:
-                hangup_delay = getattr(self._acc_ref, 'hangup_delay', 2)
-                self._hangup_time = time.time() + hangup_delay
-                print(f"***Welcome message finished. Will hang up in {hangup_delay} seconds")
+                print("***Welcome message finished. Monitoring caller speech for hangup")
                 
                 # Collect playback finished event
                 self._collect_event(
@@ -535,6 +584,25 @@ class AnyCall(pj.Call):
                 )
                 
                 self._playback_finished = True
+                # Clear stop time to prevent re-running this block
+                self._stop_player_time = None
+
+        # If VAD is available, process new audio and schedule hangup
+        if self._vad and self._vad.available and self._recording_file:
+            try:
+                # Debug: confirm VAD is being called
+                if not hasattr(self, '_vad_called'):
+                    print(f"***VAD: processing audio from {self._recording_file}")
+                    self._vad_called = True
+                
+                self._vad.process_new_audio(time.time)
+                if self._vad.last_speech_time_monotonic is not None:
+                    target = self._vad.last_speech_time_monotonic + self._silence_after_speech_sec
+                    if not self._hangup_time or self._hangup_time < target:
+                        self._hangup_time = target
+                        print(f"***VAD: last speech at {self._vad.last_speech_time_monotonic:.3f}; hangup at {target:.3f}")
+            except Exception as e:
+                print(f"***VAD processing error: {e}")
     
     def _set_hangup_time(self):
         """Set the time when the call should be hung up (2 seconds after playback finishes)."""
@@ -543,38 +611,165 @@ class AnyCall(pj.Call):
         print(f"***Welcome message finished. Will hang up in {hangup_delay} seconds")
     
     def should_hangup(self):
-        """Check if it's time to hang up the call."""
+        """Check if it's time to hang up the call.
+        
+        If hangup time is reached and goodbye file exists, play it first.
+        Returns True only when it's actually time to hang up (after goodbye if applicable).
+        """
         if self._hangup_time and time.time() >= self._hangup_time:
-            return True
+            # Check if we need to play goodbye message first
+            goodbye_file = getattr(self._acc_ref, 'goodbye_file', None)
+            if goodbye_file and not self._goodbye_playback_finished and not self._goodbye_requested:
+                # Time to hang up, but need to play goodbye first
+                self._play_goodbye_message()
+                return False  # Don't hang up yet, goodbye is playing
+            elif self._goodbye_playback_finished:
+                # Goodbye finished, now we can hang up
+                return True
+            elif not goodbye_file:
+                # No goodbye file, hang up immediately
+                return True
+            else:
+                # Goodbye is playing, wait for it to finish
+                return False
         return False
+    
+    def _play_goodbye_message(self):
+        """Play the goodbye message before hanging up."""
+        goodbye_file = getattr(self._acc_ref, 'goodbye_file', None)
+        if not goodbye_file or self._goodbye_requested:
+            return
+        
+        if not os.path.exists(goodbye_file):
+            print(f"***Goodbye: file not found: {goodbye_file}")
+            # Mark goodbye as finished so we can hang up
+            self._goodbye_playback_finished = True
+            return
+        
+        if not self._call_media:
+            print(f"***Goodbye: no call media available")
+            self._goodbye_playback_finished = True
+            return
+        
+        try:
+            self._goodbye_requested = True
+            print(f"***Goodbye: playing goodbye message: {goodbye_file}")
+            
+            # Get WAV file duration
+            from .utils import get_wav_duration
+            goodbye_duration = get_wav_duration(goodbye_file)
+            if goodbye_duration is None:
+                goodbye_duration = getattr(self._acc_ref, 'message_duration', 3)
+                print(f"***Goodbye: using fallback duration {goodbye_duration}s")
+            
+            # Create player for goodbye message
+            self._goodbye_player = pj.AudioMediaPlayer()
+            self._goodbye_player.createPlayer(goodbye_file, False)  # No loop
+            self._goodbye_player.startTransmit(self._call_media)  # goodbye -> remote
+            
+            # Monitor on local speakers
+            adm = pj.Endpoint.instance().audDevManager()
+            playback = adm.getPlaybackDevMedia()
+            self._call_media.startTransmit(playback)  # remote -> local speakers (monitor goodbye)
+            
+            self._goodbye_playback_started = True
+            self._goodbye_stop_time = time.time() + goodbye_duration
+            
+            # Collect goodbye playback started event
+            self._collect_event(
+                event_type="goodbye_playback_started",
+                media_type="audio",
+                file_played=goodbye_file
+            )
+            
+            print(f"***Goodbye: started playing, will stop after {goodbye_duration:.2f} seconds")
+            
+        except Exception as e:
+            print(f"***Goodbye: error playing goodbye message: {e}")
+            self._goodbye_playback_finished = True
+            # Collect error event
+            self._collect_event(
+                event_type="goodbye_playback_error",
+                media_type="audio",
+                error=str(e)
+            )
+    
+    def check_goodbye_status(self):
+        """Check if goodbye playback has finished."""
+        if not self._goodbye_playback_started:
+            return
+        
+        current_time = time.time()
+        
+        # Check if it's time to stop the goodbye player
+        if self._goodbye_stop_time and current_time >= self._goodbye_stop_time and not self._goodbye_playback_finished:
+            if self._goodbye_player and self._call_media:
+                try:
+                    # Stop the transmission from goodbye player to call media
+                    self._goodbye_player.stopTransmit(self._call_media)
+                    print("***Goodbye: stopped player transmission")
+                    
+                    # Also stop the call media to playback transmission
+                    adm = pj.Endpoint.instance().audDevManager()
+                    playback = adm.getPlaybackDevMedia()
+                    self._call_media.stopTransmit(playback)
+                    
+                    # Destroy the goodbye player
+                    self._goodbye_player = None
+                    print("***Goodbye: destroyed player")
+                    
+                except Exception as e:
+                    print(f"***Goodbye: error stopping player transmission: {e}")
+            
+            # Mark goodbye playback finished
+            if not self._goodbye_playback_finished:
+                print("***Goodbye: finished. Will hang up now.")
+                
+                # Collect goodbye playback finished event
+                self._collect_event(
+                    event_type="goodbye_playback_finished",
+                    media_type="audio",
+                    file_played=getattr(self._acc_ref, 'goodbye_file', None)
+                )
+                
+                self._goodbye_playback_finished = True
+                # Set immediate hangup time now that goodbye is done
+                self._hangup_time = time.time() + 0.5  # Small delay to ensure audio finishes
+                self._goodbye_stop_time = None
     
     def _cleanup_recording(self):
         """Clean up recording resources safely."""
+        # Prevent double cleanup
+        if self._cleanup_done:
+            print(f"***Recording: cleanup already done, skipping")
+            return
+        self._cleanup_done = True
+        
+        # Finalize any active VAD chunks before cleanup
+        if self._vad and self._vad.available:
+            try:
+                self._vad.finalize_all_chunks(time.time)
+                chunks = self._vad.get_chunks()
+                if chunks:
+                    print(f"***VAD: finalized {len(chunks)} voice chunk(s) at call end")
+                    for i, chunk in enumerate(chunks):
+                        file_info = f", saved to {chunk.file_path}" if chunk.file_path else ", file not saved"
+                        print(f"***VAD: chunk {i+1} - duration={chunk.duration_seconds:.2f}s, samples={chunk.start_sample_idx}-{chunk.end_sample_idx}{file_info}")
+            except Exception as e:
+                print(f"***VAD: error finalizing chunks: {e}")
+        
         # Clean up incoming recording
         if self._recorder:
             try:
-                # Stop recording transmission using stored reference
+                # Try to stop transmission, but don't worry if it fails (ports may already be disconnected)
                 if self._recording_call_media and self._recorder:
                     try:
-                        print(f"***Recording: stopping incoming transmission from call media")
                         self._recording_call_media.stopTransmit(self._recorder)
-                        print(f"***Recording: incoming transmission stopped successfully")
-                    except Exception as e:
-                        print(f"***Recording: incoming stopTransmit failed (media may already be disconnected): {e}")
-                else:
-                    print(f"***Recording: WARNING - no incoming call media reference or recorder for cleanup")
+                    except Exception:
+                        # Ports already disconnected, ignore silently
+                        pass
                 
-                # Destroy the recorder to ensure file is properly closed
-                if self._recorder:
-                    try:
-                        print(f"***Recording: destroying incoming recorder")
-                        # Try to destroy the recorder explicitly if the method exists
-                        if hasattr(self._recorder, 'destroy'):
-                            self._recorder.destroy()
-                        self._recorder = None
-                        print(f"***Recording: incoming recorder destroyed successfully")
-                    except Exception as e:
-                        print(f"***Recording: incoming recorder destruction failed: {e}")
+                # Don't explicitly destroy the recorder - let PJSUA2 handle it
                         self._recorder = None
                 
                 self._recording_call_media = None
@@ -612,28 +807,15 @@ class AnyCall(pj.Call):
         # Clean up outgoing recording
         if self._outgoing_recorder:
             try:
-                # Stop outgoing recording transmission using stored reference
+                # Try to stop transmission, but don't worry if it fails (ports may already be disconnected)
                 if self._outgoing_recording_call_media and self._outgoing_recorder:
                     try:
-                        print(f"***Recording: stopping outgoing transmission from player")
                         self._outgoing_recording_call_media.stopTransmit(self._outgoing_recorder)
-                        print(f"***Recording: outgoing transmission stopped successfully")
-                    except Exception as e:
-                        print(f"***Recording: outgoing stopTransmit failed (player may already be disconnected): {e}")
-                else:
-                    print(f"***Recording: WARNING - no outgoing player reference or recorder for cleanup")
+                    except Exception:
+                        # Ports already disconnected, ignore silently
+                        pass
                 
-                # Destroy the outgoing recorder to ensure file is properly closed
-                if self._outgoing_recorder:
-                    try:
-                        print(f"***Recording: destroying outgoing recorder")
-                        # Try to destroy the recorder explicitly if the method exists
-                        if hasattr(self._outgoing_recorder, 'destroy'):
-                            self._outgoing_recorder.destroy()
-                        self._outgoing_recorder = None
-                        print(f"***Recording: outgoing recorder destroyed successfully")
-                    except Exception as e:
-                        print(f"***Recording: outgoing recorder destruction failed: {e}")
+                # Don't explicitly destroy the recorder - let PJSUA2 handle it
                         self._outgoing_recorder = None
                 
                 self._outgoing_recording_call_media = None

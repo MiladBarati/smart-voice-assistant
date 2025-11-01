@@ -13,6 +13,7 @@ class Account(pj.Account):
         self.auto_answer = False
         self.calls = {}  # keep strong refs to live calls
         self.play_file = None  # optional WAV file to play on connect
+        self.goodbye_file = None  # optional WAV file to play before hanging up
         # Batch logging - collect events during account lifetime
         self._collected_events = []
 

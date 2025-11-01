@@ -9,799 +9,21 @@ import socket
 from datetime import datetime
 
 import pjsua2 as pj
-from elasticsearch_client import es_logger
-import uuid
 
-
-# ---------- Helpers ----------
-
-def generate_unique_id() -> str:
-    """Generate a unique call ID."""
-    return str(uuid.uuid4())
-
-def _parse_sip_user(uri: str) -> str:
-    """Extract user/extension from a SIP URI or display-formatted URI.
-    Examples:
-      'sip:1001@host' -> '1001'
-      '"Alice" <sip:1002@host>' -> '1002'
-    """
-    if not uri:
-        return ""
-    try:
-        s = uri
-        if '<' in s and '>' in s:
-            s = s[s.find('<')+1:s.find('>')]
-        if s.startswith('sip:'):
-            s = s[4:]
-        if '@' in s:
-            s = s.split('@', 1)[0]
-        # strip quotes and whitespace
-        return s.strip().strip('"')
-    except Exception:
-        return uri
-
-def setup_logging(log_level: int = 3) -> None:
-    """Setup logging configuration."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(),
-        ]
-    )
-    
-    # Set PJSUA2 log level
-    pj_logger = logging.getLogger('pjsua2')
-    pj_logger.setLevel(logging.INFO)
-
-def get_wav_duration(file_path: str) -> float:
-    """Get the duration of a WAV file in seconds."""
-    try:
-        if not os.path.exists(file_path):
-            print(f"***Warning: File {file_path} not found, using default duration")
-            return 5.0  # Default fallback
-        
-        with wave.open(file_path, 'rb') as wav_file:
-            frames = wav_file.getnframes()
-            sample_rate = wav_file.getframerate()
-            duration = frames / float(sample_rate)
-            print(f"***WAV file duration: {duration:.2f} seconds")
-            return duration
-    except Exception as e:
-        print(f"***Error reading WAV file duration: {e}, using default duration")
-        return 5.0  # Default fallback
-
-def ensure_recording_directory(base_path: str) -> str:
-    """Ensure recording directory exists and return the full path for current date.
-    
-    Creates directory structure: {base_path}/YYYY-MM-DD/
-    Returns the full path for the current date.
-    """
-    try:
-        # Create date-specific subdirectory directly under base_path
-        current_date = datetime.now().strftime("%Y-%m-%d")
-        date_dir = os.path.join(base_path, current_date)
-        os.makedirs(date_dir, exist_ok=True)
-        
-        print(f"***Recording directory: {date_dir}")
-        return date_dir
-    except Exception as e:
-        print(f"***Error creating recording directory: {e}")
-        # Fallback to base path if date directory creation fails
-        return base_path
-
-
-def pump_events(ep: pj.Endpoint, ms_per_iter: int = 50) -> None:
-    """Pump the PJSUA2 event loop once."""
-    try:
-        ep.libHandleEvents(ms_per_iter)
-    except Exception as e:
-        print(f"***EventLoop error: {e}")
-
-
-def wait_until(ep: pj.Endpoint, predicate, timeout_s: float) -> bool:
-    """Pump events until predicate() is True or timeout (in seconds) elapses."""
-    deadline = time.time() + timeout_s
-    while time.time() < deadline:
-        pump_events(ep, 50)
-        if predicate():
-            return True
-    return False
-
-
-# ---------- PJSUA2 classes ----------
-
-class Account(pj.Account):
-    def __init__(self):
-        super().__init__()
-        self.auto_answer = False
-        self.calls = {}  # keep strong refs to live calls
-        self.play_file = None  # optional WAV file to play on connect
-        # Batch logging - collect events during account lifetime
-        self._collected_events = []
-
-    def _collect_event(self, event_type: str, **kwargs):
-        """Collect an event for batch logging."""
-        event = {
-            "event_type": event_type,
-            "@timestamp": datetime.utcnow().isoformat() + "Z",
-            "call_id": generate_unique_id(),
-            **kwargs
-        }
-        self._collected_events.append(event)
-
-    def onRegState(self, prm):
-        print(f"***OnRegState: {prm.reason}")
-        info = self.getInfo()
-        print(f"***RegStatus: active={info.regIsActive} code={info.regStatus}")
-        
-        # Collect registration event
-        event_type = "registration_success" if (info.regIsActive and info.regStatus == 200) else "registration_failed"
-        self._collect_event(
-            event_type=event_type,
-            user=getattr(self, 'username', 'unknown'),
-            domain=getattr(self, 'domain', 'unknown'),
-            status=prm.reason,
-            code=info.regStatus,
-            active=info.regIsActive,
-            reason=prm.reason
-        )
-        
-        if info.regIsActive and info.regStatus == 200:
-            print("***Registered successfully")
-
-    def onIncomingCall(self, prm):
-        print("***IncomingCall: ringing")
-        try:
-            call = AnyCall(self, prm.callId)
-            self.calls[prm.callId] = call  # <-- keep it!
-            
-            # Parse caller information early
-            try:
-                call_info = call.getInfo()
-                remote_uri = call_info.remoteUri
-                call._caller_number = _parse_sip_user(remote_uri)
-                print(f"***IncomingCall: caller identified as {call._caller_number}")
-            except Exception as e:
-                print(f"***IncomingCall: could not parse caller info: {e}")
-                call._caller_number = "unknown"
-            
-            # Collect incoming call event
-            self._collect_event(
-                event_type="incoming_call",
-                call_id=str(prm.callId),
-                call_state="ringing",
-                auto_answer=self.auto_answer
-            )
-            
-            op = pj.CallOpParam()
-            if self.auto_answer:
-                op.statusCode = 200
-                call.answer(op)
-                print("***IncomingCall: auto-answered 200 OK")
-                
-                # Collect call answered event
-                self._collect_event(
-                    event_type="call_answered",
-                    call_id=str(prm.callId),
-                    call_state="answered",
-                    call_code=200
-                )
-            else:
-                op.statusCode = 180
-                call.answer(op)
-                print("***IncomingCall: sent 180 Ringing")
-                
-                # Collect call ringing event
-                self._collect_event(
-                    event_type="call_ringing",
-                    call_id=str(prm.callId),
-                    call_state="ringing",
-                    call_code=180
-                )
-        except Exception as e:
-            print(f"***IncomingCall error: {e}")
-            # Collect error event
-            self._collect_event(
-                event_type="call_error",
-                call_id=str(prm.callId),
-                call_state="error",
-                error=str(e)
-            )
-
-
-class OutCall(pj.Call):
-    def __init__(self, acc: pj.Account):
-        super().__init__(acc)
-        self.connected = False
-        self._acc_ref = acc
-        self._player = None
-        # Batch logging - collect events during call
-        self._collected_events = []
-
-    def _collect_event(self, event_type: str, **kwargs):
-        """Collect an event for batch logging at the end of the call."""
-        event = {
-            "event_type": event_type,
-            "@timestamp": datetime.utcnow().isoformat() + "Z",
-            "call_id": str(self.getId()) if hasattr(self, 'getId') else "unknown",
-            **kwargs
-        }
-        self._collected_events.append(event)
-
-    def onCallState(self, prm):
-        ci = self.getInfo()
-        print(f"***CallState: state={ci.stateText} code={ci.lastStatusCode}")
-        
-        # Collect call state change event
-        self._collect_event(
-            event_type="call_state_change",
-            call_state=ci.stateText,
-            call_code=ci.lastStatusCode,
-            state=ci.state,
-            state_text=ci.stateText,
-            last_status_code=ci.lastStatusCode
-        )
-        
-        if ci.state == pj.PJSIP_INV_STATE_CONFIRMED:
-            self.connected = True
-        if ci.state == pj.PJSIP_INV_STATE_DISCONNECTED:
-            self.connected = False
-            
-            # drop player reference so it can be cleaned up
-            self._player = None
-
-    def onCallMediaState(self, prm):
-        ci = self.getInfo()
-        for mi in ci.media:
-            if mi.type == pj.PJMEDIA_TYPE_AUDIO and mi.status == pj.PJSUA_CALL_MEDIA_ACTIVE:
-                try:
-                    # Collect media active event
-                    self._collect_event(
-                        event_type="media_active",
-                        media_type="audio",
-                        media_status="active"
-                    )
-                    
-                    call_media = self.getAudioMedia(mi.index)
-                    adm = pj.Endpoint.instance().audDevManager()
-                    playback = adm.getPlaybackDevMedia()
-                    # If a play file is configured, play it to the remote side
-                    if getattr(self._acc_ref, "play_file", None):
-                        try:
-                            self._player = pj.AudioMediaPlayer()
-                            # Create player with loop=False to play only once
-                            self._player.createPlayer(self._acc_ref.play_file, False)
-                            self._player.startTransmit(call_media)  # file -> remote
-                            call_media.startTransmit(playback)      # remote -> local speakers (monitor)
-                            print(f"***Media: playing file to remote: {self._acc_ref.play_file}")
-                            
-                            # Collect playback started event
-                            self._collect_event(
-                                event_type="playback_started",
-                                media_type="audio",
-                                file_played=self._acc_ref.play_file
-                            )
-                        except Exception as e:
-                            print(f"***Media player error: {e}")
-                            # Collect media error event
-                            self._collect_event(
-                                event_type="media_error",
-                                media_type="audio",
-                                error=str(e)
-                            )
-                    else:
-                        capture = adm.getCaptureDevMedia()
-                        # Bridge call <-> sound device
-                        call_media.startTransmit(playback)   # remote -> speakers
-                        capture.startTransmit(call_media)     # mic -> remote
-                        print("***Media: audio bridged to sound device")
-                        
-                        # Collect audio bridge event
-                        self._collect_event(
-                            event_type="audio_bridged",
-                            media_type="audio",
-                            media_status="bridged"
-                        )
-                except Exception as e:
-                    print(f"***Media error: {e}")
-                    # Collect media error event
-                    self._collect_event(
-                        event_type="media_error",
-                        media_type="audio",
-                        error=str(e)
-                    )
-
-
-class AnyCall(pj.Call):
-    def __init__(self, acc: pj.Account, call_id: int):
-        super().__init__(acc, call_id)
-        self._acc_ref = acc  # keep backref for settings
-        self.unique_call_id = generate_unique_id()
-        self._player = None
-        self._playback_started = False
-        self._playback_finished = False
-        self._hangup_time = None
-        self._stop_player_time = None
-        self._call_media = None
-        # Call record tracking
-        self._start_time_utc = None
-        self._end_time_utc = None
-        self._direction = None  # inbound/outbound
-        self._caller_number = None
-        self._callee_ext = None
-        # Voice recording infrastructure
-        self._recorder = None
-        self._recording_file = None
-        self._recording_enabled = False
-        self._recording_call_media = None
-        # Outgoing audio recording infrastructure
-        self._outgoing_recorder = None
-        self._outgoing_recording_file = None
-        self._outgoing_recording_call_media = None
-        # Batch logging - collect events during call
-        self._collected_events = []
-
-    def _collect_event(self, event_type: str, **kwargs):
-        """Collect an event for batch logging at the end of the call."""
-        event = {
-            "event_type": event_type,
-            "@timestamp": datetime.utcnow().isoformat() + "Z",
-            "call_id": str(self.getId()) if hasattr(self, 'getId') else "unknown",
-            **kwargs
-        }
-        self._collected_events.append(event)
-
-    def onCallState(self, prm):
-        ci = self.getInfo()
-        print(f"***CallState: state={ci.stateText} code={ci.lastStatusCode}")
-        
-        # Collect call state change event
-        self._collect_event(
-            event_type="call_state_change",
-            call_state=ci.stateText,
-            call_code=ci.lastStatusCode,
-            state=ci.state,
-            state_text=ci.stateText,
-            last_status_code=ci.lastStatusCode
-        )
-        
-        # Mark start when early state observed
-        if self._start_time_utc is None and ci.connectDuration.sec == 0:
-            self._start_time_utc = datetime.utcnow()
-
-        if ci.state == pj.PJSIP_INV_STATE_CONFIRMED and self._start_time_utc is None:
-            self._start_time_utc = datetime.utcnow()
-
-        # Fill caller/callee and direction from call info
-        try:
-            remote_uri = ci.remoteUri
-            local_uri = ci.localUri
-            self._caller_number = _parse_sip_user(remote_uri)
-            self._callee_ext = _parse_sip_user(local_uri)
-            # If this account auto-answers incoming -> inbound
-            self._direction = "inbound"
-        except Exception:
-            pass
-
-        if ci.state == pj.PJSIP_INV_STATE_DISCONNECTED:
-            # Clean up recording early to avoid media disconnect issues
-            self._cleanup_recording()
-            
-            # Build call record and send as a single log
-            try:
-                self._end_time_utc = datetime.utcnow()
-                start_iso = self._start_time_utc.isoformat() + "Z" if self._start_time_utc else None
-                end_iso = self._end_time_utc.isoformat() + "Z"
-                duration_sec = None
-                if self._start_time_utc:
-                    duration_sec = int((self._end_time_utc - self._start_time_utc).total_seconds())
-
-                call_record = {
-                    "event_type": "call_record",
-                    "call_id": generate_unique_id(),
-                    "caller_number": self._caller_number,
-                    "callee_ext": self._callee_ext,
-                    "start_time": start_iso,
-                    "end_time": end_iso,
-                    "duration_sec": duration_sec,
-                    "status": "disconnected",
-                    "direction": self._direction or "inbound",
-                    "media": {
-                        "file_played": getattr(self._acc_ref, 'play_file', None),
-                        "playback_started": self._playback_started,
-                        "playback_finished": self._playback_finished
-                    },
-                    "recording": getattr(self, '_recording_metadata', None),
-                    "bot": {
-                        "auto_answer": getattr(self._acc_ref, 'auto_answer', False),
-                        "domain": getattr(self._acc_ref, 'domain', None),
-                        "user": getattr(self._acc_ref, 'username', None)
-                    },
-                    "host": socket.gethostname(),
-                    "ingest_ts": datetime.utcnow().isoformat() + "Z"
-                }
-                es_logger.log_call_record(call_record)
-                
-            except Exception as e:
-                print(f"***Error sending single call record: {e}")
-            
-            # cleanup: drop strong reference so GC can collect safely now
-            try:
-                del self._acc_ref.calls[ci.id]   # id is the call-id index in pjsua2
-            except Exception:
-                # some bindings use self.getId() or store the key from onIncomingCall
-                # safe fallback: clear everything if unknown
-                self._acc_ref.calls = {k:v for k,v in self._acc_ref.calls.items() if v is not self}
-            # also release any active player
-            self._player = None
-            
-            # Cleanup recording
-            self._cleanup_recording()
-            
-            # Add recording metadata to call record
-            recording_metadata = {}
-            
-            # Add incoming recording metadata
-            if self._recording_file and os.path.exists(self._recording_file):
-                incoming_file_size = os.path.getsize(self._recording_file)
-                recording_metadata["incoming"] = {
-                    "file_path": self._recording_file,
-                    "file_size_bytes": incoming_file_size,
-                    "recorded": True
-                }
-                
-                # Collect incoming recording finished event
-                self._collect_event(
-                    event_type="recording_finished",
-                    media_type="audio",
-                    recording_file=self._recording_file,
-                    file_size_bytes=incoming_file_size,
-                    direction="incoming"
-                )
-            
-            # Add outgoing recording metadata
-            if self._outgoing_recording_file and os.path.exists(self._outgoing_recording_file):
-                outgoing_file_size = os.path.getsize(self._outgoing_recording_file)
-                recording_metadata["outgoing"] = {
-                    "file_path": self._outgoing_recording_file,
-                    "file_size_bytes": outgoing_file_size,
-                    "recorded": True
-                }
-                
-                # Collect outgoing recording finished event
-                self._collect_event(
-                    event_type="outgoing_recording_finished",
-                    media_type="audio",
-                    recording_file=self._outgoing_recording_file,
-                    file_size_bytes=outgoing_file_size,
-                    direction="outgoing"
-                )
-            
-            # Store recording metadata for call record
-            if recording_metadata:
-                self._recording_metadata = recording_metadata
-
-    def onCallMediaState(self, prm):
-        ci = self.getInfo()
-        for mi in ci.media:
-            if mi.type == pj.PJMEDIA_TYPE_AUDIO and mi.status == pj.PJSUA_CALL_MEDIA_ACTIVE:
-                try:
-                    call_media = self.getAudioMedia(mi.index)
-                    adm = pj.Endpoint.instance().audDevManager()
-                    playback = adm.getPlaybackDevMedia()
-                    
-                    # Voice recording setup (if enabled)
-                    if getattr(self._acc_ref, 'enable_recording', False):
-                        try:
-                            recording_dir = ensure_recording_directory(
-                                getattr(self._acc_ref, 'recording_path', './recordings')
-                            )
-                            # Try to get caller number if still unknown
-                            caller_id = self._caller_number or 'unknown'
-                            if caller_id == 'unknown':
-                                try:
-                                    call_info = self.getInfo()
-                                    remote_uri = call_info.remoteUri
-                                    caller_id = _parse_sip_user(remote_uri) or 'unknown'
-                                    self._caller_number = caller_id
-                                    print(f"***Recording: caller identified as {caller_id}")
-                                except Exception as e:
-                                    print(f"***Recording: could not parse caller info: {e}")
-                            
-                            filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{caller_id}_incoming.wav"
-                            self._recording_file = os.path.join(recording_dir, filename)
-                            
-                            # Debug: Check directory and permissions
-                            print(f"***Recording: directory exists: {os.path.exists(recording_dir)}")
-                            print(f"***Recording: directory writable: {os.access(recording_dir, os.W_OK)}")
-                            print(f"***Recording: full file path: {self._recording_file}")
-                            
-                            # Test: Create a simple test file to verify permissions
-                            test_file = os.path.join(recording_dir, "test_permissions.tmp")
-                            try:
-                                with open(test_file, 'w') as f:
-                                    f.write("test")
-                                os.remove(test_file)
-                                print(f"***Recording: directory permissions OK")
-                            except Exception as e:
-                                print(f"***Recording: ERROR - directory permission test failed: {e}")
-                            
-                            self._recorder = pj.AudioMediaRecorder()
-                            # Try different encoding options
-                            try:
-                                # Try with WAV format explicitly
-                                self._recorder.createRecorder(self._recording_file, 0, 0)  # 0 = WAV, 0 = no size limit
-                                print(f"***Recording: createRecorder succeeded with WAV format")
-                            except Exception as e:
-                                print(f"***Recording: createRecorder failed: {e}")
-                                # Try fallback approach
-                                try:
-                                    self._recorder.createRecorder(self._recording_file, 0, "")  # Original approach
-                                    print(f"***Recording: createRecorder succeeded with fallback")
-                                except Exception as e2:
-                                    print(f"***Recording: createRecorder failed with fallback: {e2}")
-                                    raise e2
-                            call_media.startTransmit(self._recorder)  # remote → recorder
-                            self._recording_call_media = call_media  # Store reference for cleanup
-                            print(f"***Recording: started capturing to {self._recording_file}")
-                            
-                            # Verify recorder was created successfully
-                            if self._recorder:
-                                print(f"***Recording: AudioMediaRecorder created successfully")
-                                # Check if file was created immediately
-                                if os.path.exists(self._recording_file):
-                                    print(f"***Recording: file created immediately: {self._recording_file}")
-                                else:
-                                    print(f"***Recording: file not created yet (normal for PJSUA2)")
-                            else:
-                                print(f"***Recording: ERROR - AudioMediaRecorder creation failed")
-                            
-                            # Collect recording started event
-                            self._collect_event(
-                                event_type="recording_started",
-                                media_type="audio",
-                                recording_file=self._recording_file
-                            )
-                        except Exception as e:
-                            print(f"***Recording setup error: {e}")
-                            # Collect recording error event
-                            self._collect_event(
-                                event_type="recording_error",
-                                media_type="audio",
-                                error=str(e)
-                            )
-                    
-                    # If a play file is configured, play it to the remote side
-                    if getattr(self._acc_ref, "play_file", None):
-                        try:
-                            self._player = pj.AudioMediaPlayer()
-                            # Create player with loop=False to play only once
-                            self._player.createPlayer(self._acc_ref.play_file, False)
-                            self._player.startTransmit(call_media)  # file -> remote
-                            call_media.startTransmit(playback)      # remote -> local speakers (monitor)
-                            print(f"***Media: playing file to remote: {self._acc_ref.play_file}")
-                            
-                            # Record outgoing audio (bot's welcome message) if recording is enabled
-                            if getattr(self._acc_ref, 'enable_recording', False):
-                                try:
-                                    recording_dir = ensure_recording_directory(
-                                        getattr(self._acc_ref, 'recording_path', './recordings')
-                                    )
-                                    # Use the same caller_id that was determined for incoming recording
-                                    outgoing_filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{caller_id}_outgoing.wav"
-                                    self._outgoing_recording_file = os.path.join(recording_dir, outgoing_filename)
-                                    
-                                    self._outgoing_recorder = pj.AudioMediaRecorder()
-                                    self._outgoing_recorder.createRecorder(self._outgoing_recording_file, 0, 0)
-                                    self._player.startTransmit(self._outgoing_recorder)  # player -> outgoing recorder
-                                    self._outgoing_recording_call_media = self._player
-                                    print(f"***Recording: started capturing outgoing audio to {self._outgoing_recording_file}")
-                                    
-                                    # Collect outgoing recording started event
-                                    self._collect_event(
-                                        event_type="outgoing_recording_started",
-                                        media_type="audio",
-                                        recording_file=self._outgoing_recording_file
-                                    )
-                                except Exception as e:
-                                    print(f"***Outgoing recording setup error: {e}")
-                                    self._collect_event(
-                                        event_type="outgoing_recording_error",
-                                        media_type="audio",
-                                        error=str(e)
-                                    )
-                            
-                            # Mark playback as started and set a timer to stop transmission
-                            if not self._playback_started:
-                                self._playback_started = True
-                                print("***Welcome message playback started")
-                                
-                                # Collect playback started event
-                                self._collect_event(
-                                    event_type="playback_started",
-                                    media_type="audio",
-                                    file_played=self._acc_ref.play_file
-                                )
-                                
-                                # Set a timer to stop the player transmission after actual duration
-                                message_duration = getattr(self._acc_ref, 'message_duration', 5)
-                                self._stop_player_time = time.time() + message_duration
-                                print(f"***Will stop player after {message_duration:.2f} seconds")
-                                # Store the call media for later use
-                                self._call_media = call_media
-                        except Exception as e:
-                            print(f"***Media player error: {e}")
-                    else:
-                        capture = adm.getCaptureDevMedia()
-                        call_media.startTransmit(playback)
-                        capture.startTransmit(call_media)
-                        print("***Media: audio bridged to sound device")
-                except Exception as e:
-                    print(f"***Media error: {e}")
-    
-    def check_playback_status(self):
-        """Check if playback has finished and set hangup time if needed."""
-        if not self._playback_started or self._playback_finished:
-            return
-            
-        current_time = time.time()
-        
-        # Check if it's time to stop the player transmission
-        if self._stop_player_time and current_time >= self._stop_player_time:
-            if self._player and self._call_media:
-                try:
-                    # Stop the transmission from player to call media
-                    self._player.stopTransmit(self._call_media)
-                    print("***Stopped player transmission to prevent looping")
-                    
-                    # Also stop the call media to playback transmission to break the audio path
-                    adm = pj.Endpoint.instance().audDevManager()
-                    playback = adm.getPlaybackDevMedia()
-                    self._call_media.stopTransmit(playback)
-                    print("***Stopped call media to playback transmission")
-                    
-                    # Destroy the player completely
-                    self._player = None
-                    print("***Destroyed player")
-                    
-                except Exception as e:
-                    print(f"***Error stopping player transmission: {e}")
-            
-            # Set hangup time
-            if not self._hangup_time:
-                hangup_delay = getattr(self._acc_ref, 'hangup_delay', 2)
-                self._hangup_time = time.time() + hangup_delay
-                print(f"***Welcome message finished. Will hang up in {hangup_delay} seconds")
-                
-                # Collect playback finished event
-                self._collect_event(
-                    event_type="playback_finished",
-                    media_type="audio",
-                    file_played=getattr(self._acc_ref, 'play_file', None)
-                )
-                
-                self._playback_finished = True
-    
-    def _set_hangup_time(self):
-        """Set the time when the call should be hung up (2 seconds after playback finishes)."""
-        hangup_delay = getattr(self._acc_ref, 'hangup_delay', 2)
-        self._hangup_time = time.time() + hangup_delay
-        print(f"***Welcome message finished. Will hang up in {hangup_delay} seconds")
-    
-    def should_hangup(self):
-        """Check if it's time to hang up the call."""
-        if self._hangup_time and time.time() >= self._hangup_time:
-            return True
-        return False
-    
-    def _cleanup_recording(self):
-        """Clean up recording resources safely."""
-        # Clean up incoming recording
-        if self._recorder:
-            try:
-                # Stop recording transmission using stored reference
-                if self._recording_call_media and self._recorder:
-                    try:
-                        print(f"***Recording: stopping incoming transmission from call media")
-                        self._recording_call_media.stopTransmit(self._recorder)
-                        print(f"***Recording: incoming transmission stopped successfully")
-                    except Exception as e:
-                        print(f"***Recording: incoming stopTransmit failed (media may already be disconnected): {e}")
-                else:
-                    print(f"***Recording: WARNING - no incoming call media reference or recorder for cleanup")
-                
-                # Destroy the recorder to ensure file is properly closed
-                if self._recorder:
-                    try:
-                        print(f"***Recording: destroying incoming recorder")
-                        # Try to destroy the recorder explicitly if the method exists
-                        if hasattr(self._recorder, 'destroy'):
-                            self._recorder.destroy()
-                        self._recorder = None
-                        print(f"***Recording: incoming recorder destroyed successfully")
-                    except Exception as e:
-                        print(f"***Recording: incoming recorder destruction failed: {e}")
-                        self._recorder = None
-                
-                self._recording_call_media = None
-                print(f"***Recording: incoming audio stopped and saved to {self._recording_file}")
-                
-                # Check if file actually exists
-                if self._recording_file:
-                    if os.path.exists(self._recording_file):
-                        print(f"***Recording: incoming file confirmed to exist at {self._recording_file}")
-                    else:
-                        print(f"***Recording: WARNING - incoming file not found at {self._recording_file}")
-                        # Wait a moment and check again (PJSUA2 might need time to flush)
-                        import time
-                        time.sleep(0.5)
-                        if os.path.exists(self._recording_file):
-                            print(f"***Recording: incoming file found after delay at {self._recording_file}")
-                        else:
-                            print(f"***Recording: incoming file still not found after delay")
-                            
-            except Exception as e:
-                print(f"***Recording cleanup error: {e}")
-                # Collect recording cleanup error event
-                self._collect_event(
-                    event_type="recording_cleanup_error",
-                    media_type="audio",
-                    error=str(e)
-                )
-        
-        # Clean up outgoing recording
-        if self._outgoing_recorder:
-            try:
-                # Stop outgoing recording transmission using stored reference
-                if self._outgoing_recording_call_media and self._outgoing_recorder:
-                    try:
-                        print(f"***Recording: stopping outgoing transmission from player")
-                        self._outgoing_recording_call_media.stopTransmit(self._outgoing_recorder)
-                        print(f"***Recording: outgoing transmission stopped successfully")
-                    except Exception as e:
-                        print(f"***Recording: outgoing stopTransmit failed (player may already be disconnected): {e}")
-                else:
-                    print(f"***Recording: WARNING - no outgoing player reference or recorder for cleanup")
-                
-                # Destroy the outgoing recorder to ensure file is properly closed
-                if self._outgoing_recorder:
-                    try:
-                        print(f"***Recording: destroying outgoing recorder")
-                        # Try to destroy the recorder explicitly if the method exists
-                        if hasattr(self._outgoing_recorder, 'destroy'):
-                            self._outgoing_recorder.destroy()
-                        self._outgoing_recorder = None
-                        print(f"***Recording: outgoing recorder destroyed successfully")
-                    except Exception as e:
-                        print(f"***Recording: outgoing recorder destruction failed: {e}")
-                        self._outgoing_recorder = None
-                
-                self._outgoing_recording_call_media = None
-                print(f"***Recording: outgoing audio stopped and saved to {self._outgoing_recording_file}")
-                
-                # Check if outgoing file actually exists
-                if self._outgoing_recording_file:
-                    if os.path.exists(self._outgoing_recording_file):
-                        print(f"***Recording: outgoing file confirmed to exist at {self._outgoing_recording_file}")
-                    else:
-                        print(f"***Recording: WARNING - outgoing file not found at {self._outgoing_recording_file}")
-                        # Wait a moment and check again (PJSUA2 might need time to flush)
-                        import time
-                        time.sleep(0.5)
-                        if os.path.exists(self._outgoing_recording_file):
-                            print(f"***Recording: outgoing file found after delay at {self._outgoing_recording_file}")
-                        else:
-                            print(f"***Recording: outgoing file still not found after delay")
-                            
-            except Exception as e:
-                print(f"***Outgoing recording cleanup error: {e}")
-                # Collect outgoing recording cleanup error event
-                self._collect_event(
-                    event_type="outgoing_recording_cleanup_error",
-                    media_type="audio",
-                    error=str(e)
-                )
+# Support running both as a module and as a script
+if __package__ in (None, ""):
+    import os
+    # Add parent directory (the 'src' root) so absolute imports work when executed directly
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    from pjsua_bot.utils import setup_logging, get_wav_duration, pump_events, wait_until
+    from pjsua_bot.account import Account
+    from pjsua_bot.calls import OutCall
+    from pjsua_bot.elasticsearch_client import es_logger
+else:
+    from .utils import setup_logging, get_wav_duration, pump_events, wait_until
+    from .account import Account
+    from .calls import OutCall
+    from .elasticsearch_client import es_logger
 
 
 # ---------- Main ----------
@@ -826,10 +48,14 @@ def main() -> None:
     parser.add_argument("--tls-verify", action="store_true", help="Verify TLS server certificate (when --transport tls)")
     parser.add_argument("--log-level", type=int, default=3, help="Endpoint log level (0-6)")
     parser.add_argument("--play-file", default="welcome_message.wav", help="Path to WAV file to play to remote when call media is active (default: welcome_message.wav)")
-    parser.add_argument("--hangup-delay", type=int, default=2, help="Seconds to wait after welcome message before hanging up (default: 2)")
+    parser.add_argument("--goodbye-file", default="goodbye_voice.wav", help="Path to WAV file to play before hanging up (default: goodbye_voice.wav)")
+    parser.add_argument("--hangup-delay", type=int, default=2, help="Deprecated: fixed delay; overridden by VAD-based hangup if enabled")
     parser.add_argument("--message-duration", type=int, default=5, help="Fallback duration in seconds if WAV file cannot be read (default: 5)")
     parser.add_argument("--enable-recording", action="store_true", help="Enable voice capture for incoming calls (default: False)")
     parser.add_argument("--recording-path", default="./recordings", help="Base directory for storing recorded audio files (default: ./recordings)")
+    parser.add_argument("--enable-vad", action="store_true", help="Enable Silero VAD-based hangup after caller silence (default: False)")
+    parser.add_argument("--silence-after-speech-sec", type=float, default=3.0, help="Seconds of silence after last caller speech to hang up (default: 3.0)")
+    parser.add_argument("--vad-threshold", type=float, default=0.5, help="Silero VAD speech probability threshold (default: 0.5)")
     args = parser.parse_args()
 
     # Setup logging
@@ -846,8 +72,25 @@ def main() -> None:
     # Create and initialize the library
     ep_cfg = pj.EpConfig()
     ep_cfg.logConfig.level = args.log_level
+    med = ep_cfg.medConfig
+    med.clockRate       = 16000
+    med.sndClockRate    = 16000
+    med.channelCount    = 1
+    med.audioFramePtime = 20
+    med.ptime           = 20
+    med.quality         = 10
+    med.noVad           = False        # save bandwidth under loss
+    med.ecTailLen       = 512  # Increased from 256
+    med.ecOptions       = 1    # Ensure echo cancellation is enabled
+    med.jbInit          = 100
+    med.jbMinPre        = 80
+    med.jbMaxPre        = 300
+    med.jbMax           = 500
     ep = pj.Endpoint()
     
+
+    ep.libCreate()
+    ep.libInit(ep_cfg)
 
     # Graceful shutdown on SIGINT/SIGTERM
     stopping = {"flag": False}
@@ -860,8 +103,11 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _stop_handler)
 
     try:
-        ep.libCreate()
-        ep.libInit(ep_cfg)
+        
+        
+        # Codec configuration: PCMU (G.711) is used by default for good quality
+        # PJSUA2 by default uses PCMU/PCMA which provides 64kbps @ 8kHz - good quality for VoIP
+        print("***Codec: configured for wideband audio (16kHz), preferring Opus/G.722 over G.711")
 
         # Create SIP transport
         sipTpConfig = pj.TransportConfig()
@@ -880,7 +126,54 @@ def main() -> None:
             ep.transportCreate(pj.PJSIP_TRANSPORT_TLS, sipTpConfig)
             print(f"***Transport: TLS {args.local_port} verify={args.tls_verify}")
 
-        # Start the library
+        # Configure codec priorities BEFORE starting the library
+        try:
+            # # Set all codecs to lowest priority first
+            # for ci in ep.codecEnum():
+            #     ep.codecSetPriority(ci.codecId, 0)
+
+            # Set priorities based on what's actually available
+            # Prioritize wideband codecs that ARE available
+            codec_priorities = [
+                # Wideband codecs (prefer these)
+                ("speex/32000/1", 255),    # Ultra-wideband Speex (32kHz)
+                ("speex/16000/1", 250),    # Wideband Speex (16kHz) - good quality
+                ("G722/16000/1", 240),     # G.722 wideband (already working)
+                ("L16/44100/1", 200),      # Uncompressed (high quality, high bandwidth)
+                
+                # Narrowband codecs (lower priority - fallbacks)
+                ("PCMU/8000/1", 128),      # G.711 μ-law (narrowband)
+                ("PCMA/8000/1", 120),       # G.711 A-law (narrowband)
+                ("speex/8000/1", 100),      # Speex narrowband (lower than G.711)
+                ("GSM/8000/1", 80),         # GSM (lowest priority)
+                ("iLBC/8000/1", 70),        # iLBC (lowest priority)
+            ]
+
+            for codec_id, priority in codec_priorities:
+                try:
+                    ep.codecSetPriority(codec_id, priority)
+                    print(f"***Codec priority set: {codec_id} to {priority}")
+                except Exception:
+                    pass  # Ignore if not available
+
+            # After setting priorities, optionally disable unwanted codecs
+            # This forces negotiation to prefer better codecs
+            unwanted_codecs = [
+                ("GSM/8000/1", 0),          # Disable GSM
+                ("iLBC/8000/1", 0),         # Disable iLBC
+            ]
+            
+            for codec_id, _ in unwanted_codecs:
+                try:
+                    ep.codecSetPriority(codec_id, 0)  # 0 = disabled
+                    print(f"***Codec disabled: {codec_id}")
+                except Exception:
+                    pass  # Ignore if not available
+
+        except Exception as e:
+            print(f"***Codec priority config warning: {e}")
+
+        # Start the library after codec preferences are applied
         ep.libStart()
 
         # Set null audio device
@@ -912,9 +205,13 @@ def main() -> None:
         # Default to auto-answer unless explicitly disabled
         acc.auto_answer = args.auto_answer or not args.no_auto_answer
         acc.play_file = args.play_file
+        acc.goodbye_file = args.goodbye_file
         acc.hangup_delay = args.hangup_delay
         acc.enable_recording = args.enable_recording
         acc.recording_path = args.recording_path
+        acc.enable_vad = args.enable_vad
+        acc.silence_after_speech_sec = args.silence_after_speech_sec
+        acc.vad_threshold = args.vad_threshold
         # Store username and domain for logging
         acc.username = args.user
         acc.domain = args.domain
@@ -1015,9 +312,7 @@ def main() -> None:
                         try:
                             if call.isActive():
                                 print("***Auto-hanging up after welcome message")
-                                # Clean up recording before hanging up
-                                if hasattr(call, '_cleanup_recording'):
-                                    call._cleanup_recording()
+                                # Hangup will trigger onCallState(DISCONNECTED) which handles cleanup
                                 op = pj.CallOpParam()
                                 call.hangup(op)
                         except Exception as e:
