@@ -95,6 +95,12 @@ class SileroVAD:
         # VAD confidence tracking for metrics
         self._speech_probabilities: List[float] = []  # Track probabilities for speech frames
         
+        # Silence duration tracking
+        self._bot_playback_active: bool = False  # Track when bot is playing audio
+        self._current_silence_start: Optional[float] = None  # Start time of current silence period
+        self._total_silence_duration: float = 0.0  # Cumulative silence duration (when neither party speaks)
+        self._call_start_time: Optional[float] = None  # Call start time for silence tracking
+        
         self._load_model_if_possible()
 
     def _load_model_if_possible(self) -> None:
@@ -704,6 +710,65 @@ class SileroVAD:
             return None
         avg_confidence = sum(self._speech_probabilities) / len(self._speech_probabilities)
         return round(avg_confidence, 3)
+    
+    def set_bot_playback_state(self, is_playing: bool, monotonic_time_fn) -> None:
+        """Set the bot's audio playback state.
+        
+        Args:
+            is_playing: True if bot is currently playing audio, False otherwise
+            monotonic_time_fn: Callable returning current monotonic time
+        """
+        current_time = float(monotonic_time_fn())
+        
+        # If state changed, finalize current silence period if applicable
+        if self._bot_playback_active != is_playing:
+            self._finalize_current_silence(current_time)
+            self._bot_playback_active = is_playing
+            # Start new silence period if both parties are now silent
+            if not is_playing:
+                self._start_silence_period(current_time)
+    
+    def _start_silence_period(self, monotonic_time: float) -> None:
+        """Start tracking a silence period (neither party is speaking)."""
+        if self._current_silence_start is None:
+            self._current_silence_start = monotonic_time
+    
+    def _finalize_current_silence(self, monotonic_time: float) -> None:
+        """Finalize the current silence period and add to total."""
+        if self._current_silence_start is not None:
+            silence_duration = monotonic_time - self._current_silence_start
+            if silence_duration > 0:
+                self._total_silence_duration += silence_duration
+            self._current_silence_start = None
+    
+    def get_silence_duration(self, monotonic_time_fn) -> float:
+        """Get total silence duration when neither caller nor bot are speaking.
+        
+        Args:
+            monotonic_time_fn: Callable returning current monotonic time
+            
+        Returns:
+            Total silence duration in seconds (rounded to 2 decimal places).
+        """
+        current_time = float(monotonic_time_fn())
+        
+        # Finalize current silence period if active (this adds to total)
+        if self._current_silence_start is not None:
+            self._finalize_current_silence(current_time)
+            # If still in silence, restart tracking (for future calls)
+            if not self._bot_playback_active:
+                self._start_silence_period(current_time)
+        
+        return round(self._total_silence_duration, 2)
+    
+    def finalize_silence_tracking(self, monotonic_time_fn) -> None:
+        """Finalize silence tracking at call end. Call this when call is complete.
+        
+        Args:
+            monotonic_time_fn: Callable returning current monotonic time
+        """
+        current_time = float(monotonic_time_fn())
+        self._finalize_current_silence(current_time)
 
     def get_current_chunk(self) -> Optional[VoiceChunk]:
         """Get information about the current active chunk, if any."""
@@ -892,13 +957,23 @@ class SileroVAD:
                     has_speech=has_speech
                 )
                 
-                # Print all detections above threshold
+                # Track silence periods (when neither caller nor bot are speaking)
                 if has_speech:
+                    # Speech detected - end any current silence period
+                    self._finalize_current_silence(current_monotonic_time)
                     prev_time = self.last_speech_time_monotonic
                     self.last_speech_time_monotonic = current_monotonic_time
                     # Print when speech is first detected or after a gap (avoid spam on continuous speech)
                     if prev_time is None or (self.last_speech_time_monotonic - prev_time) > 0.5:
                         print(f"***VAD: speech detected (prob={prob:.3f}, time={self.last_speech_time_monotonic:.3f}, sample={original_sample_pos})")
+                else:
+                    # No speech detected - start silence period if bot is also not playing
+                    if not self._bot_playback_active:
+                        if self._current_silence_start is None:
+                            self._start_silence_period(current_monotonic_time)
+                    else:
+                        # Bot is playing, so this is not a silence period (bot is speaking)
+                        self._finalize_current_silence(current_monotonic_time)
         
         # Debug output: print max probability occasionally to diagnose issues
         if frames_processed > 0:

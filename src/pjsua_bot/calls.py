@@ -301,14 +301,19 @@ class AnyCall(pj.Call):
                 vad_metrics = None
                 if self._vad and self._vad.available:
                     try:
+                        # Finalize silence tracking at call end
+                        self._vad.finalize_silence_tracking(time.time)
+                        
                         speech_duration = self._vad.get_speech_duration()
                         chunk_count = self._vad.get_chunk_count()
                         vad_confidence = self._vad.get_vad_confidence()
+                        silence_duration = self._vad.get_silence_duration(time.time)
                         
                         vad_metrics = {
                             "speech_duration": speech_duration,
                             "chunk_count": chunk_count,
-                            "vad_confidence": vad_confidence
+                            "vad_confidence": vad_confidence,
+                            "silence_duration": silence_duration
                         }
                     except Exception as e:
                         print(f"***Error calculating VAD metrics: {e}")
@@ -524,6 +529,13 @@ class AnyCall(pj.Call):
                                 self._playback_started = True
                                 print("***Welcome message playback started")
                                 
+                                # Notify VAD that bot playback started
+                                if self._vad and self._vad.available:
+                                    try:
+                                        self._vad.set_bot_playback_state(True, time.time)
+                                    except Exception as e:
+                                        print(f"***VAD: error notifying bot playback start: {e}")
+                                
                                 # Collect playback started event
                                 self._collect_event(
                                     event_type="playback_started",
@@ -581,6 +593,13 @@ class AnyCall(pj.Call):
             # Mark playback finished; hangup will be controlled by VAD
             if not self._hangup_time:
                 print("***Welcome message finished. Monitoring caller speech for hangup")
+                
+                # Notify VAD that bot playback finished
+                if self._vad and self._vad.available:
+                    try:
+                        self._vad.set_bot_playback_state(False, time.time)
+                    except Exception as e:
+                        print(f"***VAD: error notifying bot playback stop: {e}")
                 
                 # Collect playback finished event
                 self._collect_event(
@@ -681,6 +700,13 @@ class AnyCall(pj.Call):
             self._goodbye_playback_started = True
             self._goodbye_stop_time = time.time() + goodbye_duration
             
+            # Notify VAD that bot playback started (goodbye message)
+            if self._vad and self._vad.available:
+                try:
+                    self._vad.set_bot_playback_state(True, time.time)
+                except Exception as e:
+                    print(f"***VAD: error notifying goodbye playback start: {e}")
+            
             # Collect goodbye playback started event
             self._collect_event(
                 event_type="goodbye_playback_started",
@@ -731,6 +757,13 @@ class AnyCall(pj.Call):
             if not self._goodbye_playback_finished:
                 print("***Goodbye: finished. Will hang up now.")
                 
+                # Notify VAD that bot playback finished (goodbye message)
+                if self._vad and self._vad.available:
+                    try:
+                        self._vad.set_bot_playback_state(False, time.time)
+                    except Exception as e:
+                        print(f"***VAD: error notifying goodbye playback stop: {e}")
+                
                 # Collect goodbye playback finished event
                 self._collect_event(
                     event_type="goodbye_playback_finished",
@@ -754,7 +787,8 @@ class AnyCall(pj.Call):
         # Finalize any active VAD chunks before cleanup
         if self._vad and self._vad.available:
             try:
-                self._vad.finalize_all_chunks(time.time)
+                import time as time_module
+                self._vad.finalize_all_chunks(time_module.time)
                 chunks = self._vad.get_chunks()
                 if chunks:
                     print(f"***VAD: finalized {len(chunks)} voice chunk(s) at call end")
