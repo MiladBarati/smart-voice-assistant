@@ -26,7 +26,8 @@ This project provides Python scripts for interacting with SIP servers (like Aste
 - **Audio Playback**: Play WAV files to remote party during calls (e.g., welcome messages, IVR)
 - **Voice Recording**: Capture incoming caller audio streams and outgoing bot audio to separate WAV files with organized storage
 - **Voice Activity Detection (VAD)**: Real-time speech detection using Silero VAD with automatic chunk segmentation
-- **VAD Metrics Logging**: Speech duration, chunk count, and confidence scores logged to Elasticsearch for analytics
+- **VAD Metrics Logging**: Speech duration, chunk count, silence duration, and confidence scores logged to Elasticsearch for analytics
+- **Automatic Speech Recognition (ASR)**: Transcribe audio recordings using Whisper-based models with support for Persian/Farsi and other languages
 - **Automatic Audio Duration Detection**: Reads WAV file duration for precise playback timing
 - **Auto-Answer**: Automatically answer incoming calls (enabled by default)
 - **Smart Hangup**: Automatically hang up after audio playback completes with configurable delay or based on VAD silence detection
@@ -84,6 +85,9 @@ PJSUA2 Python bindings typically need to be compiled from source or installed vi
    # Install VAD dependencies (optional, for voice activity detection)
    pip install torch torchaudio
    
+   # Install ASR dependencies (optional, for automatic speech recognition)
+   pip install transformers
+   
    # Install testing dependencies
    pip install pytest pytest-cov
    ```
@@ -130,6 +134,12 @@ python register_bot.py \
   --dest 1002
 ```
 
+### Transcribe Audio Recordings
+
+```bash
+python examples/asr_usage_example.py
+```
+
 **👉 For detailed step-by-step instructions, see [Getting Started Guide](docs/GETTING_STARTED.md)**
 
 ## 📁 Project Structure
@@ -145,7 +155,10 @@ pjsua-installation/
 │       ├── register_bot.py      # Main entry point (refactored)
 │       ├── elasticsearch_client.py # Elasticsearch integration
 │       ├── vad.py               # Voice Activity Detection (Silero VAD)
+│       ├── asr.py               # Automatic Speech Recognition (ASR)
 │       └── mwe_register.py      # Minimal working example
+├── examples/                    # Usage examples
+│   └── asr_usage_example.py    # ASR transcription example
 ├── tests/                       # Test suite
 ├── scripts/                     # Utility scripts
 ├── docs/                        # Documentation
@@ -176,14 +189,19 @@ pjsua-installation/
 - **`account.py`** (113 lines): SIP account management
   - `Account` class with registration and incoming call handling
 
-- **`calls.py`** (853 lines): Call handling logic
+- **`calls.py`** (893 lines): Call handling logic
   - `OutCall` class for outbound calls
-  - `AnyCall` class for advanced call handling with recording, playback, and VAD integration
+  - `AnyCall` class for advanced call handling with recording, playback, VAD integration, and silence tracking
 
-- **`vad.py`** (918 lines): Voice Activity Detection
+- **`vad.py`** (993 lines): Voice Activity Detection
   - `SileroVAD` class for real-time speech detection
   - Chunk segmentation and metrics calculation
-  - Speech duration, chunk count, and confidence tracking
+  - Speech duration, chunk count, silence duration, and confidence tracking
+
+- **`asr.py`** (428 lines): Automatic Speech Recognition
+  - `ASRService` class for transcribing audio using Whisper models
+  - Support for Persian/Farsi and other languages
+  - Error handling and retry logic for robust transcription
 
 - **`register_bot.py`** (245 lines): Main entry point
   - CLI argument parsing
@@ -211,6 +229,8 @@ from src.pjsua_bot import Account, OutCall, AnyCall, main, setup_logging
 from src.pjsua_bot.account import Account
 from src.pjsua_bot.calls import OutCall, AnyCall
 from src.pjsua_bot.utils import setup_logging, pump_events, wait_until
+from src.pjsua_bot.asr import ASRService, ASRConfig
+from src.pjsua_bot.vad import SileroVAD
 
 # Use the main function
 from src.pjsua_bot import main
@@ -234,7 +254,7 @@ main()
 - **[Voice Recording](docs/VOICE_RECORDING.md)** - Recording incoming/outgoing audio streams
 
 ### Integration & Testing
-- **[Elasticsearch Integration](docs/ELASTICSEARCH.md)** - Call logging and data storage with VAD metrics (speech duration, chunk count, confidence scores)
+- **[Elasticsearch Integration](docs/ELASTICSEARCH.md)** - Call logging and data storage with VAD metrics (speech duration, chunk count, silence duration, confidence scores)
 - **[Testing Framework](docs/TESTING.md)** - Unit tests and coverage reporting
 
 ### Reference
@@ -286,10 +306,11 @@ For issues specific to:
 
 ---
 
-**Version**: 0.4.1  
-**Last Updated**: January 2025  
+**Version**: 0.5.0  
+**Last Updated**: November 2025  
 **Python**: 3.11+  
 **PJSUA2**: Compatible with PJSIP 2.x  
+**New in v0.5.0**: Automatic Speech Recognition (ASR) service integration with Whisper models for transcribing audio recordings, enhanced VAD with silence duration tracking when neither caller nor bot are speaking  
 **New in v0.4.1**: Voice Activity Detection (VAD) with Silero integration, automatic chunk segmentation, and VAD metrics (speech duration, chunk count, confidence) logged to Elasticsearch  
 **New in v0.4.0**: Modular codebase with separate modules for account, calls, utilities, and main entry point (77% reduction in register_bot.py)  
 **New in v0.3.0**: Comprehensive unit testing framework with pytest, coverage reporting, and mock support  
