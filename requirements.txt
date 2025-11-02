@@ -10,13 +10,19 @@ urllib3>=1.26.0
 # NumPy for VAD processing
 numpy>=1.21.0
 
-# PyTorch and TorchAudio for Voice Activity Detection (Silero VAD)
+# PyTorch and TorchAudio for Voice Activity Detection (Silero VAD) and ASR
 # Note: These may require manual installation on Windows x86 systems
 # Installation instructions:
 #   Windows x86: Visit https://pytorch.org/get-started/locally/
 #   Linux/Mac: pip install torch torchaudio
 torch>=2.1.0; platform_system != 'Windows' or platform_machine != 'x86'
 torchaudio>=2.1.0; platform_system != 'Windows' or platform_machine != 'x86'
+
+# Transformers and ASR dependencies
+# Hugging Face transformers for Whisper ASR models
+transformers>=4.35.0
+accelerate>=0.24.0
+sentencepiece>=0.1.99
 
 # Testing dependencies
 pytest>=7.0.0
