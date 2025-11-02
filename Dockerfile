@@ -88,9 +88,9 @@ WORKDIR /app
 # Copy dependency files
 COPY pyproject.toml uv.lock* ./
 
-# Install uv and Python dependencies
-RUN pip install --no-cache-dir uv \
-    && uv pip install --system -e .
+# Install Python dependencies
+RUN pip install --upgrade pip
+RUN pip install -r requirements.txt
 
 # Copy application code
 COPY src/ ./src/
