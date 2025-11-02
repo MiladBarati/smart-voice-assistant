@@ -86,7 +86,7 @@ RUN mkdir -p /etc/alsa && \
 WORKDIR /app
 
 # Copy dependency files
-COPY pyproject.toml uv.lock* ./
+COPY requirements.txt ./
 
 # Install Python dependencies
 RUN pip install --upgrade pip
