@@ -6,7 +6,7 @@ import socket
 from datetime import datetime
 import pjsua2 as pj
 
-from .utils import generate_unique_id, parse_sip_user, ensure_recording_directory
+from .utils import generate_unique_id, parse_sip_user, ensure_recording_directory, convert_recording_path_to_url
 from .vad import SileroVAD, VADConfig
 from .elasticsearch_client import es_logger
 
@@ -218,12 +218,14 @@ class AnyCall(pj.Call):
             # Add incoming recording metadata
             if self._recording_file and os.path.exists(self._recording_file):
                 incoming_file_size = os.path.getsize(self._recording_file)
+                # Convert local path to URL for logs
+                incoming_file_url = convert_recording_path_to_url(self._recording_file)
                 recording_metadata["incoming"] = {
-                    "file_path": self._recording_file,
+                    "file_path": incoming_file_url,
                     "file_size_bytes": incoming_file_size,
                     "recorded": True,
                     "voice_captured": True,
-                    "audio_file_path": self._recording_file,
+                    "audio_file_path": incoming_file_url,
                     "capture_duration": round(self._recording_duration, 2) if self._recording_duration else 0
                 }
                 
@@ -231,7 +233,7 @@ class AnyCall(pj.Call):
                 self._collect_event(
                     event_type="recording_finished",
                     media_type="audio",
-                    recording_file=self._recording_file,
+                    recording_file=incoming_file_url,
                     file_size_bytes=incoming_file_size,
                     direction="incoming",
                     capture_duration=round(self._recording_duration, 2) if self._recording_duration else 0
@@ -240,12 +242,14 @@ class AnyCall(pj.Call):
             # Add outgoing recording metadata
             if self._outgoing_recording_file and os.path.exists(self._outgoing_recording_file):
                 outgoing_file_size = os.path.getsize(self._outgoing_recording_file)
+                # Convert local path to URL for logs
+                outgoing_file_url = convert_recording_path_to_url(self._outgoing_recording_file)
                 recording_metadata["outgoing"] = {
-                    "file_path": self._outgoing_recording_file,
+                    "file_path": outgoing_file_url,
                     "file_size_bytes": outgoing_file_size,
                     "recorded": True,
                     "voice_captured": True,
-                    "audio_file_path": self._outgoing_recording_file,
+                    "audio_file_path": outgoing_file_url,
                     "capture_duration": round(self._outgoing_recording_duration, 2) if self._outgoing_recording_duration else 0
                 }
                 
@@ -253,7 +257,7 @@ class AnyCall(pj.Call):
                 self._collect_event(
                     event_type="outgoing_recording_finished",
                     media_type="audio",
-                    recording_file=self._outgoing_recording_file,
+                    recording_file=outgoing_file_url,
                     file_size_bytes=outgoing_file_size,
                     direction="outgoing",
                     capture_duration=round(self._outgoing_recording_duration, 2) if self._outgoing_recording_duration else 0
@@ -278,7 +282,9 @@ class AnyCall(pj.Call):
                 voice_captured = has_incoming_recording or has_outgoing_recording
                 
                 # Get primary audio file path (prefer incoming, fallback to outgoing)
-                audio_file_path = self._recording_file if has_incoming_recording else (self._outgoing_recording_file if has_outgoing_recording else None)
+                # Convert local paths to URLs for logs
+                primary_local_path = self._recording_file if has_incoming_recording else (self._outgoing_recording_file if has_outgoing_recording else None)
+                audio_file_path = convert_recording_path_to_url(primary_local_path) if primary_local_path else None
                 
                 # Calculate total capture duration
                 total_capture_duration = 0
@@ -456,7 +462,7 @@ class AnyCall(pj.Call):
                             self._collect_event(
                                 event_type="recording_started",
                                 media_type="audio",
-                                recording_file=self._recording_file
+                                recording_file=convert_recording_path_to_url(self._recording_file)
                             )
                         except Exception as e:
                             print(f"***Recording setup error: {e}")
@@ -503,7 +509,7 @@ class AnyCall(pj.Call):
                                     self._collect_event(
                                         event_type="outgoing_recording_started",
                                         media_type="audio",
-                                        recording_file=self._outgoing_recording_file
+                                        recording_file=convert_recording_path_to_url(self._outgoing_recording_file)
                                     )
                                 except Exception as e:
                                     print(f"***Outgoing recording setup error: {e}")

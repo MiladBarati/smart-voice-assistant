@@ -105,6 +105,52 @@ def ensure_recording_directory(base_path: str, call_id: str = None) -> str:
         return base_path
 
 
+def convert_recording_path_to_url(local_path: str, base_url: str = None) -> str:
+    """Convert a local recording file path to a URL.
+    
+    Converts paths like:
+    - `./recordings\\2025-11-01\\call_20251101_174059_1001\\outgoing.wav`
+    to:
+    - `https://recordings.aminraay.ir/recordings/recordings/2025-11-01/call_20251101_174059_1001/outgoing.wav`
+    
+    Args:
+        local_path: Local file path (can include backslashes, ./ prefix, etc.)
+        base_url: Base URL for recordings (defaults to https://recordings.aminraay.ir/recordings)
+        
+    Returns:
+        URL string with normalized path separators
+    """
+    if not local_path:
+        return ""
+    
+    if base_url is None:
+        # Load from environment variable or use default
+        base_url = os.getenv('RECORDING_BASE_URL', 'https://recordings.aminraay.ir/recordings')
+    
+    # Normalize the local path
+    # Remove ./ prefix if present
+    normalized_path = local_path.replace('./', '').lstrip('/')
+    
+    # Replace backslashes with forward slashes (for Windows paths)
+    normalized_path = normalized_path.replace('\\', '/')
+    
+    # Remove leading slashes
+    normalized_path = normalized_path.lstrip('/')
+    
+    # Remove base URL trailing slash if present
+    base_url = base_url.rstrip('/')
+    
+    # Extract the path after 'recordings' directory
+    # Handle paths like: recordings/2025-11-01/... or ./recordings/2025-11-01/...
+    if normalized_path.startswith('recordings/'):
+        # Remove 'recordings/' prefix and add it back in the URL
+        path_after_recordings = normalized_path[len('recordings/'):]
+        return f"{base_url}/recordings/{path_after_recordings}"
+    else:
+        # If path doesn't start with 'recordings/', assume it's relative to recordings directory
+        return f"{base_url}/recordings/{normalized_path}"
+
+
 def pump_events(ep: pj.Endpoint, ms_per_iter: int = 50) -> None:
     """Pump the PJSUA2 event loop once."""
     try:
