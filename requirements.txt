@@ -1,0 +1,30 @@
+# Python dependencies for PJSUA Bot project
+# Generated from project analysis
+
+# Core dependencies
+elasticsearch>=7.0.0,<8.0.0
+python-dotenv>=1.0.0
+requests>=2.25.0
+urllib3>=1.26.0
+
+# NumPy for VAD processing
+numpy>=1.21.0
+
+# PyTorch and TorchAudio for Voice Activity Detection (Silero VAD)
+# Note: These may require manual installation on Windows x86 systems
+# Installation instructions:
+#   Windows x86: Visit https://pytorch.org/get-started/locally/
+#   Linux/Mac: pip install torch torchaudio
+torch>=2.1.0; platform_system != 'Windows' or platform_machine != 'x86'
+torchaudio>=2.1.0; platform_system != 'Windows' or platform_machine != 'x86'
+
+# Testing dependencies
+pytest>=7.0.0
+pytest-cov>=4.0.0
+
+# Note: pjsua2 is a C extension library that typically requires compilation from source
+# It is not available as a standard pip package. Please refer to:
+# https://docs.pjsip.org/en/latest/get-started/posix/build.html
+# for installation instructions.
+# pjsua2  # Uncomment if available via pip for your platform
+
