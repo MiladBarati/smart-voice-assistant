@@ -225,7 +225,6 @@ class AnyCall(pj.Call):
                     "file_size_bytes": incoming_file_size,
                     "recorded": True,
                     "voice_captured": True,
-                    "audio_file_path": incoming_file_url,
                     "capture_duration": round(self._recording_duration, 2) if self._recording_duration else 0
                 }
                 
@@ -249,7 +248,6 @@ class AnyCall(pj.Call):
                     "file_size_bytes": outgoing_file_size,
                     "recorded": True,
                     "voice_captured": True,
-                    "audio_file_path": outgoing_file_url,
                     "capture_duration": round(self._outgoing_recording_duration, 2) if self._outgoing_recording_duration else 0
                 }
                 
