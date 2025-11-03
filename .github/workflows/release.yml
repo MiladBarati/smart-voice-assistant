@@ -1,4 +1,4 @@
-name: Build Docker Image
+name: Build and Deploy to Server
 
 on:
   workflow_dispatch:
@@ -10,8 +10,8 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build:
-    name: Build and Push
+  build-and-deploy:
+    name: Build, Push and Deploy
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -46,6 +46,32 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          #cache-from: type=gha
-          #cache-to: type=gha,mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           no-cache: true
+
+      - name: Deploy to Server with Docker Compose
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SERVER_PORT }}
+          script: |
+            # Navigate to project directory
+            cd /home/aminry/app
+            
+            # Login to GitHub Container Registry
+            # echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            
+            # Pull latest image
+            docker compose pull sipbot
+            
+            # Restart service with new image
+            docker compose up -d sipbot
+            
+            # Clean up old images
+            docker image prune -af
+            
+            # Show status
+            docker compose ps
