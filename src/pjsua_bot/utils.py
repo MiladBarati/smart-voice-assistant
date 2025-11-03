@@ -108,10 +108,8 @@ def ensure_recording_directory(base_path: str, call_id: str = None) -> str:
 def convert_recording_path_to_url(local_path: str, base_url: str = None) -> str:
     """Convert a local recording file path to a URL.
     
-    Converts paths like:
-    - `./recordings\\2025-11-01\\call_20251101_174059_1001\\outgoing.wav`
-    to:
-    - `https://recordings.aminraay.ir/recordings/recordings/2025-11-01/call_20251101_174059_1001/outgoing.wav`
+    Normalizes common Windows/relative paths and avoids duplicating the
+    'recordings' path segment when the base_url already contains it.
     
     Args:
         local_path: Local file path (can include backslashes, ./ prefix, etc.)
@@ -140,15 +138,12 @@ def convert_recording_path_to_url(local_path: str, base_url: str = None) -> str:
     # Remove base URL trailing slash if present
     base_url = base_url.rstrip('/')
     
-    # Extract the path after 'recordings' directory
-    # Handle paths like: recordings/2025-11-01/... or ./recordings/2025-11-01/...
+    # Remove a single leading 'recordings/' from the path if present,
+    # since base_url typically already points to the recordings root.
     if normalized_path.startswith('recordings/'):
-        # Remove 'recordings/' prefix and add it back in the URL
-        path_after_recordings = normalized_path[len('recordings/'):]
-        return f"{base_url}/recordings/{path_after_recordings}"
-    else:
-        # If path doesn't start with 'recordings/', assume it's relative to recordings directory
-        return f"{base_url}/recordings/{normalized_path}"
+        normalized_path = normalized_path[len('recordings/'):]
+    
+    return f"{base_url}/{normalized_path}"
 
 
 def pump_events(ep: pj.Endpoint, ms_per_iter: int = 50) -> None:

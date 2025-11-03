@@ -150,3 +150,4 @@ if __name__ == "__main__":
     if os.path.exists(audio_file):
         transcribe_with_custom_config(audio_file)
 
+
