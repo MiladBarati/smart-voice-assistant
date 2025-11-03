@@ -1,4 +1,4 @@
-# Multi-stage build for PJSUA2 SIP Bot
+# Multi-stage build for PJSUA2 SIP Bot - Optimized for size and build speed
 # Stage 1: Build PJSIP from source
 FROM python:3.11-slim AS builder
 
@@ -77,8 +77,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     alsa-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy only necessary PJSIP libraries from builder
-COPY --from=builder /usr/local/lib/libpj*.so* /usr/local/lib/
+# Copy ALL PJSIP libraries from builder (including libilbccodec)
+COPY --from=builder /usr/local/lib/ /usr/local/lib/
 COPY --from=builder /usr/local/lib/python3.11/site-packages/pjsua2* /usr/local/lib/python3.11/site-packages/
 COPY --from=builder /usr/local/lib/python3.11/site-packages/_pjsua2* /usr/local/lib/python3.11/site-packages/
 
