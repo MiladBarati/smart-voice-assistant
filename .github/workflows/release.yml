@@ -62,28 +62,28 @@ jobs:
           build-args: |
             BUILDKIT_INLINE_CACHE=1
 
-      - name: Deploy to Server with Docker Compose
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SERVER_PORT }}
-          script: |
-            # Navigate to project directory
-            cd /home/aminry/app
+      # - name: Deploy to Server with Docker Compose
+      #   uses: appleboy/ssh-action@v1.0.3
+      #   with:
+      #     host: ${{ secrets.SERVER_HOST }}
+      #     username: ${{ secrets.SERVER_USER }}
+      #     key: ${{ secrets.SSH_PRIVATE_KEY }}
+      #     port: ${{ secrets.SERVER_PORT }}
+      #     script: |
+      #       # Navigate to project directory
+      #       cd /home/aminry/app
             
-            # Login to GitHub Container Registry
-            # echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      #       # Login to GitHub Container Registry
+      #       # echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             
-            # Pull latest image
-            docker compose pull sipbot
+      #       # Pull latest image
+      #       docker compose pull sipbot
             
-            # Restart service with new image
-            docker compose up -d sipbot
+      #       # Restart service with new image
+      #       docker compose up -d sipbot
             
-            # Clean up old images
-            docker image prune -af
+      #       # Clean up old images
+      #       docker image prune -af
             
-            # Show status
-            docker compose ps
+      #       # Show status
+      #       docker compose ps
