@@ -15,8 +15,11 @@ numpy>=1.21.0
 # Installation instructions:
 #   Windows x86: Visit https://pytorch.org/get-started/locally/
 #   Linux/Mac: pip install torch torchaudio
-torch>=2.1.0; platform_system != 'Windows' or platform_machine != 'x86'
-torchaudio>=2.1.0; platform_system != 'Windows' or platform_machine != 'x86'
+# torch>=2.1.0; platform_system != 'Windows' or platform_machine != 'x86'
+# torchaudio>=2.1.0; platform_system != 'Windows' or platform_machine != 'x86'
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.1.0
+torchaudio>=2.1.0
 
 # Transformers and ASR dependencies
 # Hugging Face transformers for Whisper ASR models
