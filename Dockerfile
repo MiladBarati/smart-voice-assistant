@@ -1,59 +1,72 @@
 # Multi-stage build for PJSUA2 SIP Bot
-# Stage 1: Build PJSIP/PJSUA2 from source
+# Stage 1: Build PJSIP from source
 FROM python:3.11-slim AS builder
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+ARG PJSIP_VERSION=2.14
+
+# Install build dependencies with cache mount for faster rebuilds
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    gcc \
-    g++ \
-    make \
-    automake \
-    autoconf \
-    libtool \
-    pkg-config \
     wget \
+    ca-certificates \
     libssl-dev \
     libopus-dev \
     libspeex-dev \
     libspeexdsp-dev \
     libgsm1-dev \
     libasound2-dev \
-    libv4l-dev \
-    libsdl2-dev \
     python3-dev \
-    swig \
-    && rm -rf /var/lib/apt/lists/*
+    swig
 
-# Download and build PJSIP
+# Download and extract PJSIP
 WORKDIR /tmp
-ENV PJSIP_VERSION=2.14
+RUN wget -q https://github.com/pjsip/pjproject/archive/refs/tags/${PJSIP_VERSION}.tar.gz && \
+    tar -xzf ${PJSIP_VERSION}.tar.gz && \
+    rm ${PJSIP_VERSION}.tar.gz
 
-RUN wget https://github.com/pjsip/pjproject/archive/refs/tags/${PJSIP_VERSION}.tar.gz \
-    && tar -xzf ${PJSIP_VERSION}.tar.gz \
-    && cd pjproject-${PJSIP_VERSION} \
-    && ./configure \
+# Configure and build PJSIP with optimizations
+# Disabled: video, v4l2, SDL, libyuv, opencore-amr (not needed for VoIP bot)
+WORKDIR /tmp/pjproject-${PJSIP_VERSION}
+RUN ./configure \
+    --prefix=/usr/local \
     --enable-shared \
     --disable-video \
+    --disable-v4l2 \
+    --disable-sdl \
+    --disable-libyuv \
     --disable-opencore-amr \
     --with-external-speex \
     --with-external-gsm \
-    --enable-libsamplerate \
     CFLAGS="-O2 -DNDEBUG -DPJ_AUTOCONF=1" \
-    && make dep \
-    && make \
-    && make install \
-    && ldconfig
+    CXXFLAGS="-O2 -DNDEBUG" && \
+    make dep && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig
 
 # Build Python bindings
 WORKDIR /tmp/pjproject-${PJSIP_VERSION}/pjsip-apps/src/swig/python
 RUN make && python3 setup.py install
 
-# Stage 2: Runtime image
+# Stage 2: Build Python dependencies separately for better layer caching
+FROM python:3.11-slim AS python-builder
+
+WORKDIR /app
+COPY requirements.txt .
+
+# Install Python dependencies with pip cache mount
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --prefix=/install -r requirements.txt
+
+# Stage 3: Final runtime image
 FROM python:3.11-slim
 
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install only runtime dependencies (no build tools)
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
     libopus0 \
     libspeex1 \
@@ -62,35 +75,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libasound2 \
     libasound2-plugins \
     alsa-utils \
-    libsndfile1 \
-    libportaudio2 \
-    portaudio19-dev \
-    ffmpeg \
-    pulseaudio \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy ALL PJSIP libraries from builder stage
-COPY --from=builder /usr/local/lib/ /usr/local/lib/
-COPY --from=builder /usr/local/include/ /usr/local/include/
+# Copy only necessary PJSIP libraries from builder
+COPY --from=builder /usr/local/lib/libpj*.so* /usr/local/lib/
 COPY --from=builder /usr/local/lib/python3.11/site-packages/pjsua2* /usr/local/lib/python3.11/site-packages/
 COPY --from=builder /usr/local/lib/python3.11/site-packages/_pjsua2* /usr/local/lib/python3.11/site-packages/
+
+# Copy Python packages from python-builder stage
+COPY --from=python-builder /install /usr/local
 
 # Update library cache
 RUN ldconfig
 
-# Create ALSA config for null device
+# Create ALSA config for null audio device (headless operation)
 RUN mkdir -p /etc/alsa && \
     echo 'pcm.!default { type plug slave.pcm "null" }' > /etc/alsa/asound.conf
 
-# Set working directory
 WORKDIR /app
-
-# Copy dependency files
-COPY requirements.txt ./
-
-# Install Python dependencies
-RUN pip install --upgrade pip
-RUN pip install -r requirements.txt
 
 # Copy application code
 COPY src/ ./src/
@@ -99,11 +101,10 @@ COPY assets/ ./assets/
 # Create necessary directories
 RUN mkdir -p /app/data/recordings /app/logs
 
-# Create non-root user
-RUN useradd -m -u 1000 voicebot \
-    && chown -R voicebot:voicebot /app
+# Create non-root user for security
+RUN useradd -m -u 1000 voicebot && \
+    chown -R voicebot:voicebot /app
 
-# Switch to non-root user
 USER voicebot
 
 # Environment variables
@@ -112,14 +113,14 @@ ENV PYTHONUNBUFFERED=1 \
     LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH \
     AUDIODEV=null
 
-# Health check
+# Health check to verify PJSUA2 is working
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD python3 -c "import pjsua2; print('OK')" || exit 1
 
-# Volumes for persistent data
+# Persistent volumes
 VOLUME ["/app/data/recordings", "/app/assets/audio"]
 
-# Expose SIP ports
+# SIP and RTP ports
 EXPOSE 5060/udp 10000-20000/udp
 
 # Run the voicebot
