@@ -49,11 +49,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           no-cache: true
-      
-      - name: Write SSH key
-        run: |
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ./deploy_key
-          chmod 600 ./deploy_key
 
       - name: Deploy to Server with Docker Compose
         uses: appleboy/ssh-action@v1.0.3
