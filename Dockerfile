@@ -79,6 +79,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 # Copy ALL PJSIP libraries from builder (including libilbccodec)
 COPY --from=builder /usr/local/lib/ /usr/local/lib/
+COPY --from=builder /usr/local/include/ /usr/local/include/
 COPY --from=builder /usr/local/lib/python3.11/site-packages/pjsua2* /usr/local/lib/python3.11/site-packages/
 COPY --from=builder /usr/local/lib/python3.11/site-packages/_pjsua2* /usr/local/lib/python3.11/site-packages/
 
