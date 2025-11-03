@@ -20,6 +20,33 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      # Detect which stages need rebuild
+      - name: Detect changes
+        id: changes
+        run: |
+          # Check if Dockerfile changed
+          if git diff --quiet HEAD~1 HEAD -- Dockerfile; then
+            echo "dockerfile_changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "dockerfile_changed=true" >> $GITHUB_OUTPUT
+          fi
+          
+          # Check if requirements.txt changed
+          if git diff --quiet HEAD~1 HEAD -- requirements.txt; then
+            echo "requirements_changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "requirements_changed=true" >> $GITHUB_OUTPUT
+          fi
+          
+          # Check if source code changed
+          if git diff --quiet HEAD~1 HEAD -- src/ assets/; then
+            echo "source_changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "source_changed=true" >> $GITHUB_OUTPUT
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -44,21 +71,58 @@ jobs:
             type=raw,value=latest
             type=sha,prefix={{branch}}-
 
-      - name: Build and push
+      # Build and push stage 1: PJSIP builder (rarely changes)
+      - name: Build and cache PJSIP stage
+        if: steps.changes.outputs.dockerfile_changed == 'true' || github.event_name == 'workflow_dispatch'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: builder
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:builder-cache
+          cache-from: |
+            type=gha,scope=builder
+            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:builder-cache
+          cache-to: |
+            type=gha,mode=max,scope=builder
+            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:builder-cache,mode=max
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+
+      # Build and push stage 2: Python dependencies (changes when requirements.txt changes)
+      - name: Build and cache Python dependencies stage
+        if: steps.changes.outputs.requirements_changed == 'true' || steps.changes.outputs.dockerfile_changed == 'true' || github.event_name == 'workflow_dispatch'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: python-builder
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:python-cache
+          cache-from: |
+            type=gha,scope=python-builder
+            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:python-cache
+          cache-to: |
+            type=gha,mode=max,scope=python-builder
+            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:python-cache,mode=max
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+
+      # Build and push final stage: Uses cached stages above
+      - name: Build and push final image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Use both GitHub Actions cache and Registry cache for faster builds
+          # Use all cached stages for maximum speed
           cache-from: |
-            type=gha
-            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
+            type=gha,scope=final
+            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:builder-cache
+            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:python-cache
           cache-to: |
-            type=gha,mode=max
-            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
-          # Remove no-cache to utilize Docker layer caching
+            type=gha,mode=max,scope=final
           build-args: |
             BUILDKIT_INLINE_CACHE=1
 
@@ -69,21 +133,25 @@ jobs:
       #     username: ${{ secrets.SERVER_USER }}
       #     key: ${{ secrets.SSH_PRIVATE_KEY }}
       #     port: ${{ secrets.SERVER_PORT }}
+      #     command_timeout: 10m
       #     script: |
       #       # Navigate to project directory
       #       cd /home/aminry/app
             
-      #       # Login to GitHub Container Registry
-      #       # echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      #       # Pull latest image with retry mechanism
+      #       for i in 1 2 3; do
+      #         docker compose pull sipbot && break || sleep 5
+      #       done
             
-      #       # Pull latest image
-      #       docker compose pull sipbot
+      #       # Restart service with zero-downtime deployment
+      #       docker compose up -d --no-deps sipbot
             
-      #       # Restart service with new image
-      #       docker compose up -d sipbot
+      #       # Wait for container to be healthy
+      #       timeout 60 sh -c 'until docker compose ps sipbot | grep -q "healthy\|running"; do sleep 2; done' || true
             
-      #       # Clean up old images
-      #       docker image prune -af
+      #       # Clean up dangling images only
+      #       docker image prune -f
             
-      #       # Show status
-      #       docker compose ps
+      #       # Show status and recent logs
+      #       docker compose ps sipbot
+      #       docker compose logs --tail=50 sipbot
