@@ -138,9 +138,9 @@ CMD ["python3", "/app/src/pjsua_bot/register_bot.py", \
     "--play-file", "/app/assets/audio/welcome_message.wav", \
     "--message-duration", "8", \
     "--hangup-delay", "2", \
-    "--enable-recording"\
-    "--enable-vad"\
-    "--silence-after-speech-sec", "3.0"\
-    "--vad-threshold", "0.5"\
-    "--enable-asr"\
+    "--enable-recording", \
+    "--enable-vad", \
+    "--silence-after-speech-sec", "3.0", \
+    "--vad-threshold", "0.5", \
+    "--enable-asr", \
     "--goodbye-file", "goodbye_message.wav"]
