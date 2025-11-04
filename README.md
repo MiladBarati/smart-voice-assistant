@@ -113,6 +113,19 @@ python register_bot.py \
   --stay-online
 ```
 
+### Enable Live Transcription (ASR)
+
+```bash
+python register_bot.py \
+  --user 1001 \
+  --password secret123 \
+  --domain pbx.local \
+  --stay-online \
+  --enable-recording \
+  --enable-vad \
+  --enable-asr
+```
+
 ### Play Welcome Message
 
 ```bash

@@ -6,8 +6,9 @@ import socket
 from datetime import datetime
 import pjsua2 as pj
 
-from .utils import generate_unique_id, parse_sip_user, ensure_recording_directory, convert_recording_path_to_url
+from .utils import generate_unique_id, parse_sip_user, ensure_recording_directory, convert_recording_path_to_url, convert_wav_to_mp3
 from .vad import SileroVAD, VADConfig
+from .asr import ASRService, ASRConfig
 from .elasticsearch_client import es_logger
 
 
@@ -164,6 +165,14 @@ class AnyCall(pj.Call):
         self._vad: SileroVAD | None = None
         self._silence_after_speech_sec: float = float(getattr(self._acc_ref, 'silence_after_speech_sec', 3))
         self._vad_enabled: bool = bool(getattr(self._acc_ref, 'enable_vad', True))
+        # ASR enable flag from account
+        self._asr_enabled: bool = bool(getattr(self._acc_ref, 'enable_asr', False))
+
+        # ASR integration state
+        self._asr: ASRService | None = None
+        self._asr_available: bool = False
+        self._asr_chunk_texts: list[str] = []
+        self._last_transcribed_chunk_count: int = 0
 
     def _collect_event(self, event_type: str, **kwargs):
         """Collect an event for batch logging at the end of the call."""
@@ -449,24 +458,19 @@ class AnyCall(pj.Call):
                                         print(f"***VAD: unavailable - {error_msg}")
                                 except Exception as e:
                                     print(f"***VAD init error: {e}")
-                            
-                            # Verify recorder was created successfully
-                            if self._recorder:
-                                print(f"***Recording: AudioMediaRecorder created successfully")
-                                # Check if file was created immediately
-                                if os.path.exists(self._recording_file):
-                                    print(f"***Recording: file created immediately: {self._recording_file}")
-                                else:
-                                    print(f"***Recording: file not created yet (normal for PJSUA2)")
-                            else:
-                                print(f"***Recording: ERROR - AudioMediaRecorder creation failed")
-                            
-                            # Collect recording started event
-                            self._collect_event(
-                                event_type="recording_started",
-                                media_type="audio",
-                                recording_file=convert_recording_path_to_url(self._recording_file)
-                            )
+
+                            # Initialize ASR service once recording/VAD is set up (only if enabled)
+                            if self._asr_enabled and self._asr is None:
+                                try:
+                                    self._asr = ASRService()
+                                    self._asr_available = bool(self._asr and self._asr.available)
+                                    if self._asr_available:
+                                        print("***ASR: service initialized")
+                                    else:
+                                        print(f"***ASR: unavailable - {getattr(self._asr, '_load_error', 'unknown error')}")
+                                except Exception as e:
+                                    print(f"***ASR init error: {e}")
+                                    self._asr_available = False
                         except Exception as e:
                             print(f"***Recording setup error: {e}")
                             # Collect recording error event
@@ -475,6 +479,25 @@ class AnyCall(pj.Call):
                                 media_type="audio",
                                 error=str(e)
                             )
+
+                        # Verify recorder was created successfully
+                        if self._recorder:
+                            print(f"***Recording: AudioMediaRecorder created successfully")
+                            # Check if file was created immediately
+                            if os.path.exists(self._recording_file):
+                                print(f"***Recording: file created immediately: {self._recording_file}")
+                            else:
+                                print(f"***Recording: file not created yet (normal for PJSUA2)")
+                        else:
+                            print(f"***Recording: ERROR - AudioMediaRecorder creation failed")
+
+                        # Collect recording started event
+                        self._collect_event(
+                            event_type="recording_started",
+                            media_type="audio",
+                            recording_file=convert_recording_path_to_url(self._recording_file)
+                        )
+                        
                     
                     # If a play file is configured, play it to the remote side
                     if getattr(self._acc_ref, "play_file", None):
@@ -624,6 +647,22 @@ class AnyCall(pj.Call):
                     if not self._hangup_time or self._hangup_time < target:
                         self._hangup_time = target
                         print(f"***VAD: last speech at {self._vad.last_speech_time_monotonic:.3f}; hangup at {target:.3f}")
+                
+                # Live transcription of newly finalized chunks
+                try:
+                    chunks = self._vad.get_chunks()
+                    for idx in range(self._last_transcribed_chunk_count, len(chunks)):
+                        ch = chunks[idx]
+                        if self._asr_enabled and self._asr_available and ch.file_path and os.path.exists(ch.file_path):
+                            res = self._asr.transcribe(ch.file_path) if self._asr else None
+                            if res and getattr(res, 'text', None):
+                                text = res.text.strip()
+                                if text:
+                                    self._asr_chunk_texts.append(text)
+                                    print(f"***ASR: chunk {idx+1} -> {text}")
+                    self._last_transcribed_chunk_count = len(chunks)
+                except Exception as e:
+                    print(f"***ASR: live transcription error: {e}")
             except Exception as e:
                 print(f"***VAD processing error: {e}")
     
@@ -796,6 +835,24 @@ class AnyCall(pj.Call):
             except Exception as e:
                 print(f"***VAD: error finalizing chunks: {e}")
         
+        # Final transcription at call end: transcribe any remaining chunks and print full text
+        try:
+            if self._asr_enabled and self._asr_available and self._vad and self._vad.available:
+                chunks = self._vad.get_chunks()
+                for idx in range(self._last_transcribed_chunk_count, len(chunks)):
+                    ch = chunks[idx]
+                    if ch.file_path and os.path.exists(ch.file_path):
+                        res = self._asr.transcribe(ch.file_path) if self._asr else None
+                        if res and getattr(res, 'text', None):
+                            text = res.text.strip()
+                            if text:
+                                self._asr_chunk_texts.append(text)
+                self._last_transcribed_chunk_count = len(chunks)
+                full_text = " ".join(t for t in self._asr_chunk_texts if t).strip()
+                print(f"***ASR: full transcription: {full_text if full_text else '[empty]'}")
+        except Exception as e:
+            print(f"***ASR: error during final transcription: {e}")
+        
         # Clean up incoming recording
         if self._recorder:
             try:
@@ -823,6 +880,11 @@ class AnyCall(pj.Call):
                 if self._recording_file:
                     if os.path.exists(self._recording_file):
                         print(f"***Recording: incoming file confirmed to exist at {self._recording_file}")
+                        # Convert to MP3 and update reference if successful
+                        mp3_path = convert_wav_to_mp3(self._recording_file, delete_source=True)
+                        if mp3_path:
+                            self._recording_file = mp3_path
+                            print(f"***Recording: incoming file converted to MP3 at {self._recording_file}")
                     else:
                         print(f"***Recording: WARNING - incoming file not found at {self._recording_file}")
                         # Wait a moment and check again (PJSUA2 might need time to flush)
@@ -830,6 +892,10 @@ class AnyCall(pj.Call):
                         time.sleep(0.5)
                         if os.path.exists(self._recording_file):
                             print(f"***Recording: incoming file found after delay at {self._recording_file}")
+                            mp3_path = convert_wav_to_mp3(self._recording_file, delete_source=True)
+                            if mp3_path:
+                                self._recording_file = mp3_path
+                                print(f"***Recording: incoming file converted to MP3 at {self._recording_file}")
                         else:
                             print(f"***Recording: incoming file still not found after delay")
                             
@@ -869,6 +935,11 @@ class AnyCall(pj.Call):
                 if self._outgoing_recording_file:
                     if os.path.exists(self._outgoing_recording_file):
                         print(f"***Recording: outgoing file confirmed to exist at {self._outgoing_recording_file}")
+                        # Convert to MP3 and update reference if successful
+                        mp3_path = convert_wav_to_mp3(self._outgoing_recording_file, delete_source=True)
+                        if mp3_path:
+                            self._outgoing_recording_file = mp3_path
+                            print(f"***Recording: outgoing file converted to MP3 at {self._outgoing_recording_file}")
                     else:
                         print(f"***Recording: WARNING - outgoing file not found at {self._outgoing_recording_file}")
                         # Wait a moment and check again (PJSUA2 might need time to flush)
@@ -876,6 +947,10 @@ class AnyCall(pj.Call):
                         time.sleep(0.5)
                         if os.path.exists(self._outgoing_recording_file):
                             print(f"***Recording: outgoing file found after delay at {self._outgoing_recording_file}")
+                            mp3_path = convert_wav_to_mp3(self._outgoing_recording_file, delete_source=True)
+                            if mp3_path:
+                                self._outgoing_recording_file = mp3_path
+                                print(f"***Recording: outgoing file converted to MP3 at {self._outgoing_recording_file}")
                         else:
                             print(f"***Recording: outgoing file still not found after delay")
                             

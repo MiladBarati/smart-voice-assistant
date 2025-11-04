@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Tuple, List
 
 import numpy as np
+from .utils import convert_wav_to_mp3
 
 try:
     import torch
@@ -480,6 +481,10 @@ class SileroVAD:
                     wf_out.writeframes(raw_audio)
                 
                 print(f"***VAD: saved chunk {self._chunk_counter} to {chunk_path} ({duration:.2f}s)")
+                # Convert to MP3 and return MP3 path if conversion succeeds
+                mp3_path = convert_wav_to_mp3(chunk_path, delete_source=True)
+                if mp3_path:
+                    return mp3_path
                 return chunk_path
                 
         except wave.Error as e:
@@ -552,6 +557,10 @@ class SileroVAD:
                     wf_out.setframerate(framerate)
                     wf_out.writeframes(raw_audio)
                 
+                # Convert to MP3 and return MP3 path if conversion succeeds
+                mp3_path = convert_wav_to_mp3(chunk_path, delete_source=True)
+                if mp3_path:
+                    return mp3_path
                 return chunk_path
                 
         except Exception as e:

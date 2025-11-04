@@ -56,6 +56,7 @@ def main() -> None:
     parser.add_argument("--enable-vad", action="store_true", help="Enable Silero VAD-based hangup after caller silence (default: False)")
     parser.add_argument("--silence-after-speech-sec", type=float, default=3.0, help="Seconds of silence after last caller speech to hang up (default: 3.0)")
     parser.add_argument("--vad-threshold", type=float, default=0.5, help="Silero VAD speech probability threshold (default: 0.5)")
+    parser.add_argument("--enable-asr", action="store_true", help="Enable Whisper-based ASR for live and final transcription (default: disabled)")
     args = parser.parse_args()
 
     # Setup logging
@@ -212,6 +213,7 @@ def main() -> None:
         acc.enable_vad = args.enable_vad
         acc.silence_after_speech_sec = args.silence_after_speech_sec
         acc.vad_threshold = args.vad_threshold
+        acc.enable_asr = args.enable_asr
         # Store username and domain for logging
         acc.username = args.user
         acc.domain = args.domain

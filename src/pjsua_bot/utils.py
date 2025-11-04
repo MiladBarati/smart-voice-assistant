@@ -5,6 +5,8 @@ import time
 import wave
 import logging
 from datetime import datetime
+import shutil
+import subprocess
 import pjsua2 as pj
 
 
@@ -144,6 +146,55 @@ def convert_recording_path_to_url(local_path: str, base_url: str = None) -> str:
         normalized_path = normalized_path[len('recordings/'):]
     
     return f"{base_url}/{normalized_path}"
+
+
+def convert_wav_to_mp3(wav_path: str, delete_source: bool = True) -> str | None:
+    """Convert a WAV file to MP3 using ffmpeg if available.
+    
+    Returns the path to the generated MP3 on success, or None on failure.
+    If delete_source is True and conversion succeeds, the source WAV file is removed.
+    """
+    if not wav_path or not os.path.exists(wav_path):
+        return None
+
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if not ffmpeg_bin:
+        print("***Audio convert: ffmpeg not found in PATH; keeping WAV file")
+        return None
+
+    base, _ = os.path.splitext(wav_path)
+    mp3_path = base + ".mp3"
+
+    try:
+        cmd = [
+            ffmpeg_bin,
+            "-y",
+            "-i", wav_path,
+            "-vn",
+            "-c:a", "libmp3lame",
+            "-q:a", "2",
+            mp3_path,
+        ]
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+
+        if os.path.exists(mp3_path):
+            print(f"***Audio convert: created {mp3_path}")
+            if delete_source:
+                try:
+                    os.remove(wav_path)
+                    print(f"***Audio convert: removed source WAV {wav_path}")
+                except Exception as e:
+                    print(f"***Audio convert: failed to remove source WAV: {e}")
+            return mp3_path
+        else:
+            print("***Audio convert: ffmpeg reported success but MP3 not found")
+            return None
+    except subprocess.CalledProcessError as e:
+        print(f"***Audio convert: ffmpeg failed with code {e.returncode}")
+        return None
+    except Exception as e:
+        print(f"***Audio convert: unexpected error: {e}")
+        return None
 
 
 def pump_events(ep: pj.Endpoint, ms_per_iter: int = 50) -> None:
