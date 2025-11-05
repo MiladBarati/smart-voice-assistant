@@ -98,7 +98,7 @@ WORKDIR /app
 # Copy application code
 COPY src/ ./src/
 COPY assets/ ./assets/
-COPY goodbye_voice.wav /app/assets/audio/goodbye_voice.wav
+# COPY goodbye_voice.wav /app/assets/audio/goodbye_voice.wav
 
 # Create necessary directories
 RUN mkdir -p /app/data/recordings /app/logs
