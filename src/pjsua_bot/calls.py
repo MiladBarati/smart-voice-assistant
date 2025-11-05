@@ -274,6 +274,13 @@ class AnyCall(pj.Call):
             if recording_metadata:
                 self._recording_metadata = recording_metadata
             
+            # Log what file formats are being sent to Elasticsearch
+            if recording_metadata:
+                for direction, metadata in recording_metadata.items():
+                    file_path = metadata.get('file_path', '')
+                    file_ext = os.path.splitext(file_path)[1]
+                    print(f"***Elasticsearch: sending {direction} recording as {file_ext.upper()} format: {file_path}")
+            
             # Build call record and send as a single log
             try:
                 self._end_time_utc = datetime.utcnow()
@@ -881,10 +888,13 @@ class AnyCall(pj.Call):
                     if os.path.exists(self._recording_file):
                         print(f"***Recording: incoming file confirmed to exist at {self._recording_file}")
                         # Convert to MP3 and update reference if successful
+                        print(f"***Recording: attempting to convert incoming WAV to MP3...")
                         mp3_path = convert_wav_to_mp3(self._recording_file, delete_source=True)
                         if mp3_path:
                             self._recording_file = mp3_path
                             print(f"***Recording: incoming file converted to MP3 at {self._recording_file}")
+                        else:
+                            print(f"***Recording: MP3 conversion failed (ffmpeg not available?), keeping WAV file")
                     else:
                         print(f"***Recording: WARNING - incoming file not found at {self._recording_file}")
                         # Wait a moment and check again (PJSUA2 might need time to flush)
@@ -892,10 +902,13 @@ class AnyCall(pj.Call):
                         time.sleep(0.5)
                         if os.path.exists(self._recording_file):
                             print(f"***Recording: incoming file found after delay at {self._recording_file}")
+                            print(f"***Recording: attempting to convert incoming WAV to MP3...")
                             mp3_path = convert_wav_to_mp3(self._recording_file, delete_source=True)
                             if mp3_path:
                                 self._recording_file = mp3_path
                                 print(f"***Recording: incoming file converted to MP3 at {self._recording_file}")
+                            else:
+                                print(f"***Recording: MP3 conversion failed (ffmpeg not available?), keeping WAV file")
                         else:
                             print(f"***Recording: incoming file still not found after delay")
                             
@@ -936,10 +949,13 @@ class AnyCall(pj.Call):
                     if os.path.exists(self._outgoing_recording_file):
                         print(f"***Recording: outgoing file confirmed to exist at {self._outgoing_recording_file}")
                         # Convert to MP3 and update reference if successful
+                        print(f"***Recording: attempting to convert outgoing WAV to MP3...")
                         mp3_path = convert_wav_to_mp3(self._outgoing_recording_file, delete_source=True)
                         if mp3_path:
                             self._outgoing_recording_file = mp3_path
                             print(f"***Recording: outgoing file converted to MP3 at {self._outgoing_recording_file}")
+                        else:
+                            print(f"***Recording: MP3 conversion failed (ffmpeg not available?), keeping WAV file")
                     else:
                         print(f"***Recording: WARNING - outgoing file not found at {self._outgoing_recording_file}")
                         # Wait a moment and check again (PJSUA2 might need time to flush)
@@ -947,10 +963,13 @@ class AnyCall(pj.Call):
                         time.sleep(0.5)
                         if os.path.exists(self._outgoing_recording_file):
                             print(f"***Recording: outgoing file found after delay at {self._outgoing_recording_file}")
+                            print(f"***Recording: attempting to convert outgoing WAV to MP3...")
                             mp3_path = convert_wav_to_mp3(self._outgoing_recording_file, delete_source=True)
                             if mp3_path:
                                 self._outgoing_recording_file = mp3_path
                                 print(f"***Recording: outgoing file converted to MP3 at {self._outgoing_recording_file}")
+                            else:
+                                print(f"***Recording: MP3 conversion failed (ffmpeg not available?), keeping WAV file")
                         else:
                             print(f"***Recording: outgoing file still not found after delay")
                             
