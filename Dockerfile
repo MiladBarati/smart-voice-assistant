@@ -75,6 +75,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     libasound2 \
     libasound2-plugins \
     alsa-utils \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy ALL PJSIP libraries from builder (including libilbccodec)
