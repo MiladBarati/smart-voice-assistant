@@ -14,15 +14,16 @@ from typing import Any, Callable, List, Optional, Tuple, cast
 
 import numpy as np
 
-from .config import VADConfig
-from .types import VoiceChunk
 from .audio_reader import StreamingWavReader
 from .chunk_manager import ChunkManager
+from .config import VADConfig
 from .silence import SilenceTracker
+from .types import VoiceChunk
 
 try:
     import torch
     import torchaudio
+
     _TORCH_AVAILABLE = True
     _TORCH_ERROR = None
 except ImportError as e:  # pragma: no cover - optional dependency at runtime
@@ -46,7 +47,12 @@ class SileroVAD:
     - Check `last_speech_time_monotonic` to decide on hangup timing
     """
 
-    def __init__(self, wav_path: str, config: Optional[VADConfig] = None, chunks_output_dir: Optional[str] = None):
+    def __init__(
+        self,
+        wav_path: str,
+        config: Optional[VADConfig] = None,
+        chunks_output_dir: Optional[str] = None,
+    ):
         self.wav_path = wav_path
         self.cfg = config or VADConfig()
         self._model: Any = None
@@ -57,7 +63,9 @@ class SileroVAD:
 
         # New modular components
         self.reader = StreamingWavReader(wav_path)
-        self.chunks = ChunkManager(reader=self.reader, cfg=self.cfg, chunks_output_dir=chunks_output_dir)
+        self.chunks = ChunkManager(
+            reader=self.reader, cfg=self.cfg, chunks_output_dir=chunks_output_dir
+        )
         self.silence = SilenceTracker()
 
         # VAD confidence tracking for metrics
@@ -66,19 +74,23 @@ class SileroVAD:
         # Legacy/read-path attributes kept for compatibility with internal readers
         self._wav_sample_rate: Optional[int] = None
         self._last_frame_idx: int = 0
-        self._manual_wav_info: Optional[Tuple[Optional[int], Optional[int], Optional[int], Optional[int]]] = None
+        self._manual_wav_info: Optional[
+            Tuple[Optional[int], Optional[int], Optional[int], Optional[int]]
+        ] = None
 
         self._load_model_if_possible()
 
     def _load_model_if_possible(self) -> None:
         if torch is None:
-            self._load_error = f"torch/torchaudio not available: {_TORCH_ERROR or 'import failed'}"
+            self._load_error = (
+                f"torch/torchaudio not available: {_TORCH_ERROR or 'import failed'}"
+            )
             return
         try:
             model_result = torch.hub.load(
-                'snakers4/silero-vad', 'silero_vad', force_reload=False, onnx=False
+                "snakers4/silero-vad", "silero_vad", force_reload=False, onnx=False
             )
-            # Handle both cases: model can be returned directly or as a tuple (model, utils)
+            # Handle both: model may be returned directly or as (model, utils)
             if isinstance(model_result, tuple):
                 self._model = model_result[0]  # Extract model from tuple
             else:
@@ -105,33 +117,33 @@ class SileroVAD:
 
     def _is_wav_ready(self) -> bool:
         """Check if the WAV file is ready (has valid headers and can be opened).
-        
+
         WAV files need at least 44 bytes for headers, and should start with 'RIFF'.
         We also try to actually open it with wave.open() to ensure it's truly ready.
         """
         if not os.path.exists(self.wav_path):
             return False
-        
+
         # Check file size - WAV headers are at least 44 bytes
         try:
             size = os.path.getsize(self.wav_path)
             if size < 44:
                 return False
-            
+
             # Check if it starts with RIFF (WAV file signature)
-            with open(self.wav_path, 'rb') as f:
+            with open(self.wav_path, "rb") as f:
                 header = f.read(12)
-                if len(header) < 12 or not header.startswith(b'RIFF'):
+                if len(header) < 12 or not header.startswith(b"RIFF"):
                     return False
                 # Check for 'WAVE' after RIFF
-                if header[8:12] != b'WAVE':
+                if header[8:12] != b"WAVE":
                     return False
-            
-            # Try to actually open it with wave.open() to verify it's readable
-            # For streaming WAV files, wave.open() might fail initially even with valid headers
-            # So we'll be lenient: if file has RIFF/WAVE and substantial data, try reading it anyway
+
+            # Try wave.open() to verify readability.
+            # For streaming files, wave.open() might fail initially even with
+            # valid headers, so if RIFF/WAVE and data exist, try reading anyway.
             try:
-                with wave.open(self.wav_path, 'rb') as test_wf:
+                with wave.open(self.wav_path, "rb") as test_wf:
                     # Try to read the header info
                     test_wf.getnchannels()
                     test_wf.getframerate()
@@ -146,56 +158,59 @@ class SileroVAD:
                 # The actual read will handle errors gracefully
                 if size > 1000:  # File has substantial data (more than just header)
                     # Cache that we've seen it ready once to avoid repeated checks
-                    if not hasattr(self, '_file_was_ready'):
+                    if not hasattr(self, "_file_was_ready"):
                         self._file_was_ready = False
-                    return True  # Try reading it - errors will be handled in _read_new_frames
+                    return True  # Try reading; errors handled in _read_new_frames
                 return False
         except Exception:
             return False
-        
+
         return False
-    
-    def _parse_wav_header(self) -> Tuple[Optional[int], Optional[int], Optional[int], Optional[int]]:
-        """Manually parse WAV file header to get format info.
-        
-        Returns (n_channels, sampwidth, framerate, data_offset) or (None, None, None, None) on error.
+
+    def _parse_wav_header(
+        self,
+    ) -> Tuple[Optional[int], Optional[int], Optional[int], Optional[int]]:
+        """Manually parse WAV header and return basic format info.
+
+        Returns (n_channels, sampwidth, framerate, data_offset) or
+        (None, None, None, None) on error.
         """
         try:
-            with open(self.wav_path, 'rb') as f:
+            with open(self.wav_path, "rb") as f:
                 # Read RIFF header
                 riff = f.read(4)
-                if riff != b'RIFF':
+                if riff != b"RIFF":
                     return None, None, None, None
-                
+
                 # Skip file size (4 bytes)
                 f.read(4)
-                
+
                 # Read WAVE header
                 wave_hdr = f.read(4)
-                if wave_hdr != b'WAVE':
+                if wave_hdr != b"WAVE":
                     return None, None, None, None
-                
+
                 # Find 'fmt ' chunk
                 fmt_found = False
                 while True:
                     chunk_id = f.read(4)
                     if len(chunk_id) < 4:
                         return None, None, None, None
-                    
-                    chunk_size = int.from_bytes(f.read(4), 'little')
-                    
-                    if chunk_id == b'fmt ':
+
+                    chunk_size = int.from_bytes(f.read(4), "little")
+
+                    if chunk_id == b"fmt ":
                         fmt_found = True
-                        # Read fmt chunk data
-                        audio_format = int.from_bytes(f.read(2), 'little')
-                        n_channels = int.from_bytes(f.read(2), 'little')
-                        framerate = int.from_bytes(f.read(4), 'little')
+                        # Read fmt chunk data (discard audio_format)
+                        f.read(2)
+                        n_channels = int.from_bytes(f.read(2), "little")
+                        framerate = int.from_bytes(f.read(4), "little")
                         f.read(4)  # byte_rate
                         f.read(2)  # block_align
-                        bits_per_sample = int.from_bytes(f.read(2), 'little')
+                        bits_per_sample = int.from_bytes(f.read(2), "little")
                         # Convert bits to bytes (Python's wave module uses bytes)
                         sampwidth = bits_per_sample // 8
-                        
+
                         # Skip any remaining fmt chunk data
                         if chunk_size > 16:
                             f.read(chunk_size - 16)
@@ -203,53 +218,56 @@ class SileroVAD:
                     else:
                         # Skip this chunk
                         f.read(chunk_size)
-                
+
                 if not fmt_found:
                     return None, None, None, None
-                
+
                 # Find 'data' chunk
                 data_offset = None
                 while True:
                     chunk_id = f.read(4)
                     if len(chunk_id) < 4:
                         break
-                    
-                    chunk_size = int.from_bytes(f.read(4), 'little')
-                    
-                    if chunk_id == b'data':
+
+                    chunk_size = int.from_bytes(f.read(4), "little")
+
+                    if chunk_id == b"data":
                         data_offset = f.tell()
                         break
                     else:
                         # Skip this chunk
                         f.read(chunk_size)
-                
+
                 if data_offset is None:
                     return None, None, None, None
-                
+
                 return n_channels, sampwidth, framerate, data_offset
-                
+
         except Exception:
             return None, None, None, None
-    
+
     def _read_new_frames(self) -> Tuple[Optional[np.ndarray], Optional[int]]:
         """Read newly appended PCM frames from the WAV file.
-        
-        Returns a tuple (float32_pcm, input_sample_rate). The pcm is mono float32 in [-1, 1].
+
+        Returns (float32_pcm, input_sample_rate). PCM is mono float32 in [-1, 1].
         Returns (None, None) if no new data available or file isn't ready yet.
         """
         if not os.path.exists(self.wav_path):
             return None, None
-        
+
         # Wait for WAV file to be ready (headers complete)
         if not self._is_wav_ready():
             # Debug: report that we're waiting for file to be ready
-            if not hasattr(self, '_last_wait_time'):
+            if not hasattr(self, "_last_wait_time"):
                 self._last_wait_time = 0.0
             import time as time_module
+
             if time_module.time() - self._last_wait_time > 3.0:
                 try:
                     size = os.path.getsize(self.wav_path)
-                    print(f"***VAD: waiting for WAV file to be ready (size={size} bytes)")
+                    print(
+                        f"***VAD: waiting for WAV file to be ready (size={size} bytes)"
+                    )
                 except Exception:
                     print("***VAD: waiting for WAV file to be ready")
                 self._last_wait_time = time_module.time()
@@ -257,7 +275,7 @@ class SileroVAD:
 
         # Try to use wave.open() first, but fall back to manual parsing if it fails
         try:
-            with wave.open(self.wav_path, 'rb') as wf:
+            with wave.open(self.wav_path, "rb") as wf:
                 n_channels = wf.getnchannels()
                 sampwidth = wf.getsampwidth()
                 framerate = wf.getframerate()
@@ -267,15 +285,27 @@ class SileroVAD:
                     self._wav_sample_rate = framerate
                     # Debug: print file info on first read
                     import time as time_module
-                    print(f"***VAD: WAV file opened - {n_channels}ch, {sampwidth}byte/sample, {framerate}Hz, {n_frames} frames")
+
+                    print(
+                        (
+                            f"***VAD: WAV file opened - {n_channels}ch, "
+                            f"{sampwidth}byte/sample, {framerate}Hz, {n_frames} frames"
+                        )
+                    )
 
                 if n_frames <= self._last_frame_idx:
                     # Debug: occasionally report that we're waiting for new data
-                    if not hasattr(self, '_last_no_data_time'):
+                    if not hasattr(self, "_last_no_data_time"):
                         self._last_no_data_time = 0.0
                     import time as time_module
+
                     if time_module.time() - self._last_no_data_time > 5.0:
-                        print(f"***VAD: waiting for new audio (last_idx={self._last_frame_idx}, total={n_frames})")
+                        print(
+                            (
+                                f"***VAD: waiting for new audio "
+                                f"(last_idx={self._last_frame_idx}, total={n_frames})"
+                            )
+                        )
                     self._last_no_data_time = time_module.time()
                     return None, None
 
@@ -283,80 +313,117 @@ class SileroVAD:
                 frames_to_read = n_frames - self._last_frame_idx
                 raw = wf.readframes(frames_to_read)
                 self._last_frame_idx = n_frames
-                
+
         except (wave.Error, Exception):
             # wave.open() failed - try manual parsing for streaming WAV files
             # Cache the parsed info to avoid re-parsing every time
             if self._manual_wav_info is None:
                 self._manual_wav_info = self._parse_wav_header()
-            
-            if self._manual_wav_info is None or any(x is None for x in self._manual_wav_info):
+
+            if self._manual_wav_info is None or any(
+                x is None for x in self._manual_wav_info
+            ):
                 # Can't parse header - wait for file to be ready
-                if not hasattr(self, '_last_error_time'):
+                if not hasattr(self, "_last_error_time"):
                     self._last_error_time = 0.0
                 import time as time_module
+
                 if time_module.time() - self._last_error_time > 10.0:
-                    print("***VAD: WAV read error - cannot parse WAV header (trying manual parsing)")
+                    print(
+                        (
+                            "***VAD: WAV read error - cannot parse WAV header "
+                            "(trying manual parsing)"
+                        )
+                    )
                     self._last_error_time = time_module.time()
                 return None, None
-            
-            n_channels, sampwidth, framerate, data_offset = cast(Tuple[int, int, int, int], self._manual_wav_info)
-            
+
+            n_channels, sampwidth, framerate, data_offset = cast(
+                Tuple[int, int, int, int], self._manual_wav_info
+            )
+
             # Initialize on first read
             if self._wav_sample_rate is None:
                 self._wav_sample_rate = framerate
                 import time as time_module
+
                 # Fix display - sampwidth is in bytes, but output was confusing
-                print(f"***VAD: WAV file parsed manually - {n_channels}ch, {sampwidth*8}bit/sample, {framerate}Hz")
-            
+                print(
+                    (
+                        f"***VAD: WAV file parsed manually - {n_channels}ch, "
+                        f"{sampwidth*8}bit/sample, {framerate}Hz"
+                    )
+                )
+
             # Read new frames manually
             try:
-                with open(self.wav_path, 'rb') as f:
+                with open(self.wav_path, "rb") as f:
                     bytes_per_frame = n_channels * sampwidth
-                    current_data_pos = data_offset + (self._last_frame_idx * bytes_per_frame)
-                    
+                    current_data_pos = data_offset + (
+                        self._last_frame_idx * bytes_per_frame
+                    )
+
                     # Calculate how much data is available
                     file_size = os.path.getsize(self.wav_path)
                     available_bytes = file_size - current_data_pos
-                    
+
                     # Debug occasionally
-                    if not hasattr(self, '_last_debug_time'):
+                    if not hasattr(self, "_last_debug_time"):
                         self._last_debug_time = 0.0
                     import time as time_module
+
                     if time_module.time() - self._last_debug_time > 5.0:
-                        print(f"***VAD: manual read - file_size={file_size}, data_offset={data_offset}, current_pos={current_data_pos}, available={available_bytes}, bytes_per_frame={bytes_per_frame}, last_idx={self._last_frame_idx}")
+                        print(
+                            (
+                                f"***VAD: manual read - file_size={file_size}, "
+                                f"data_offset={data_offset}, "
+                                f"current_pos={current_data_pos}, "
+                                f"available={available_bytes}, "
+                                f"bytes_per_frame={bytes_per_frame}, "
+                                f"last_idx={self._last_frame_idx}"
+                            )
+                        )
                         self._last_debug_time = time_module.time()
-                    
+
                     if available_bytes < bytes_per_frame:
                         # No new frames available
-                        if not hasattr(self, '_last_no_data_time'):
+                        if not hasattr(self, "_last_no_data_time"):
                             self._last_no_data_time = 0.0
                         import time as time_module
+
                         if time_module.time() - self._last_no_data_time > 5.0:
                             print("***VAD: waiting for new audio (manual read)")
                             self._last_no_data_time = time_module.time()
                         return None, None
-                    
+
                     # Seek to current position and read
                     f.seek(current_data_pos)
                     raw = f.read(available_bytes)
                     frames_read = len(raw) // bytes_per_frame
                     self._last_frame_idx += frames_read
-                    
+
                     # Debug: report occasionally when we read frames (reduce spam)
                     if frames_read > 0:
-                        if not hasattr(self, '_last_read_report_time'):
+                        if not hasattr(self, "_last_read_report_time"):
                             self._last_read_report_time = 0.0
                         import time as time_module
+
                         if time_module.time() - self._last_read_report_time > 5.0:
-                            print(f"***VAD: read {frames_read} frames ({len(raw)} bytes) manually (total_idx={self._last_frame_idx})")
+                            print(
+                                (
+                                    f"***VAD: read {frames_read} frames "
+                                    f"({len(raw)} bytes) manually "
+                                    f"(total_idx={self._last_frame_idx})"
+                                )
+                            )
                             self._last_read_report_time = time_module.time()
-                    
+
             except Exception as e:
                 # Error reading manually
-                if not hasattr(self, '_last_error_time'):
+                if not hasattr(self, "_last_error_time"):
                     self._last_error_time = 0.0
                 import time as time_module
+
                 if time_module.time() - self._last_error_time > 10.0:
                     print(f"***VAD: manual read error: {e}")
                     self._last_error_time = time_module.time()
@@ -418,12 +485,12 @@ class SileroVAD:
         """
         if not self._speech_probabilities:
             return None
-        avg_confidence = (
-            sum(self._speech_probabilities) / len(self._speech_probabilities)
+        avg_confidence = sum(self._speech_probabilities) / len(
+            self._speech_probabilities
         )
         return round(avg_confidence, 3)
-    
-    # removed stub for set_bot_playback_state to avoid duplicate; use delegated method below
+
+    # Removed stub for set_bot_playback_state; use delegated method below
 
     def process_new_audio(self, monotonic_time_fn: Callable[[], float]) -> None:
         """Process newly appended audio and update last speech time.
@@ -438,9 +505,10 @@ class SileroVAD:
             return
 
         # Debug: check if we're getting audio
-        if not hasattr(self, '_last_audio_check_time'):
+        if not hasattr(self, "_last_audio_check_time"):
             self._last_audio_check_time = 0.0
         import time as time_module
+
         if time_module.time() - self._last_audio_check_time > 5.0:
             print(f"***VAD: read {len(chunk)} samples at {input_sr} Hz")
             self._last_audio_check_time = time_module.time()
@@ -449,11 +517,11 @@ class SileroVAD:
         if torch is None:
             return
         waveform = torch.from_numpy(chunk).unsqueeze(0)  # (1, N)
-        
+
         # Determine the actual sample rate to use with the model
         # Silero VAD supports 8000 and 16000 Hz
         actual_sr = input_sr
-        
+
         # Resample to target sample rate if needed
         if input_sr != self.cfg.target_sample_rate:
             if torchaudio is None:
@@ -461,7 +529,7 @@ class SileroVAD:
                 # (8000 or 16000)
                 if input_sr not in (8000, 16000):
                     # Skip this chunk if sample rate isn't supported
-                    if not hasattr(self, '_last_unsupported_sr_time'):
+                    if not hasattr(self, "_last_unsupported_sr_time"):
                         self._last_unsupported_sr_time = 0.0
                     import time as time_module
             if time_module.time() - self._last_unsupported_sr_time > 10.0:
@@ -497,9 +565,10 @@ class SileroVAD:
             window = 512
         else:
             # Unsupported sample rate
-            if not hasattr(self, '_last_unsupported_sr_time'):
+            if not hasattr(self, "_last_unsupported_sr_time"):
                 self._last_unsupported_sr_time = 0.0
             import time as time_module
+
             if time_module.time() - self._last_unsupported_sr_time > 10.0:
                 print(
                     (
@@ -509,13 +578,14 @@ class SileroVAD:
                 )
                 self._last_unsupported_sr_time = time_module.time()
             return
-        
+
         # Debug: check waveform size
         if waveform.shape[1] < window:
             # Debug: report if waveform is too small
-            if not hasattr(self, '_last_small_waveform_time'):
+            if not hasattr(self, "_last_small_waveform_time"):
                 self._last_small_waveform_time = 0.0
             import time as time_module
+
             if time_module.time() - self._last_small_waveform_time > 5.0:
                 print(
                     (
@@ -525,43 +595,43 @@ class SileroVAD:
                 )
                 self._last_small_waveform_time = time_module.time()
             return
-        
+
         # Debug: track processing stats
         frames_processed = 0
         max_prob = 0.0
         total_frames_available = (waveform.shape[1] - window + 1) // window
-        
+
         # Calculate sample rate ratio to map resampled indices back to original WAV
         sample_rate_ratio = input_sr / actual_sr if actual_sr > 0 else 1.0
-        
+
         # Calculate starting index in original WAV for this chunk
         # After read_new_frames(), last_frame_idx points to end of what we read
         chunk_start_sample = self.reader.last_frame_idx - len(chunk)
-        
+
         # Validate chunk_start_sample is non-negative
         if chunk_start_sample < 0:
             # This shouldn't happen, but handle gracefully
             chunk_start_sample = max(0, self.reader.last_frame_idx - len(chunk))
-        
+
         monotonic_time_fn_ref = monotonic_time_fn
-        
+
         with torch.no_grad():
             # Process in 32ms windows (non-overlapping for now)
             for _window_idx, start in enumerate(
                 range(0, waveform.shape[1] - window + 1, window)
             ):
                 frame = waveform[:, start : start + window]
-                
+
                 # Calculate sample index in original WAV file
                 # Map from resampled waveform position to original WAV position
                 resampled_sample_pos = start
                 original_sample_pos = int(
                     chunk_start_sample + (resampled_sample_pos * sample_rate_ratio)
                 )
-                
+
                 # Get current monotonic time for chunk boundary detection
                 current_monotonic_time = float(monotonic_time_fn_ref())
-                
+
                 # Silero VAD requires: model(waveform_tensor, sample_rate_int)
                 has_speech = False
                 try:
@@ -570,33 +640,34 @@ class SileroVAD:
                     prob = self._model(frame, sample_rate).item()
                 except Exception as e:
                     # Report error only occasionally to avoid spam
-                    if not hasattr(self, '_last_model_error_time'):
+                    if not hasattr(self, "_last_model_error_time"):
                         self._last_model_error_time = 0.0
                     import time as time_module
+
                     if time_module.time() - self._last_model_error_time > 10.0:
                         print(f"***VAD: model call error: {e}")
                         self._last_model_error_time = time_module.time()
                     # Continue processing other frames even if one fails
                     # For chunk detection, treat error frames as non-speech
                     prob = 0.0
-                
+
                 frames_processed += 1
                 max_prob = max(max_prob, prob)
-                
+
                 # Track speech probabilities for confidence calculation
                 if prob >= self.cfg.threshold:
                     self._speech_probabilities.append(prob)
-                
+
                 # Check if this frame contains speech
                 has_speech = prob >= self.cfg.threshold
-                
+
                 # Update chunk boundaries based on speech detection
                 self._check_chunk_boundaries(
                     monotonic_time=current_monotonic_time,
                     current_sample_idx=original_sample_pos,
-                    has_speech=has_speech
+                    has_speech=has_speech,
                 )
-                
+
                 # Track silence periods (when neither caller nor bot are speaking)
                 if has_speech:
                     # Speech detected - end any current silence period
@@ -619,14 +690,15 @@ class SileroVAD:
                 else:
                     # Possibly a silence period depending on bot playback state
                     self.silence.note_possible_silence(current_monotonic_time)
-        
+
         # Debug output: print max probability occasionally to diagnose issues
         if frames_processed > 0:
             # Only print debug every few seconds to avoid spam
             import time as time_module
+
             if (
-                not hasattr(self, '_last_debug_time')
-                or time_module.time() - getattr(self, '_last_debug_time', 0) > 5.0
+                not hasattr(self, "_last_debug_time")
+                or time_module.time() - getattr(self, "_last_debug_time", 0) > 5.0
             ):
                 print(
                     (
@@ -640,7 +712,8 @@ class SileroVAD:
         elif total_frames_available > 0:
             # No frames processed but frames available - something went wrong
             import time as time_module
-            if not hasattr(self, '_last_no_proc_time'):
+
+            if not hasattr(self, "_last_no_proc_time"):
                 self._last_no_proc_time = 0.0
             if time_module.time() - self._last_no_proc_time > 5.0:
                 print(
@@ -667,7 +740,9 @@ class SileroVAD:
     def finalize_all_chunks(self, monotonic_time_fn: Callable[[], float]) -> None:
         self.chunks.finalize_all_chunks(float(monotonic_time_fn()))
 
-    def set_bot_playback_state(self, is_playing: bool, monotonic_time_fn: Callable[[], float]) -> None:
+    def set_bot_playback_state(
+        self, is_playing: bool, monotonic_time_fn: Callable[[], float]
+    ) -> None:
         self.silence.set_bot_playback_state(is_playing, monotonic_time_fn)
 
     def get_silence_duration(self, monotonic_time_fn: Callable[[], float]) -> float:

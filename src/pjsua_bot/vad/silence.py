@@ -11,7 +11,9 @@ class SilenceTracker:
         self._current_silence_start: Optional[float] = None
         self._total_silence_duration: float = 0.0
 
-    def set_bot_playback_state(self, is_playing: bool, monotonic_time_fn: Callable[[], float]) -> None:
+    def set_bot_playback_state(
+        self, is_playing: bool, monotonic_time_fn: Callable[[], float]
+    ) -> None:
         current_time = float(monotonic_time_fn())
         if self._bot_playback_active != is_playing:
             self._finalize_current_silence(current_time)
@@ -50,5 +52,3 @@ class SilenceTracker:
     def finalize(self, monotonic_time_fn: Callable[[], float]) -> None:
         current_time = float(monotonic_time_fn())
         self._finalize_current_silence(current_time)
-
-

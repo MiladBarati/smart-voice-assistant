@@ -1,6 +1,6 @@
 from .config import VADConfig
-from .types import VoiceChunk
 from .silero import SileroVAD
+from .types import VoiceChunk
 
 __all__ = [
     "VADConfig",

@@ -8,7 +8,7 @@ import os
 from datetime import datetime
 from typing import Any
 
-from ..utils import convert_recording_path_to_url, convert_wav_to_mp3
+from ..utils import convert_wav_to_mp3
 
 
 class RecordingCleanupMixin:
@@ -41,19 +41,22 @@ class RecordingCleanupMixin:
             print("***Recording: cleanup already done, skipping")
             return
         self._cleanup_done = True
-        
+
         # Finalize any active VAD chunks before cleanup
         vad = getattr(self, "_vad", None)
         if vad is not None and getattr(vad, "available", False):
             try:
                 import time as time_module
+
                 vad.finalize_all_chunks(time_module.time)
                 chunks = vad.get_chunks()
                 if chunks:
                     print(f"***VAD: finalized {len(chunks)} voice chunk(s) at call end")
                     for i, chunk in enumerate(chunks):
                         file_info = (
-                            f", saved to {chunk.file_path}" if chunk.file_path else ", file not saved"
+                            f", saved to {chunk.file_path}"
+                            if chunk.file_path
+                            else ", file not saved"
                         )
                         print(
                             "***VAD: chunk "
@@ -63,7 +66,7 @@ class RecordingCleanupMixin:
                         )
             except Exception as e:
                 print(f"***VAD: error finalizing chunks: {e}")
-        
+
         # Final transcription at call end:
         # transcribe any remaining chunks and print full text
         full_text = ""
@@ -79,9 +82,13 @@ class RecordingCleanupMixin:
                 asr = getattr(self, "_asr", None)
                 for idx in range(start_idx, len(chunks)):
                     ch = chunks[idx]
-                    if ch.file_path and os.path.exists(ch.file_path) and asr is not None:
+                    if (
+                        ch.file_path
+                        and os.path.exists(ch.file_path)
+                        and asr is not None
+                    ):
                         res = asr.transcribe(ch.file_path)
-                        if res and getattr(res, 'text', None):
+                        if res and getattr(res, "text", None):
                             text = res.text.strip()
                             if text:
                                 self._asr_chunk_texts.append(text)
@@ -92,7 +99,7 @@ class RecordingCleanupMixin:
             )
         except Exception as e:
             print(f"***ASR: error during final transcription: {e}")
-        
+
         # Clean up incoming recording
         if getattr(self, "_recorder", None):
             try:
@@ -106,28 +113,28 @@ class RecordingCleanupMixin:
                     except Exception:
                         # Ports already disconnected, ignore silently
                         pass
-                
+
                 # Don't explicitly destroy the recorder - let PJSUA2 handle it
                 self._recorder = None
-                
+
                 self._recording_call_media = None
-                
+
                 # Calculate recording duration
                 recording_start_time = getattr(self, "_recording_start_time", None)
                 if recording_start_time is not None:
                     self._recording_duration = (
-                        (datetime.utcnow() - recording_start_time).total_seconds()
-                    )
+                        datetime.utcnow() - recording_start_time
+                    ).total_seconds()
                     print(
                         "***Recording: incoming audio captured for "
                         f"{self._recording_duration:.2f} seconds"
                     )
-                
+
                 print(
                     "***Recording: incoming audio stopped and saved to "
                     f"{getattr(self, '_recording_file', None)}"
                 )
-                
+
                 # Check if file actually exists
                 if getattr(self, "_recording_file", None):
                     if os.path.exists(self._recording_file):
@@ -151,8 +158,11 @@ class RecordingCleanupMixin:
                             )
                         else:
                             print(
-                                "***Recording: MP3 conversion failed (ffmpeg not available?), "
-                                "keeping WAV file"
+                                (
+                                    "***Recording: MP3 conversion failed "
+                                    "(ffmpeg not available?), "
+                                    "keeping WAV file"
+                                )
                             )
                     else:
                         print(
@@ -162,6 +172,7 @@ class RecordingCleanupMixin:
                         # Wait a moment and check again
                         # (PJSUA2 might need time to flush)
                         import time
+
                         time.sleep(0.5)
                         if os.path.exists(self._recording_file):
                             print(
@@ -169,7 +180,10 @@ class RecordingCleanupMixin:
                                 f"{self._recording_file}"
                             )
                             print(
-                                "***Recording: attempting to convert incoming WAV to MP3..."
+                                (
+                                    "***Recording: attempting to convert "
+                                    "incoming WAV to MP3..."
+                                )
                             )
                             mp3_path = convert_wav_to_mp3(
                                 self._recording_file,
@@ -183,14 +197,20 @@ class RecordingCleanupMixin:
                                 )
                             else:
                                 print(
-                                    "***Recording: MP3 conversion failed (ffmpeg not available?), "
-                                    "keeping WAV file"
+                                    (
+                                        "***Recording: MP3 conversion failed "
+                                        "(ffmpeg not available?), "
+                                        "keeping WAV file"
+                                    )
                                 )
                         else:
                             print(
-                                "***Recording: incoming file still not found after delay"
+                                (
+                                    "***Recording: incoming file still not found "
+                                    "after delay"
+                                )
                             )
-                            
+
             except Exception as e:
                 print(f"***Recording cleanup error: {e}")
                 # Collect recording cleanup error event
@@ -198,17 +218,19 @@ class RecordingCleanupMixin:
                     self._collect_event(
                         event_type="recording_cleanup_error",
                         media_type="audio",
-                        error=str(e)
+                        error=str(e),
                     )
                 except Exception:
                     pass
-        
+
         # Clean up outgoing recording
         if getattr(self, "_outgoing_recorder", None):
             try:
                 # Try to stop transmission, but don't worry if it fails
                 # (ports may already be disconnected)
-                outgoing_call_media = getattr(self, "_outgoing_recording_call_media", None)
+                outgoing_call_media = getattr(
+                    self, "_outgoing_recording_call_media", None
+                )
                 outgoing_recorder = getattr(self, "_outgoing_recorder", None)
                 if outgoing_call_media is not None and outgoing_recorder is not None:
                     try:
@@ -216,28 +238,30 @@ class RecordingCleanupMixin:
                     except Exception:
                         # Ports already disconnected, ignore silently
                         pass
-                
+
                 # Don't explicitly destroy the recorder - let PJSUA2 handle it
                 self._outgoing_recorder = None
-                
+
                 self._outgoing_recording_call_media = None
-                
+
                 # Calculate outgoing recording duration
-                outgoing_start_time = getattr(self, "_outgoing_recording_start_time", None)
+                outgoing_start_time = getattr(
+                    self, "_outgoing_recording_start_time", None
+                )
                 if outgoing_start_time is not None:
                     self._outgoing_recording_duration = (
-                        (datetime.utcnow() - outgoing_start_time).total_seconds()
-                    )
+                        datetime.utcnow() - outgoing_start_time
+                    ).total_seconds()
                     print(
                         "***Recording: outgoing audio captured for "
                         f"{self._outgoing_recording_duration:.2f} seconds"
                     )
-                
+
                 print(
                     "***Recording: outgoing audio stopped and saved to "
                     f"{getattr(self, '_outgoing_recording_file', None)}"
                 )
-                
+
                 # Check if outgoing file actually exists
                 if getattr(self, "_outgoing_recording_file", None):
                     if os.path.exists(self._outgoing_recording_file):
@@ -261,8 +285,11 @@ class RecordingCleanupMixin:
                             )
                         else:
                             print(
-                                "***Recording: MP3 conversion failed (ffmpeg not available?), "
-                                "keeping WAV file"
+                                (
+                                    "***Recording: MP3 conversion failed "
+                                    "(ffmpeg not available?), "
+                                    "keeping WAV file"
+                                )
                             )
                     else:
                         print(
@@ -272,6 +299,7 @@ class RecordingCleanupMixin:
                         # Wait a moment and check again
                         # (PJSUA2 might need time to flush)
                         import time
+
                         time.sleep(0.5)
                         if os.path.exists(self._outgoing_recording_file):
                             print(
@@ -279,7 +307,10 @@ class RecordingCleanupMixin:
                                 f"{self._outgoing_recording_file}"
                             )
                             print(
-                                "***Recording: attempting to convert outgoing WAV to MP3..."
+                                (
+                                    "***Recording: attempting to convert "
+                                    "outgoing WAV to MP3..."
+                                )
                             )
                             mp3_path = convert_wav_to_mp3(
                                 self._outgoing_recording_file,
@@ -293,14 +324,20 @@ class RecordingCleanupMixin:
                                 )
                             else:
                                 print(
-                                    "***Recording: MP3 conversion failed (ffmpeg not available?), "
-                                    "keeping WAV file"
+                                    (
+                                        "***Recording: MP3 conversion failed "
+                                        "(ffmpeg not available?), "
+                                        "keeping WAV file"
+                                    )
                                 )
                         else:
                             print(
-                                "***Recording: outgoing file still not found after delay"
+                                (
+                                    "***Recording: outgoing file still not found "
+                                    "after delay"
+                                )
                             )
-                            
+
             except Exception as e:
                 print(f"***Outgoing recording cleanup error: {e}")
                 # Collect outgoing recording cleanup error event
@@ -308,9 +345,7 @@ class RecordingCleanupMixin:
                     self._collect_event(
                         event_type="outgoing_recording_cleanup_error",
                         media_type="audio",
-                        error=str(e)
+                        error=str(e),
                     )
                 except Exception:
                     pass
-
-

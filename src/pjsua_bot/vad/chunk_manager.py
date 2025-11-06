@@ -4,10 +4,10 @@ import os
 import wave
 from typing import List, Optional, Tuple, cast
 
-from .types import VoiceChunk
-from .config import VADConfig
 from ..utils import convert_wav_to_mp3
 from .audio_reader import StreamingWavReader
+from .config import VADConfig
+from .types import VoiceChunk
 
 
 class ChunkManager:
@@ -50,9 +50,13 @@ class ChunkManager:
         return count
 
     def get_current_chunk(self) -> Optional[VoiceChunk]:
-        if self._current_chunk_start_time is None or self.reader.wav_sample_rate is None:
+        if (
+            self._current_chunk_start_time is None
+            or self.reader.wav_sample_rate is None
+        ):
             return None
         import time as time_module
+
         now = time_module.time()
         duration = now - self._current_chunk_start_time
         return VoiceChunk(
@@ -90,7 +94,10 @@ class ChunkManager:
         self._last_speech_sample = current_sample_idx
 
     def note_possible_silence(self, monotonic_time: float) -> None:
-        if self._silence_start_time is None and self._current_chunk_start_time is not None:
+        if (
+            self._silence_start_time is None
+            and self._current_chunk_start_time is not None
+        ):
             self._silence_start_time = monotonic_time
 
     def try_finalize_on_silence(self, monotonic_time: float) -> None:
@@ -108,10 +115,14 @@ class ChunkManager:
     def try_finalize_on_max_duration(self, monotonic_time: float) -> bool:
         if self._current_chunk_start_time is None:
             return False
-        if (monotonic_time - self._current_chunk_start_time) < self.cfg.max_chunk_duration_sec:
+        if (
+            monotonic_time - self._current_chunk_start_time
+        ) < self.cfg.max_chunk_duration_sec:
             return False
         end_sample = self._last_speech_sample or self._current_chunk_end_sample
-        finalized = self._finalize_current_chunk_internal(monotonic_time, end_sample, force=True)
+        finalized = self._finalize_current_chunk_internal(
+            monotonic_time, end_sample, force=True
+        )
         return finalized is not None
 
     # Internal helpers
@@ -128,17 +139,27 @@ class ChunkManager:
 
         duration = monotonic_time - self._current_chunk_start_time
         start_sample = self._current_chunk_start_sample
-        end_sample = end_sample_idx if end_sample_idx is not None else self._current_chunk_end_sample
+        end_sample = (
+            end_sample_idx
+            if end_sample_idx is not None
+            else self._current_chunk_end_sample
+        )
         if start_sample is None or end_sample is None:
             return None
 
         if not force and duration < self.cfg.min_chunk_duration_sec:
             print(
-                f"***VAD: chunk too short ({duration:.2f}s < {self.cfg.min_chunk_duration_sec}s minimum), waiting for more speech"
+                (
+                    f"***VAD: chunk too short "
+                    f"({duration:.2f}s < {self.cfg.min_chunk_duration_sec}s minimum), "
+                    f"waiting for more speech"
+                )
             )
             return None
 
-        chunk_file_path = self._save_chunk_audio_internal(start_sample, end_sample, duration)
+        chunk_file_path = self._save_chunk_audio_internal(
+            start_sample, end_sample, duration
+        )
 
         chunk = VoiceChunk(
             start_time_monotonic=self._current_chunk_start_time,
@@ -157,11 +178,16 @@ class ChunkManager:
         self._silence_start_time = None
 
         print(
-            f"***VAD: chunk finalized - duration={duration:.2f}s, samples={start_sample}-{end_sample}"
+            (
+                f"***VAD: chunk finalized - duration={duration:.2f}s, "
+                f"samples={start_sample}-{end_sample}"
+            )
         )
         return chunk
 
-    def _save_chunk_audio_internal(self, start_sample: int, end_sample: int, duration: float) -> Optional[str]:
+    def _save_chunk_audio_internal(
+        self, start_sample: int, end_sample: int, duration: float
+    ) -> Optional[str]:
         if self._chunks_output_dir is None:
             return None
         try:
@@ -172,31 +198,48 @@ class ChunkManager:
 
         self._chunk_counter += 1
         import time as time_module
-        chunk_filename = f"chunk_{self._chunk_counter:04d}_{int(time_module.time())}.wav"
+
+        chunk_filename = (
+            f"chunk_{self._chunk_counter:04d}_{int(time_module.time())}.wav"
+        )
         chunk_path = os.path.join(self._chunks_output_dir, chunk_filename)
 
         try:
-            with wave.open(self.reader.wav_path, 'rb') as wf_in:
+            with wave.open(self.reader.wav_path, "rb") as wf_in:
                 n_channels = wf_in.getnchannels()
                 sampwidth = wf_in.getsampwidth()
                 framerate = wf_in.getframerate()
                 n_frames = wf_in.getnframes()
                 if end_sample > n_frames:
-                    return self._save_chunk_audio_manual(start_sample, end_sample, chunk_path)
+                    return self._save_chunk_audio_manual(
+                        start_sample, end_sample, chunk_path
+                    )
                 wf_in.setpos(start_sample)
                 num_samples = end_sample - start_sample
                 if num_samples <= 0:
-                    print(f"***VAD: invalid chunk sample range ({start_sample}-{end_sample})")
+                    print(
+                        (
+                            f"***VAD: invalid chunk sample range "
+                            f"({start_sample}-{end_sample})"
+                        )
+                    )
                     return None
                 raw_audio = wf_in.readframes(num_samples)
                 if len(raw_audio) == 0:
-                    return self._save_chunk_audio_manual(start_sample, end_sample, chunk_path)
-                with wave.open(chunk_path, 'wb') as wf_out:
+                    return self._save_chunk_audio_manual(
+                        start_sample, end_sample, chunk_path
+                    )
+                with wave.open(chunk_path, "wb") as wf_out:
                     wf_out.setnchannels(n_channels)
                     wf_out.setsampwidth(sampwidth)
                     wf_out.setframerate(framerate)
                     wf_out.writeframes(raw_audio)
-                print(f"***VAD: saved chunk {self._chunk_counter} to {chunk_path} ({duration:.2f}s)")
+                print(
+                    (
+                        f"***VAD: saved chunk {self._chunk_counter} to {chunk_path} "
+                        f"({duration:.2f}s)"
+                    )
+                )
                 mp3_path = convert_wav_to_mp3(chunk_path, delete_source=True)
                 return mp3_path or chunk_path
         except wave.Error:
@@ -204,15 +247,20 @@ class ChunkManager:
         except Exception as e:
             print(f"***VAD: error saving chunk: {e}")
             try:
-                return self._save_chunk_audio_manual(start_sample, end_sample, chunk_path)
+                return self._save_chunk_audio_manual(
+                    start_sample, end_sample, chunk_path
+                )
             except Exception as e2:
                 print(f"***VAD: error saving chunk manually: {e2}")
                 return None
 
-    def _save_chunk_audio_manual(self, start_sample: int, end_sample: int, chunk_path: str) -> Optional[str]:
+    def _save_chunk_audio_manual(
+        self, start_sample: int, end_sample: int, chunk_path: str
+    ) -> Optional[str]:
         if self.reader.manual_wav_info is None:
             # Try parsing on demand
-            # Accessing protected parse is intentionally avoided; rely on prior population
+            # Accessing protected parse is intentionally avoided;
+            # rely on prior population
             return None
 
         info = self.reader.manual_wav_info
@@ -237,7 +285,10 @@ class ChunkManager:
                 available_bytes = max(0, file_size - start_byte_pos)
                 if available_bytes == 0:
                     print(
-                        f"***VAD: chunk data not available yet (file_size={file_size}, needed={end_byte_pos})"
+                        (
+                            f"***VAD: chunk data not available yet "
+                            f"(file_size={file_size}, needed={end_byte_pos})"
+                        )
                     )
                     return None
                 num_bytes = available_bytes
@@ -245,19 +296,25 @@ class ChunkManager:
                 if num_samples == 0:
                     return None
                 print(
-                    f"***VAD: warning - chunk file incomplete, reading {num_bytes}/{end_sample - start_sample} bytes"
+                    (
+                        f"***VAD: warning - chunk file incomplete, "
+                        f"reading {num_bytes}/{end_sample - start_sample} bytes"
+                    )
                 )
 
-            with open(self.reader.wav_path, 'rb') as f_in:
+            with open(self.reader.wav_path, "rb") as f_in:
                 f_in.seek(start_byte_pos)
                 raw_audio = f_in.read(num_bytes)
                 if len(raw_audio) != num_bytes:
                     print(
-                        f"***VAD: warning - read {len(raw_audio)} bytes, expected {num_bytes}"
+                        (
+                            f"***VAD: warning - read {len(raw_audio)} bytes, "
+                            f"expected {num_bytes}"
+                        )
                     )
                     if len(raw_audio) == 0:
                         return None
-                with wave.open(chunk_path, 'wb') as wf_out:
+                with wave.open(chunk_path, "wb") as wf_out:
                     wf_out.setnchannels(int(n_channels))
                     wf_out.setsampwidth(int(sampwidth))
                     wf_out.setframerate(int(framerate))
@@ -267,5 +324,3 @@ class ChunkManager:
         except Exception as e:
             print(f"***VAD: error in manual chunk save: {e}")
             return None
-
-
