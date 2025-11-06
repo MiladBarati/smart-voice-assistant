@@ -281,6 +281,32 @@ main()
 - **[VOICE_CAPTURE_IMPLEMENTATION.md](VOICE_CAPTURE_IMPLEMENTATION.md)** - Voice recording implementation
 - **[ELASTICSEARCH_INTEGRATION.md](ELASTICSEARCH_INTEGRATION.md)** - Elasticsearch integration details
 
+## 🧰 Development: Quality Gates
+
+This repository enforces linting, formatting, and type checking on commit via pre-commit hooks.
+
+Setup:
+
+```bash
+# Install dev tools with pip
+pip install ruff black mypy pre-commit
+
+# Or with uv (if available)
+uv pip install --system --group dev
+
+# Install hooks
+pre-commit install
+
+# Run across the repo once
+pre-commit run --all-files
+```
+
+Tools:
+
+- Ruff: linting and import sorting
+- Black: code formatting
+- mypy: static type checking
+
 ## 🤝 Contributing
 
 Contributions are welcome! Areas for improvement:

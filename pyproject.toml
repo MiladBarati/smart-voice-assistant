@@ -23,4 +23,51 @@ dependencies = [
 dev = [
     "pytest>=8.4.2",
     "pytest-cov>=7.0.0",
+    "ruff>=0.6.9",
+    "black>=24.8.0",
+    "mypy>=1.11.2",
+    "pre-commit>=4.0.1",
 ]
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+include = "\\.pyi?$"
+extend-exclude = "(^recordings/|^htmlcov/|^assets/|^infrastructure/|^docs/|^src/pjsua_installation\\.egg-info/)"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+src = ["src"]
+extend-exclude = [
+  "recordings",
+  "htmlcov",
+  "assets",
+  "infrastructure",
+  "docs",
+  "**/*.egg-info",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "B"]
+ignore = []
+fixable = ["ALL"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+
+[tool.mypy]
+python_version = "3.11"
+mypy_path = ["src"]
+explicit_package_bases = true
+plugins = []
+ignore_missing_imports = true
+disallow_untyped_defs = true
+warn_return_any = true
+warn_unused_ignores = true
+no_implicit_optional = true
+check_untyped_defs = true
+show_error_codes = true
+pretty = true

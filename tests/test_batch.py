@@ -3,36 +3,34 @@
 Test batch logging functionality.
 """
 
-from src.pjsua_bot.elasticsearch_client import es_logger
+from pjsua_bot.elasticsearch_client import es_logger
 
-def test_batch_logging():
+
+def test_batch_logging() -> None:
     """Test batch logging functionality."""
     print("Testing batch logging...")
-    
+
     events = [
         {
-            'event_type': 'test_event_1',
-            'doc_type': 'call',
-            'call_id': 'batch_test_1',
-            'data': 'test1'
+            "event_type": "test_event_1",
+            "doc_type": "call",
+            "call_id": "batch_test_1",
+            "data": "test1",
         },
         {
-            'event_type': 'test_event_2', 
-            'doc_type': 'media',
-            'call_id': 'batch_test_1',
-            'data': 'test2'
+            "event_type": "test_event_2",
+            "doc_type": "media",
+            "call_id": "batch_test_1",
+            "data": "test2",
         },
-        {
-            'event_type': 'test_event_3',
-            'doc_type': 'registration',
-            'data': 'test3'
-        }
+        {"event_type": "test_event_3", "doc_type": "registration", "data": "test3"},
     ]
-    
+
     result = es_logger.log_batch_events(events)
     print(f"Batch logging: {'SUCCESS' if result else 'FAILED'}")
-    
-    return result
+
+    assert result is True
+
 
 if __name__ == "__main__":
     test_batch_logging()

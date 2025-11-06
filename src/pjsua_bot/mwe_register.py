@@ -1,27 +1,41 @@
-import time, argparse
+import argparse
+import time
+from typing import Any
+
 import pjsua2 as pj
 
-def pump(ep):
-    try: ep.libHandleEvents(50)
-    except Exception as e: print("***events:", e)
 
-def main():
+def pump(ep: pj.Endpoint) -> None:
+    try:
+        ep.libHandleEvents(50)
+    except Exception as e:
+        print("***events:", e)
+
+
+def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--user", required=True)
     ap.add_argument("--password", required=True)
     ap.add_argument("--domain", required=True)
     ap.add_argument("--auth-user", default=None)
-    ap.add_argument("--transport", choices=["udp","tcp","tls"], default="udp")
+    ap.add_argument("--transport", choices=["udp", "tcp", "tls"], default="udp")
     ap.add_argument("--local-port", type=int, default=5070)
     ap.add_argument("--wait", type=int, default=10)
     args = ap.parse_args()
 
-    ep = pj.Endpoint(); ep.libCreate()
-    ep_cfg = pj.EpConfig(); ep_cfg.logConfig.level = 4
+    ep = pj.Endpoint()
+    ep.libCreate()
+    ep_cfg = pj.EpConfig()
+    ep_cfg.logConfig.level = 4
     ep.libInit(ep_cfg)
 
-    tp = pj.TransportConfig(); tp.port = args.local_port
-    tmap = {"udp": pj.PJSIP_TRANSPORT_UDP, "tcp": pj.PJSIP_TRANSPORT_TCP, "tls": pj.PJSIP_TRANSPORT_TLS}
+    tp = pj.TransportConfig()
+    tp.port = args.local_port
+    tmap = {
+        "udp": pj.PJSIP_TRANSPORT_UDP,
+        "tcp": pj.PJSIP_TRANSPORT_TCP,
+        "tls": pj.PJSIP_TRANSPORT_TLS,
+    }
     ep.transportCreate(tmap[args.transport], tp)
     ep.libStart()
 
@@ -39,11 +53,11 @@ def main():
     # Also disable Contact/Via rewrite heuristics that can change the Contact mid-flight
     try:
         acfg.natConfig.contactRewriteUse = pj.PJSUA_CONTACT_REWRITE_USE_DISABLED
-        acfg.natConfig.viaRewriteUse     = pj.PJSUA_VIA_REWRITE_USE_DISABLED
+        acfg.natConfig.viaRewriteUse = pj.PJSUA_VIA_REWRITE_USE_DISABLED
     except AttributeError:
         # fallbacks if your binding exposes them as ints
         acfg.natConfig.contactRewriteUse = 0
-        acfg.natConfig.viaRewriteUse     = 0
+        acfg.natConfig.viaRewriteUse = 0
 
     # Do NOT force using the local source port in Contact
     try:
@@ -51,15 +65,28 @@ def main():
     except AttributeError:
         pass
 
-
-    acfg.sipConfig.authCreds.append(pj.AuthCredInfo("digest", "*", args.auth_user or args.user, 0, args.password))
+    acfg.sipConfig.authCreds.append(
+        pj.AuthCredInfo(
+            "digest",
+            "*",
+            args.auth_user or args.user,
+            0,
+            args.password,
+        )
+    )
 
     class Acc(pj.Account):
-        def onRegState(self, prm):
+        def onRegState(  # noqa: N802 - required by PJSUA2 bindings
+            self, prm: Any
+        ) -> None:
             info = self.getInfo()
-            print(f"***reg: active={info.regIsActive} code={info.regStatus} reason={prm.reason}")
+            print(
+                f"***reg: active={info.regIsActive} "
+                f"code={info.regStatus} reason={prm.reason}"
+            )
 
-    acc = Acc(); acc.create(acfg)
+    acc = Acc()
+    acc.create(acfg)
 
     # Wait for registration with event pumping
     deadline = time.time() + args.wait
@@ -72,8 +99,11 @@ def main():
 
     # stay a bit to let Asterisk create/qualify contact
     end = time.time() + 5
-    while time.time() < end: pump(ep)
+    while time.time() < end:
+        pump(ep)
 
     ep.libDestroy()
 
-if __name__ == "__main__": main()
+
+if __name__ == "__main__":
+    main()

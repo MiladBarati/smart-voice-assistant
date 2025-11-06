@@ -1,24 +1,27 @@
 """Utility functions for PJSUA2 bot operations."""
 
-import os
-import time
-import wave
 import logging
-from datetime import datetime
+import os
 import shutil
 import subprocess
+import time
+import wave
+from datetime import datetime
+from typing import Callable, Optional
+
 import pjsua2 as pj
 
 
 def generate_unique_id() -> str:
     """Generate a unique call ID."""
     import uuid
+
     return str(uuid.uuid4())
 
 
 def parse_sip_user(uri: str) -> str:
     """Extract user/extension from a SIP URI or display-formatted URI.
-    
+
     Examples:
       'sip:1001@host' -> '1001'
       '"Alice" <sip:1002@host>' -> '1002'
@@ -27,12 +30,12 @@ def parse_sip_user(uri: str) -> str:
         return ""
     try:
         s = uri
-        if '<' in s and '>' in s:
-            s = s[s.find('<')+1:s.find('>')]
-        if s.startswith('sip:'):
+        if "<" in s and ">" in s:
+            s = s[s.find("<") + 1 : s.find(">")]
+        if s.startswith("sip:"):
             s = s[4:]
-        if '@' in s:
-            s = s.split('@', 1)[0]
+        if "@" in s:
+            s = s.split("@", 1)[0]
         # strip quotes and whitespace
         return s.strip().strip('"')
     except Exception:
@@ -43,14 +46,14 @@ def setup_logging(log_level: int = 3) -> None:
     """Setup logging configuration."""
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[
             logging.StreamHandler(),
-        ]
+        ],
     )
-    
+
     # Set PJSUA2 log level
-    pj_logger = logging.getLogger('pjsua2')
+    pj_logger = logging.getLogger("pjsua2")
     pj_logger.setLevel(logging.INFO)
 
 
@@ -60,8 +63,8 @@ def get_wav_duration(file_path: str) -> float:
         if not os.path.exists(file_path):
             print(f"***Warning: File {file_path} not found, using default duration")
             return 5.0  # Default fallback
-        
-        with wave.open(file_path, 'rb') as wav_file:
+
+        with wave.open(file_path, "rb") as wav_file:
             frames = wav_file.getnframes()
             sample_rate = wav_file.getframerate()
             duration = frames / float(sample_rate)
@@ -72,17 +75,17 @@ def get_wav_duration(file_path: str) -> float:
         return 5.0  # Default fallback
 
 
-def ensure_recording_directory(base_path: str, call_id: str = None) -> str:
+def ensure_recording_directory(base_path: str, call_id: Optional[str] = None) -> str:
     """Ensure recording directory exists and return the full path.
-    
+
     Creates directory structure:
     - If call_id is provided: {base_path}/YYYY-MM-DD/{call_id}/
     - Otherwise: {base_path}/YYYY-MM-DD/
-    
+
     Args:
         base_path: Base directory for recordings
         call_id: Optional unique call identifier to create a subdirectory for the call
-        
+
     Returns:
         Full path to the recording directory
     """
@@ -90,7 +93,7 @@ def ensure_recording_directory(base_path: str, call_id: str = None) -> str:
         # Create date-specific subdirectory directly under base_path
         current_date = datetime.now().strftime("%Y-%m-%d")
         date_dir = os.path.join(base_path, current_date)
-        
+
         # If call_id is provided, create a call-specific subdirectory
         if call_id:
             call_dir = os.path.join(date_dir, call_id)
@@ -107,50 +110,55 @@ def ensure_recording_directory(base_path: str, call_id: str = None) -> str:
         return base_path
 
 
-def convert_recording_path_to_url(local_path: str, base_url: str = None) -> str:
+def convert_recording_path_to_url(
+    local_path: str,
+    base_url: Optional[str] = None,
+) -> str:
     """Convert a local recording file path to a URL.
-    
+
     Normalizes common Windows/relative paths and avoids duplicating the
     'recordings' path segment when the base_url already contains it.
-    
+
     Args:
         local_path: Local file path (can include backslashes, ./ prefix, etc.)
         base_url: Base URL for recordings (defaults to https://recordings.aminraay.ir/recordings)
-        
+
     Returns:
         URL string with normalized path separators
     """
     if not local_path:
         return ""
-    
+
     if base_url is None:
         # Load from environment variable or use default
-        base_url = os.getenv('RECORDING_BASE_URL', 'https://recordings.aminraay.ir/recordings')
-    
+        base_url = os.getenv(
+            "RECORDING_BASE_URL", "https://recordings.aminraay.ir/recordings"
+        )
+
     # Normalize the local path
     # Remove ./ prefix if present
-    normalized_path = local_path.replace('./', '').lstrip('/')
-    
+    normalized_path = local_path.replace("./", "").lstrip("/")
+
     # Replace backslashes with forward slashes (for Windows paths)
-    normalized_path = normalized_path.replace('\\', '/')
-    
+    normalized_path = normalized_path.replace("\\", "/")
+
     # Remove leading slashes
-    normalized_path = normalized_path.lstrip('/')
-    
+    normalized_path = normalized_path.lstrip("/")
+
     # Remove base URL trailing slash if present
-    base_url = base_url.rstrip('/')
-    
+    base_url = base_url.rstrip("/")
+
     # Remove a single leading 'recordings/' from the path if present,
     # since base_url typically already points to the recordings root.
-    if normalized_path.startswith('recordings/'):
-        normalized_path = normalized_path[len('recordings/'):]
-    
+    if normalized_path.startswith("recordings/"):
+        normalized_path = normalized_path[len("recordings/") :]
+
     return f"{base_url}/{normalized_path}"
 
 
 def convert_wav_to_mp3(wav_path: str, delete_source: bool = True) -> str | None:
     """Convert a WAV file to MP3 using ffmpeg if available.
-    
+
     Returns the path to the generated MP3 on success, or None on failure.
     If delete_source is True and conversion succeeds, the source WAV file is removed.
     """
@@ -169,13 +177,21 @@ def convert_wav_to_mp3(wav_path: str, delete_source: bool = True) -> str | None:
         cmd = [
             ffmpeg_bin,
             "-y",
-            "-i", wav_path,
+            "-i",
+            wav_path,
             "-vn",
-            "-c:a", "libmp3lame",
-            "-q:a", "2",
+            "-c:a",
+            "libmp3lame",
+            "-q:a",
+            "2",
             mp3_path,
         ]
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        subprocess.run(
+            cmd,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.STDOUT,
+        )
 
         if os.path.exists(mp3_path):
             print(f"***Audio convert: created {mp3_path}")
@@ -205,7 +221,11 @@ def pump_events(ep: pj.Endpoint, ms_per_iter: int = 50) -> None:
         print(f"***EventLoop error: {e}")
 
 
-def wait_until(ep: pj.Endpoint, predicate, timeout_s: float) -> bool:
+def wait_until(
+    ep: pj.Endpoint,
+    predicate: Callable[[], bool],
+    timeout_s: float,
+) -> bool:
     """Pump events until predicate() is True or timeout (in seconds) elapses."""
     deadline = time.time() + timeout_s
     while time.time() < deadline:
@@ -213,4 +233,3 @@ def wait_until(ep: pj.Endpoint, predicate, timeout_s: float) -> bool:
         if predicate():
             return True
     return False
-
