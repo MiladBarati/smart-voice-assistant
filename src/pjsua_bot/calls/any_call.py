@@ -63,6 +63,15 @@ class AnyCall(GoodbyePlaybackMixin, RecordingCleanupMixin, pj.Call):
         self._outgoing_recording_duration: float = (
             0.0  # Track outgoing recording duration in seconds
         )
+        # Mixed audio recording infrastructure (incoming + outgoing combined)
+        self._mixed_recorder: pj.AudioMediaRecorder | None = None
+        self._mixed_recording_file: str = ""
+        self._mixed_recording_start_time: datetime | None = (
+            None  # Track when mixed recording started
+        )
+        self._mixed_recording_duration: float = (
+            0.0  # Track mixed recording duration in seconds
+        )
         # Batch logging - collect events during call
         self._collected_events: list[dict[str, Any]] = []
         # VAD related
@@ -192,6 +201,41 @@ class AnyCall(GoodbyePlaybackMixin, RecordingCleanupMixin, pj.Call):
                     capture_duration=(
                         round(self._outgoing_recording_duration, 2)
                         if self._outgoing_recording_duration
+                        else 0
+                    ),
+                )
+
+            # Add mixed recording metadata (incoming + outgoing combined)
+            if self._mixed_recording_file and os.path.exists(
+                self._mixed_recording_file
+            ):
+                mixed_file_size = os.path.getsize(self._mixed_recording_file)
+                # Convert local path to URL for logs
+                mixed_file_url = convert_recording_path_to_url(
+                    self._mixed_recording_file
+                )
+                recording_metadata["mixed"] = {
+                    "file_path": mixed_file_url,
+                    "file_size_bytes": mixed_file_size,
+                    "recorded": True,
+                    "voice_captured": True,
+                    "capture_duration": (
+                        round(self._mixed_recording_duration, 2)
+                        if self._mixed_recording_duration
+                        else 0
+                    ),
+                }
+
+                # Collect mixed recording finished event
+                self._collect_event(
+                    event_type="mixed_recording_finished",
+                    media_type="audio",
+                    recording_file=mixed_file_url,
+                    file_size_bytes=mixed_file_size,
+                    direction="mixed",
+                    capture_duration=(
+                        round(self._mixed_recording_duration, 2)
+                        if self._mixed_recording_duration
                         else 0
                     ),
                 )
@@ -660,6 +704,64 @@ class AnyCall(GoodbyePlaybackMixin, RecordingCleanupMixin, pj.Call):
                                             else ""
                                         ),
                                     )
+
+                                    # Set up mixed recording (incoming + outgoing)
+                                    try:
+                                        # Use the same call-specific directory
+                                        assert self._call_recording_dir is not None
+                                        self._mixed_recording_file = os.path.join(
+                                            self._call_recording_dir,
+                                            "mixed.wav",
+                                        )
+
+                                        mixed_recorder = pj.AudioMediaRecorder()
+                                        mixed_recorder.createRecorder(
+                                            self._mixed_recording_file, 0, 0
+                                        )
+
+                                        # Transmit both incoming and outgoing to mixed
+                                        # Incoming audio: call_media -> mixed_recorder
+                                        # (Records what comes FROM the remote caller)
+                                        call_media.startTransmit(mixed_recorder)
+                                        # Outgoing audio: player -> mixed_recorder
+                                        # (This records what goes TO the remote caller)
+                                        # Note: Record player directly, not through
+                                        # call_media, to avoid capturing audio twice
+                                        if self._player:
+                                            self._player.startTransmit(mixed_recorder)
+
+                                        self._mixed_recorder = mixed_recorder
+                                        # Track mixed recording start time
+                                        self._mixed_recording_start_time = (
+                                            datetime.utcnow()
+                                        )
+                                        print(
+                                            (
+                                                "***Recording: started capturing "
+                                                "mixed audio (incoming + outgoing) to "
+                                                f"{self._mixed_recording_file}"
+                                            )
+                                        )
+
+                                        # Collect mixed recording started event
+                                        self._collect_event(
+                                            event_type="mixed_recording_started",
+                                            media_type="audio",
+                                            recording_file=(
+                                                convert_recording_path_to_url(
+                                                    self._mixed_recording_file
+                                                )
+                                                if self._mixed_recording_file
+                                                else ""
+                                            ),
+                                        )
+                                    except Exception as e:
+                                        print(f"***Mixed recording setup error: {e}")
+                                        self._collect_event(
+                                            event_type="mixed_recording_error",
+                                            media_type="audio",
+                                            error=str(e),
+                                        )
                                 except Exception as e:
                                     print(f"***Outgoing recording setup error: {e}")
                                     self._collect_event(
@@ -743,6 +845,16 @@ class AnyCall(GoodbyePlaybackMixin, RecordingCleanupMixin, pj.Call):
                     # Stop the transmission from player to call media
                     self._player.stopTransmit(self._call_media)
                     print("***Stopped player transmission to prevent looping")
+
+                    # Stop the transmission from player to mixed recorder
+                    # to prevent the welcome message from being replayed
+                    if getattr(self, "_mixed_recorder", None):
+                        try:
+                            self._player.stopTransmit(self._mixed_recorder)
+                            print("***Stopped player transmission to mixed recorder")
+                        except Exception:
+                            # Mixed recorder might already be stopped, ignore
+                            pass
 
                     # Also stop the call media to playback transmission
                     # to break the audio path

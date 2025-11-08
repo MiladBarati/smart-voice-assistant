@@ -1,7 +1,14 @@
 """
 PJSUA Bot Package
 
-A SIP bot implementation using PJSUA library.
+A comprehensive SIP bot implementation using PJSUA2 library with advanced features:
+- Voice Activity Detection (VAD) with Silero integration
+- Automatic Speech Recognition (ASR) with Whisper models
+- Call recording (incoming/outgoing streams)
+- Audio playback with automatic duration detection
+- Elasticsearch integration for call logging and metrics
+- Real-time speech detection and chunking
+- Silence tracking and auto-hangup logic
 """
 
 __version__ = "1.0.0"

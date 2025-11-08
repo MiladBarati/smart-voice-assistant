@@ -1,7 +1,7 @@
 [project]
 name = "pjsua-installation"
-version = "0.1.0"
-description = "Add your description here"
+version = "1.0.0"
+description = "PJSUA2 SIP Bot with VAD, ASR, call recording, and Elasticsearch integration"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

@@ -63,6 +63,14 @@ class GoodbyePlaybackMixin:
             self._goodbye_player.createPlayer(goodbye_file, False)  # No loop
             self._goodbye_player.startTransmit(self._call_media)  # goodbye -> remote
 
+            # Also transmit goodbye message to mixed recorder if it exists
+            if getattr(self, "_mixed_recorder", None):
+                try:
+                    self._goodbye_player.startTransmit(self._mixed_recorder)
+                    print("***Goodbye: transmitting to mixed recorder")
+                except Exception as e:
+                    print(f"***Goodbye: error transmitting to mixed recorder: {e}")
+
             # Monitor on local speakers
             adm = pj.Endpoint.instance().audDevManager()
             playback = adm.getPlaybackDevMedia()
@@ -127,6 +135,15 @@ class GoodbyePlaybackMixin:
                     # Stop the transmission from goodbye player to call media
                     self._goodbye_player.stopTransmit(self._call_media)
                     print("***Goodbye: stopped player transmission")
+
+                    # Stop the transmission from goodbye player to mixed recorder
+                    if getattr(self, "_mixed_recorder", None):
+                        try:
+                            self._goodbye_player.stopTransmit(self._mixed_recorder)
+                            print("***Goodbye: stopped transmission to mixed recorder")
+                        except Exception:
+                            # Mixed recorder might already be stopped, ignore
+                            pass
 
                     # Also stop the call media to playback transmission
                     adm = pj.Endpoint.instance().audDevManager()

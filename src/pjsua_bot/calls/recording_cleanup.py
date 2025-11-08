@@ -34,6 +34,13 @@ class RecordingCleanupMixin:
     _outgoing_recording_duration: float
     _outgoing_recording_file: str
 
+    _mixed_recorder: Any | None
+    _mixed_recording_start_time: datetime | None
+    _mixed_recording_duration: float
+    _mixed_recording_file: str
+    _call_media: Any | None
+    _player: Any | None
+
     def _cleanup_recording(self) -> None:
         """Clean up recording resources safely."""
         # Prevent double cleanup
@@ -344,6 +351,135 @@ class RecordingCleanupMixin:
                 try:
                     self._collect_event(
                         event_type="outgoing_recording_cleanup_error",
+                        media_type="audio",
+                        error=str(e),
+                    )
+                except Exception:
+                    pass
+
+        # Clean up mixed recording (incoming + outgoing combined)
+        if getattr(self, "_mixed_recorder", None):
+            try:
+                # Try to stop transmission from both sources, but don't worry
+                # if it fails
+                # (ports may already be disconnected)
+                call_media = getattr(self, "_call_media", None)
+                player = getattr(self, "_player", None)
+                mixed_recorder = getattr(self, "_mixed_recorder", None)
+
+                if call_media is not None and mixed_recorder is not None:
+                    try:
+                        call_media.stopTransmit(mixed_recorder)
+                    except Exception:
+                        # Ports already disconnected, ignore silently
+                        pass
+
+                if player is not None and mixed_recorder is not None:
+                    try:
+                        player.stopTransmit(mixed_recorder)
+                    except Exception:
+                        # Ports already disconnected, ignore silently
+                        pass
+
+                # Don't explicitly destroy the recorder - let PJSUA2 handle it
+                self._mixed_recorder = None
+
+                # Calculate mixed recording duration
+                mixed_start_time = getattr(self, "_mixed_recording_start_time", None)
+                if mixed_start_time is not None:
+                    self._mixed_recording_duration = (
+                        datetime.utcnow() - mixed_start_time
+                    ).total_seconds()
+                    print(
+                        "***Recording: mixed audio captured for "
+                        f"{self._mixed_recording_duration:.2f} seconds"
+                    )
+
+                print(
+                    "***Recording: mixed audio stopped and saved to "
+                    f"{getattr(self, '_mixed_recording_file', None)}"
+                )
+
+                # Check if mixed file actually exists
+                if getattr(self, "_mixed_recording_file", None):
+                    if os.path.exists(self._mixed_recording_file):
+                        print(
+                            "***Recording: mixed file confirmed to exist at "
+                            f"{self._mixed_recording_file}"
+                        )
+                        # Convert to MP3 and update reference if successful
+                        print("***Recording: attempting to convert mixed WAV to MP3...")
+                        mp3_path = convert_wav_to_mp3(
+                            self._mixed_recording_file,
+                            delete_source=True,
+                        )
+                        if mp3_path:
+                            self._mixed_recording_file = mp3_path
+                            print(
+                                "***Recording: mixed file converted to MP3 at "
+                                f"{self._mixed_recording_file}"
+                            )
+                        else:
+                            print(
+                                (
+                                    "***Recording: MP3 conversion failed "
+                                    "(ffmpeg not available?), "
+                                    "keeping WAV file"
+                                )
+                            )
+                    else:
+                        print(
+                            "***Recording: WARNING - mixed file not found at "
+                            f"{self._mixed_recording_file}"
+                        )
+                        # Wait a moment and check again
+                        # (PJSUA2 might need time to flush)
+                        import time
+
+                        time.sleep(0.5)
+                        if os.path.exists(self._mixed_recording_file):
+                            print(
+                                "***Recording: mixed file found after delay at "
+                                f"{self._mixed_recording_file}"
+                            )
+                            print(
+                                (
+                                    "***Recording: attempting to convert "
+                                    "mixed WAV to MP3..."
+                                )
+                            )
+                            mp3_path = convert_wav_to_mp3(
+                                self._mixed_recording_file,
+                                delete_source=True,
+                            )
+                            if mp3_path:
+                                self._mixed_recording_file = mp3_path
+                                print(
+                                    "***Recording: mixed file converted to MP3 at "
+                                    f"{self._mixed_recording_file}"
+                                )
+                            else:
+                                print(
+                                    (
+                                        "***Recording: MP3 conversion failed "
+                                        "(ffmpeg not available?), "
+                                        "keeping WAV file"
+                                    )
+                                )
+                        else:
+                            print(
+                                (
+                                    "***Recording: mixed file still not found "
+                                    "after delay"
+                                )
+                            )
+
+            except Exception as e:
+                print(f"***Mixed recording cleanup error: {e}")
+                # Collect mixed recording cleanup error event
+                try:
+                    self._collect_event(
+                        event_type="mixed_recording_cleanup_error",
                         media_type="audio",
                         error=str(e),
                     )
