@@ -1,7 +1,9 @@
 """Generic call handler with recording, playback, VAD and ASR capabilities."""
 
 import os
+import queue
 import socket
+import threading
 import time
 from datetime import datetime
 from typing import Any
@@ -27,6 +29,7 @@ class AnyCall(GoodbyePlaybackMixin, RecordingCleanupMixin, pj.Call):
     def __init__(self, acc: pj.Account, call_id: int):
         super().__init__(acc, call_id)
         self._acc_ref = acc  # keep backref for settings
+        self._pjsua_call_id = call_id  # Store call ID early for safe cleanup
         self.unique_call_id = generate_unique_id()
         self._player: pj.AudioMediaPlayer | None = None
         self._playback_started = False
@@ -83,11 +86,23 @@ class AnyCall(GoodbyePlaybackMixin, RecordingCleanupMixin, pj.Call):
         # ASR enable flag from account
         self._asr_enabled: bool = bool(getattr(self._acc_ref, "enable_asr", False))
 
-        # ASR integration state
-        self._asr: ASRService | None = None
-        self._asr_available: bool = False
+        # ASR integration state - use account-level ASR service if available
+        # This avoids loading the model per call (model is loaded once at registration)
+        self._asr: ASRService | None = getattr(self._acc_ref, "_asr_service", None)
+        self._asr_available: bool = bool(
+            getattr(self._acc_ref, "_asr_available", False)
+            and self._asr is not None
+            and self._asr.available
+        )
         self._asr_chunk_texts: list[str] = []
         self._last_transcribed_chunk_count: int = 0
+        # ASR threading infrastructure for non-blocking transcription
+        self._asr_queue: queue.Queue[dict[str, Any]] | None = None
+        self._asr_thread: threading.Thread | None = None
+        self._asr_thread_stop = threading.Event()
+        self._asr_lock = (
+            threading.Lock()
+        )  # Lock for thread-safe access to _asr_chunk_texts
 
     def _collect_event(self, event_type: str, **kwargs: Any) -> None:
         """Collect an event for batch logging at the end of the call."""
@@ -99,9 +114,124 @@ class AnyCall(GoodbyePlaybackMixin, RecordingCleanupMixin, pj.Call):
         }
         self._collected_events.append(event)
 
+    def _asr_worker_thread(self) -> None:
+        """Worker thread that processes ASR transcription tasks."""
+        while not self._asr_thread_stop.is_set():
+            try:
+                # Wait for a task with a timeout to allow checking stop event
+                task = self._asr_queue.get(timeout=1.0) if self._asr_queue else None
+                if task is None:
+                    continue
+
+                file_path = task.get("file_path")
+                chunk_idx = task.get("chunk_idx", -1)
+
+                if not file_path or not os.path.exists(file_path):
+                    continue
+
+                if not self._asr or not self._asr_available:
+                    continue
+
+                # Perform transcription (this is the blocking operation)
+                try:
+                    print(f"***ASR: starting transcription for chunk {chunk_idx+1}...")
+                    res = self._asr.transcribe(file_path)
+                    if res and getattr(res, "text", None):
+                        text = res.text.strip()
+                        if text:
+                            # Thread-safe append to _asr_chunk_texts
+                            with self._asr_lock:
+                                self._asr_chunk_texts.append(text)
+                            print(f"***ASR: chunk {chunk_idx+1} -> {text}")
+                        else:
+                            print(
+                                f"***ASR: chunk {chunk_idx+1} transcribed but text is empty"
+                            )
+                    else:
+                        print(
+                            f"***ASR: chunk {chunk_idx+1} transcription returned no result"
+                        )
+                except Exception as e:
+                    print(f"***ASR: transcription error for {file_path}: {e}")
+
+                # Mark task as done
+                self._asr_queue.task_done()
+
+            except queue.Empty:
+                # Timeout - continue loop to check stop event
+                continue
+            except Exception as e:
+                print(f"***ASR: worker thread error: {e}")
+
+    def _start_asr_thread(self) -> None:
+        """Start the ASR worker thread if ASR is enabled."""
+        if not self._asr_enabled or not self._asr_available:
+            return
+
+        if self._asr_thread is not None and self._asr_thread.is_alive():
+            return  # Thread already running
+
+        if self._asr_queue is None:
+            self._asr_queue = queue.Queue()
+
+        self._asr_thread_stop.clear()
+        self._asr_thread = threading.Thread(
+            target=self._asr_worker_thread, daemon=True, name="ASRWorker"
+        )
+        self._asr_thread.start()
+        print("***ASR: worker thread started")
+
+    def _stop_asr_thread(self) -> None:
+        """Stop the ASR worker thread and wait for pending tasks."""
+        if self._asr_thread is None or not self._asr_thread.is_alive():
+            return
+
+        # Signal thread to stop
+        self._asr_thread_stop.set()
+
+        # Wait for thread to finish (with timeout)
+        if self._asr_thread.is_alive():
+            self._asr_thread.join(timeout=5.0)
+            if self._asr_thread.is_alive():
+                print("***ASR: worker thread did not stop within timeout")
+            else:
+                print("***ASR: worker thread stopped")
+
+        self._asr_thread = None
+
+    def _submit_transcription_task(self, file_path: str, chunk_idx: int = -1) -> None:
+        """Submit a transcription task to the ASR worker thread queue.
+
+        Args:
+            file_path: Path to audio file to transcribe
+            chunk_idx: Index of the chunk (for logging purposes)
+        """
+        if not self._asr_enabled or not self._asr_available:
+            return
+
+        if self._asr_queue is None:
+            # Start thread if not already started
+            self._start_asr_thread()
+
+        if self._asr_queue is not None:
+            try:
+                self._asr_queue.put_nowait(
+                    {"file_path": file_path, "chunk_idx": chunk_idx}
+                )
+                print(
+                    f"***ASR: queued transcription task for chunk {chunk_idx+1}: {file_path}"
+                )
+            except queue.Full:
+                print(f"***ASR: queue full, skipping transcription for {file_path}")
+
     def onCallState(self, prm: Any) -> None:  # noqa: N802 - PJSUA2 callback name
         """Handle call state changes."""
-        ci = self.getInfo()
+        try:
+            ci = self.getInfo()
+        except Exception as e:
+            # Call might already be destroyed, skip processing
+            print(f"***CallState: error getting call info (call may be destroyed): {e}")
+            return
         print(f"***CallState: state={ci.stateText} code={ci.lastStatusCode}")
 
         # Collect call state change event
@@ -133,6 +263,8 @@ class AnyCall(GoodbyePlaybackMixin, RecordingCleanupMixin, pj.Call):
             pass
 
         if ci.state == pj.PJSIP_INV_STATE_DISCONNECTED:
+            # Stop ASR worker thread (cleanup_recording will wait for pending tasks)
+            self._stop_asr_thread()
             # Clean up recording early to avoid media disconnect issues
             self._cleanup_recording()
 
@@ -372,11 +504,29 @@ class AnyCall(GoodbyePlaybackMixin, RecordingCleanupMixin, pj.Call):
                 print(f"***Error sending single call record: {e}")
 
             # cleanup: drop strong reference so GC can collect safely now
+            # Use stored call_id instead of ci.id to avoid assertion failure
+            # when call is already destroyed
             try:
-                del self._acc_ref.calls[ci.id]  # id is the call-id index in pjsua2
-            except Exception:
-                # some bindings use self.getId() or store the key from onIncomingCall
-                # safe fallback: clear everything if unknown
+                call_id_to_remove = getattr(self, "_pjsua_call_id", None)
+                if (
+                    call_id_to_remove is not None
+                    and call_id_to_remove in self._acc_ref.calls
+                ):
+                    del self._acc_ref.calls[call_id_to_remove]
+                else:
+                    # Fallback: try to get ID from call info if still valid
+                    try:
+                        if hasattr(ci, "id") and ci.id in self._acc_ref.calls:
+                            del self._acc_ref.calls[ci.id]
+                    except Exception:
+                        pass
+                    # Final fallback: remove by object reference
+                    self._acc_ref.calls = {
+                        k: v for k, v in self._acc_ref.calls.items() if v is not self
+                    }
+            except Exception as e:
+                # Safe fallback: clear everything if unknown
+                print(f"***Warning: error removing call from dict: {e}")
                 self._acc_ref.calls = {
                     k: v for k, v in self._acc_ref.calls.items() if v is not self
                 }
@@ -537,9 +687,14 @@ class AnyCall(GoodbyePlaybackMixin, RecordingCleanupMixin, pj.Call):
                                     )
                                     # Use the same directory as recording for chunks
                                     chunks_output_dir = self._call_recording_dir
+                                    # Keep WAV files if ASR is enabled (ASR needs WAV format)
+                                    keep_wav_for_asr = self._asr_enabled
                                     self._vad = SileroVAD(
                                         self._recording_file,
-                                        VADConfig(threshold=vad_threshold),
+                                        VADConfig(
+                                            threshold=vad_threshold,
+                                            keep_wav_for_asr=keep_wav_for_asr,
+                                        ),
                                         chunks_output_dir=chunks_output_dir,
                                     )
                                     if self._vad.available:
@@ -557,24 +712,8 @@ class AnyCall(GoodbyePlaybackMixin, RecordingCleanupMixin, pj.Call):
                                 except Exception as e:
                                     print(f"***VAD init error: {e}")
 
-                            # Initialize ASR service once recording/VAD is set up
-                            # (only if enabled)
-                            if self._asr_enabled and self._asr is None:
-                                try:
-                                    self._asr = ASRService()
-                                    self._asr_available = bool(
-                                        self._asr and self._asr.available
-                                    )
-                                    if self._asr_available:
-                                        print("***ASR: service initialized")
-                                    else:
-                                        load_err = getattr(
-                                            self._asr, "_load_error", "unknown error"
-                                        )
-                                        print(("***ASR: unavailable - " f"{load_err}"))
-                                except Exception as e:
-                                    print(f"***ASR init error: {e}")
-                                    self._asr_available = False
+                            # ASR initialization is deferred until after playback setup
+                            # to avoid blocking the media setup
                         except Exception as e:
                             print(f"***Recording setup error: {e}")
                             # Collect recording error event
@@ -624,203 +763,314 @@ class AnyCall(GoodbyePlaybackMixin, RecordingCleanupMixin, pj.Call):
                         )
 
                     # If a play file is configured, play it to the remote side
-                    if getattr(self._acc_ref, "play_file", None):
+                    play_file = getattr(self._acc_ref, "play_file", None)
+                    if play_file:
                         try:
-                            player = pj.AudioMediaPlayer()
-                            # Create player with loop=False to play only once
-                            player.createPlayer(self._acc_ref.play_file, False)
-                            player.startTransmit(call_media)  # file -> remote
-                            call_media.startTransmit(
-                                playback
-                            )  # remote -> local speakers
-                            print(
-                                f"***Media: playing file to remote: "
-                                f"{self._acc_ref.play_file}"
-                            )
-                            self._player = player
-
-                            # Record outgoing audio (bot's welcome message)
-                            # if recording is enabled
-                            if getattr(self._acc_ref, "enable_recording", False):
+                            # Verify file exists before attempting to play
+                            if not os.path.exists(play_file):
+                                print(
+                                    f"***Media player error: file not found: {play_file}"
+                                )
+                                self._collect_event(
+                                    event_type="media_error",
+                                    media_type="audio",
+                                    error=f"File not found: {play_file}",
+                                )
+                            else:
+                                player = pj.AudioMediaPlayer()
+                                # Create player with loop=False to play only once
                                 try:
-                                    # Use the same call-specific directory
-                                    # created for incoming recording
-                                    if not self._call_recording_dir:
-                                        # Create directory if it wasn't created yet
-                                        # (shouldn't happen)
-                                        call_dir_name = (
-                                            f"call_{datetime.now().strftime('%Y%m%d_%H%M%S')}_"
-                                            f"{self._caller_number or 'unknown'}"
+                                    player.createPlayer(play_file, False)
+                                    print(
+                                        f"***Media: player created successfully for: {play_file}"
+                                    )
+                                except Exception as e:
+                                    print(
+                                        f"***Media player error: failed to create player: {e}"
+                                    )
+                                    self._collect_event(
+                                        event_type="media_error",
+                                        media_type="audio",
+                                        error=f"createPlayer failed: {e}",
+                                    )
+                                    raise  # Re-raise to skip startTransmit
+
+                                # Start transmitting audio to remote
+                                try:
+                                    player.startTransmit(call_media)  # file -> remote
+                                    call_media.startTransmit(
+                                        playback
+                                    )  # remote -> local speakers
+                                    print(
+                                        f"***Media: playing file to remote: {play_file}"
+                                    )
+                                    self._player = player
+
+                                    # Only set up recording and mark playback if player succeeded
+                                    # Record outgoing audio (bot's welcome message)
+                                    # if recording is enabled
+                                    if getattr(
+                                        self._acc_ref, "enable_recording", False
+                                    ):
+                                        try:
+                                            # Use the same call-specific directory
+                                            # created for incoming recording
+                                            if not self._call_recording_dir:
+                                                # Create directory if it wasn't created yet
+                                                # (shouldn't happen)
+                                                call_dir_name = (
+                                                    f"call_{datetime.now().strftime('%Y%m%d_%H%M%S')}_"
+                                                    f"{self._caller_number or 'unknown'}"
+                                                )
+                                                self._call_recording_dir = (
+                                                    ensure_recording_directory(
+                                                        getattr(
+                                                            self._acc_ref,
+                                                            "recording_path",
+                                                            "./recordings",
+                                                        ),
+                                                        call_id=call_dir_name,
+                                                    )
+                                                )
+
+                                            # Use simple filename since files are in
+                                            # separate directories
+                                            assert self._call_recording_dir is not None
+                                            self._outgoing_recording_file = (
+                                                os.path.join(
+                                                    self._call_recording_dir,
+                                                    "outgoing.wav",
+                                                )
+                                            )
+
+                                            recorder = pj.AudioMediaRecorder()
+                                            recorder.createRecorder(
+                                                self._outgoing_recording_file, 0, 0
+                                            )
+                                            if self._player:
+                                                # player -> outgoing recorder
+                                                self._player.startTransmit(recorder)
+                                            self._outgoing_recording_call_media = (
+                                                self._player
+                                            )
+                                            self._outgoing_recorder = recorder
+                                            # Track outgoing recording start time
+                                            self._outgoing_recording_start_time = (
+                                                datetime.utcnow()
+                                            )
+                                            print(
+                                                (
+                                                    "***Recording: started capturing "
+                                                    "outgoing audio to "
+                                                    f"{self._outgoing_recording_file}"
+                                                )
+                                            )
+
+                                            # Collect outgoing recording started event
+                                            self._collect_event(
+                                                event_type="outgoing_recording_started",
+                                                media_type="audio",
+                                                recording_file=(
+                                                    convert_recording_path_to_url(
+                                                        self._outgoing_recording_file
+                                                    )
+                                                    if self._outgoing_recording_file
+                                                    else ""
+                                                ),
+                                            )
+
+                                            # Set up mixed recording (incoming + outgoing)
+                                            try:
+                                                # Use the same call-specific directory
+                                                assert (
+                                                    self._call_recording_dir is not None
+                                                )
+                                                self._mixed_recording_file = (
+                                                    os.path.join(
+                                                        self._call_recording_dir,
+                                                        "mixed.wav",
+                                                    )
+                                                )
+
+                                                mixed_recorder = pj.AudioMediaRecorder()
+                                                mixed_recorder.createRecorder(
+                                                    self._mixed_recording_file, 0, 0
+                                                )
+
+                                                # Transmit both incoming and outgoing to mixed
+                                                # Incoming audio: call_media -> mixed_recorder
+                                                # (Records what comes FROM the remote caller)
+                                                call_media.startTransmit(mixed_recorder)
+                                                # Outgoing audio: player -> mixed_recorder
+                                                # (This records what goes TO the remote caller)
+                                                # Note: Record player directly, not through
+                                                # call_media, to avoid capturing audio twice
+                                                if self._player:
+                                                    self._player.startTransmit(
+                                                        mixed_recorder
+                                                    )
+
+                                                self._mixed_recorder = mixed_recorder
+                                                # Track mixed recording start time
+                                                self._mixed_recording_start_time = (
+                                                    datetime.utcnow()
+                                                )
+                                                print(
+                                                    (
+                                                        "***Recording: started capturing "
+                                                        "mixed audio (incoming + outgoing) to "
+                                                        f"{self._mixed_recording_file}"
+                                                    )
+                                                )
+
+                                                # Collect mixed recording started event
+                                                self._collect_event(
+                                                    event_type="mixed_recording_started",
+                                                    media_type="audio",
+                                                    recording_file=(
+                                                        convert_recording_path_to_url(
+                                                            self._mixed_recording_file
+                                                        )
+                                                        if self._mixed_recording_file
+                                                        else ""
+                                                    ),
+                                                )
+                                            except Exception as e:
+                                                print(
+                                                    f"***Mixed recording setup error: {e}"
+                                                )
+                                                self._collect_event(
+                                                    event_type="mixed_recording_error",
+                                                    media_type="audio",
+                                                    error=str(e),
+                                                )
+                                        except Exception as e:
+                                            print(
+                                                f"***Outgoing recording setup error: {e}"
+                                            )
+                                            self._collect_event(
+                                                event_type="outgoing_recording_error",
+                                                media_type="audio",
+                                                error=str(e),
+                                            )
+
+                                    # Mark playback as started and set a timer
+                                    # to stop transmission
+                                    if not self._playback_started:
+                                        self._playback_started = True
+                                        print("***Welcome message playback started")
+
+                                        # Notify VAD that bot playback started
+                                        if self._vad and self._vad.available:
+                                            try:
+                                                self._vad.set_bot_playback_state(
+                                                    True,
+                                                    time.time,
+                                                )
+                                            except Exception as e:
+                                                print(
+                                                    (
+                                                        "***VAD: error notifying bot "
+                                                        f"playback start: {e}"
+                                                    )
+                                                )
+
+                                        # Collect playback started event
+                                        self._collect_event(
+                                            event_type="playback_started",
+                                            media_type="audio",
+                                            file_played=self._acc_ref.play_file,
                                         )
-                                        self._call_recording_dir = (
-                                            ensure_recording_directory(
+
+                                        # Set a timer to stop the player transmission
+                                        # after actual duration
+                                        message_duration = getattr(
+                                            self._acc_ref,
+                                            "message_duration",
+                                            5,
+                                        )
+                                        self._stop_player_time = (
+                                            time.time() + message_duration
+                                        )
+                                        print(
+                                            (
+                                                "***Will stop player after "
+                                                f"{message_duration:.2f} seconds"
+                                            )
+                                        )
+                                        # Store the call media for later use
+                                        self._call_media = call_media
+
+                                        # Start ASR worker thread if ASR is enabled and available
+                                        # (ASR service is already loaded at account level)
+                                        # Re-check ASR availability in case it was still loading during call init
+                                        if self._asr_enabled:
+                                            # Re-check if ASR service is now available
+                                            self._asr = getattr(
+                                                self._acc_ref, "_asr_service", None
+                                            )
+                                            self._asr_available = bool(
                                                 getattr(
                                                     self._acc_ref,
-                                                    "recording_path",
-                                                    "./recordings",
-                                                ),
-                                                call_id=call_dir_name,
-                                            )
-                                        )
-
-                                    # Use simple filename since files are in
-                                    # separate directories
-                                    assert self._call_recording_dir is not None
-                                    self._outgoing_recording_file = os.path.join(
-                                        self._call_recording_dir,
-                                        "outgoing.wav",
-                                    )
-
-                                    recorder = pj.AudioMediaRecorder()
-                                    recorder.createRecorder(
-                                        self._outgoing_recording_file, 0, 0
-                                    )
-                                    if self._player:
-                                        # player -> outgoing recorder
-                                        self._player.startTransmit(recorder)
-                                    self._outgoing_recording_call_media = self._player
-                                    self._outgoing_recorder = recorder
-                                    # Track outgoing recording start time
-                                    self._outgoing_recording_start_time = (
-                                        datetime.utcnow()
-                                    )
-                                    print(
-                                        (
-                                            "***Recording: started capturing "
-                                            "outgoing audio to "
-                                            f"{self._outgoing_recording_file}"
-                                        )
-                                    )
-
-                                    # Collect outgoing recording started event
-                                    self._collect_event(
-                                        event_type="outgoing_recording_started",
-                                        media_type="audio",
-                                        recording_file=(
-                                            convert_recording_path_to_url(
-                                                self._outgoing_recording_file
-                                            )
-                                            if self._outgoing_recording_file
-                                            else ""
-                                        ),
-                                    )
-
-                                    # Set up mixed recording (incoming + outgoing)
-                                    try:
-                                        # Use the same call-specific directory
-                                        assert self._call_recording_dir is not None
-                                        self._mixed_recording_file = os.path.join(
-                                            self._call_recording_dir,
-                                            "mixed.wav",
-                                        )
-
-                                        mixed_recorder = pj.AudioMediaRecorder()
-                                        mixed_recorder.createRecorder(
-                                            self._mixed_recording_file, 0, 0
-                                        )
-
-                                        # Transmit both incoming and outgoing to mixed
-                                        # Incoming audio: call_media -> mixed_recorder
-                                        # (Records what comes FROM the remote caller)
-                                        call_media.startTransmit(mixed_recorder)
-                                        # Outgoing audio: player -> mixed_recorder
-                                        # (This records what goes TO the remote caller)
-                                        # Note: Record player directly, not through
-                                        # call_media, to avoid capturing audio twice
-                                        if self._player:
-                                            self._player.startTransmit(mixed_recorder)
-
-                                        self._mixed_recorder = mixed_recorder
-                                        # Track mixed recording start time
-                                        self._mixed_recording_start_time = (
-                                            datetime.utcnow()
-                                        )
-                                        print(
-                                            (
-                                                "***Recording: started capturing "
-                                                "mixed audio (incoming + outgoing) to "
-                                                f"{self._mixed_recording_file}"
-                                            )
-                                        )
-
-                                        # Collect mixed recording started event
-                                        self._collect_event(
-                                            event_type="mixed_recording_started",
-                                            media_type="audio",
-                                            recording_file=(
-                                                convert_recording_path_to_url(
-                                                    self._mixed_recording_file
+                                                    "_asr_available",
+                                                    False,
                                                 )
-                                                if self._mixed_recording_file
-                                                else ""
-                                            ),
-                                        )
-                                    except Exception as e:
-                                        print(f"***Mixed recording setup error: {e}")
-                                        self._collect_event(
-                                            event_type="mixed_recording_error",
-                                            media_type="audio",
-                                            error=str(e),
-                                        )
-                                except Exception as e:
-                                    print(f"***Outgoing recording setup error: {e}")
-                                    self._collect_event(
-                                        event_type="outgoing_recording_error",
-                                        media_type="audio",
-                                        error=str(e),
-                                    )
-
-                            # Mark playback as started and set a timer
-                            # to stop transmission
-                            if not self._playback_started:
-                                self._playback_started = True
-                                print("***Welcome message playback started")
-
-                                # Notify VAD that bot playback started
-                                if self._vad and self._vad.available:
-                                    try:
-                                        self._vad.set_bot_playback_state(
-                                            True,
-                                            time.time,
-                                        )
-                                    except Exception as e:
-                                        print(
-                                            (
-                                                "***VAD: error notifying bot "
-                                                f"playback start: {e}"
+                                                and self._asr is not None
+                                                and self._asr.available
                                             )
-                                        )
-
-                                # Collect playback started event
-                                self._collect_event(
-                                    event_type="playback_started",
-                                    media_type="audio",
-                                    file_played=self._acc_ref.play_file,
-                                )
-
-                                # Set a timer to stop the player transmission
-                                # after actual duration
-                                message_duration = getattr(
-                                    self._acc_ref,
-                                    "message_duration",
-                                    5,
-                                )
-                                self._stop_player_time = time.time() + message_duration
-                                print(
-                                    (
-                                        "***Will stop player after "
-                                        f"{message_duration:.2f} seconds"
+                                            if self._asr_available:
+                                                print(
+                                                    "***ASR: using account-level service (already loaded)"
+                                                )
+                                                # Start worker thread for non-blocking transcription
+                                                self._start_asr_thread()
+                                            else:
+                                                print(
+                                                    "***ASR: enabled but service not available (still loading or failed)"
+                                                )
+                                except Exception as e:
+                                    print(
+                                        f"***Media player error: failed to start transmission: {e}"
                                     )
-                                )
-                                # Store the call media for later use
-                                self._call_media = call_media
+                                    self._collect_event(
+                                        event_type="media_error",
+                                        media_type="audio",
+                                        error=f"startTransmit failed: {e}",
+                                    )
                         except Exception as e:
                             print(f"***Media player error: {e}")
+                            self._collect_event(
+                                event_type="media_error",
+                                media_type="audio",
+                                error=str(e),
+                            )
                     else:
                         capture = adm.getCaptureDevMedia()
                         call_media.startTransmit(playback)
                         capture.startTransmit(call_media)
                         print("***Media: audio bridged to sound device")
+
+                        # Start ASR worker thread if ASR is enabled and available
+                        # (ASR service is already loaded at account level)
+                        # Re-check ASR availability in case it was still loading during call init
+                        if self._asr_enabled:
+                            # Re-check if ASR service is now available
+                            self._asr = getattr(self._acc_ref, "_asr_service", None)
+                            self._asr_available = bool(
+                                getattr(self._acc_ref, "_asr_available", False)
+                                and self._asr is not None
+                                and self._asr.available
+                            )
+                            if self._asr_available:
+                                print(
+                                    "***ASR: using account-level service (already loaded)"
+                                )
+                                # Start worker thread for non-blocking transcription
+                                self._start_asr_thread()
+                            else:
+                                print(
+                                    "***ASR: enabled but service not available (still loading or failed)"
+                                )
                 except Exception as e:
                     print(f"***Media error: {e}")
 
@@ -916,27 +1166,33 @@ class AnyCall(GoodbyePlaybackMixin, RecordingCleanupMixin, pj.Call):
                             f"hangup at {target:.3f}"
                         )
 
-                # Live transcription of newly finalized chunks
+                # Live transcription of newly finalized chunks (non-blocking)
                 try:
                     chunks = self._vad.get_chunks()
                     for idx in range(self._last_transcribed_chunk_count, len(chunks)):
                         ch = chunks[idx]
                         if (
                             self._asr_enabled
-                            and self._asr_available
                             and ch.file_path
                             and os.path.exists(ch.file_path)
                         ):
-                            res = (
-                                self._asr.transcribe(ch.file_path)
-                                if self._asr
-                                else None
-                            )
-                            if res and getattr(res, "text", None):
-                                text = res.text.strip()
-                                if text:
-                                    self._asr_chunk_texts.append(text)
-                                    print(f"***ASR: chunk {idx+1} -> {text}")
+                            # Re-check ASR availability in case it became available after call start
+                            if not self._asr_available:
+                                self._asr = getattr(self._acc_ref, "_asr_service", None)
+                                self._asr_available = bool(
+                                    getattr(self._acc_ref, "_asr_available", False)
+                                    and self._asr is not None
+                                    and self._asr.available
+                                )
+                                if self._asr_available:
+                                    print(
+                                        "***ASR: service became available, starting worker thread"
+                                    )
+                                    self._start_asr_thread()
+
+                            if self._asr_available:
+                                # Submit transcription task to worker thread (non-blocking)
+                                self._submit_transcription_task(ch.file_path, idx)
                     self._last_transcribed_chunk_count = len(chunks)
                 except Exception as e:
                     print(f"***ASR: live transcription error: {e}")

@@ -369,6 +369,30 @@ def main() -> None:
             pass
         acc.create(acfg)
 
+        # Initialize ASR service before registration (if enabled)
+        # This loads the model once, before any calls come in
+        if args.enable_asr:
+            print("***ASR: initializing service before registration...")
+            try:
+                # Support both module and script execution
+                if __package__ in (None, ""):
+                    from pjsua_bot.asr import ASRService
+                else:
+                    from .asr import ASRService
+
+                acc._asr_service = ASRService()
+                acc._asr_available = bool(
+                    acc._asr_service and acc._asr_service.available
+                )
+                if acc._asr_available:
+                    print("***ASR: service initialized and ready")
+                else:
+                    load_err = getattr(acc._asr_service, "_load_error", "unknown error")
+                    print(f"***ASR: unavailable - {load_err}")
+            except Exception as e:
+                print(f"***ASR init error: {e}")
+                acc._asr_available = False
+
         # Wait for registration with active event pumping
         print(f"***Waiting for registration (up to {args.wait_seconds}s)...")
 
@@ -468,14 +492,26 @@ def main() -> None:
             if "acc" in locals() and isinstance(acc, Account):
                 try:
                     # Attempt to hang up all active calls
-                    for call in list(getattr(acc, "calls", {}).values()):
+                    # Make a copy of the calls dict to avoid iteration issues
+                    calls_copy = dict(getattr(acc, "calls", {}))
+                    for call_id, call in calls_copy.items():
                         try:
-                            if hasattr(call, "isActive") and call.isActive():
+                            # Try to check if call is active, but handle errors gracefully
+                            try:
+                                is_active = (
+                                    hasattr(call, "isActive") and call.isActive()
+                                )
+                            except Exception:
+                                # Call might be destroyed, skip it
+                                is_active = False
+
+                            if is_active:
                                 try:
                                     op = pj.CallOpParam()
                                     call.hangup(op)
                                 except Exception:
                                     pass
+
                             # Drop strong refs to players/recorders to help teardown
                             for attr in (
                                 "_player",
@@ -492,6 +528,12 @@ def main() -> None:
                                         pass
                         except Exception:
                             pass
+
+                    # Clear the calls dict to help with cleanup
+                    try:
+                        acc.calls.clear()
+                    except Exception:
+                        pass
                 except Exception:
                     pass
                 # Pump events for a short period to let teardown complete

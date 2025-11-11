@@ -294,6 +294,9 @@ class ASRService:
                     language=self.cfg.language,
                     task=self.cfg.task,
                     return_timestamps=self.cfg.return_timestamps,
+                    num_beams=1,  # Greedy decoding (faster than beam search)
+                    max_length=448,  # Limit output length
+                    do_sample=False,  # Deterministic (faster)
                 )
 
             # Decode transcription

@@ -240,6 +240,9 @@ class ChunkManager:
                         f"({duration:.2f}s)"
                     )
                 )
+                # Keep WAV file if ASR is enabled (ASR needs WAV format)
+                if getattr(self.cfg, "keep_wav_for_asr", False):
+                    return chunk_path
                 mp3_path = convert_wav_to_mp3(chunk_path, delete_source=True)
                 return mp3_path or chunk_path
         except wave.Error:
@@ -319,6 +322,9 @@ class ChunkManager:
                     wf_out.setsampwidth(int(sampwidth))
                     wf_out.setframerate(int(framerate))
                     wf_out.writeframes(raw_audio)
+            # Keep WAV file if ASR is enabled (ASR needs WAV format)
+            if getattr(self.cfg, "keep_wav_for_asr", False):
+                return chunk_path
             mp3_path = convert_wav_to_mp3(chunk_path, delete_source=True)
             return mp3_path or chunk_path
         except Exception as e:

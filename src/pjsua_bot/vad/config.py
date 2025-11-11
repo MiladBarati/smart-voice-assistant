@@ -15,3 +15,6 @@ class VADConfig:
     min_silence_for_boundary_sec: float = (
         0.5  # Minimum silence duration to create chunk boundary
     )
+    keep_wav_for_asr: bool = (
+        False  # Keep WAV files instead of converting to MP3 (for ASR compatibility)
+    )

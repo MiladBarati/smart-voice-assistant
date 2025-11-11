@@ -20,6 +20,9 @@ class Account(pj.Account):
         self.goodbye_file: str | None = None
         # Batch logging - collect events during account lifetime
         self._collected_events: list[dict[str, Any]] = []
+        # ASR service (shared across all calls for this account)
+        self._asr_service: Any | None = None
+        self._asr_available: bool = False
 
     def _collect_event(self, event_type: str, **kwargs: Any) -> None:
         """Collect an event for batch logging."""

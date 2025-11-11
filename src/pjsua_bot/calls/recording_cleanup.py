@@ -75,9 +75,33 @@ class RecordingCleanupMixin:
                 print(f"***VAD: error finalizing chunks: {e}")
 
         # Final transcription at call end:
-        # transcribe any remaining chunks and print full text
+        # submit any remaining chunks for transcription (non-blocking)
+        # and wait for pending tasks to complete
         full_text = ""
         try:
+            # Re-check ASR availability in case it became available after call start
+            asr_enabled = getattr(self, "_asr_enabled", False)
+            if asr_enabled:
+                acc_ref = getattr(self, "_acc_ref", None)
+                if acc_ref:
+                    asr_service = getattr(acc_ref, "_asr_service", None)
+                    asr_available = bool(
+                        getattr(acc_ref, "_asr_available", False)
+                        and asr_service is not None
+                        and getattr(asr_service, "available", False)
+                    )
+                    # Update ASR state
+                    self._asr = asr_service
+                    self._asr_available = asr_available
+                    if asr_available and not getattr(
+                        self, "_asr_available_was_false", False
+                    ):
+                        print("***ASR: service became available during call")
+                        # Start worker thread if not already started
+                        start_asr_thread = getattr(self, "_start_asr_thread", None)
+                        if start_asr_thread:
+                            start_asr_thread()
+
             if (
                 getattr(self, "_asr_enabled", False)
                 and getattr(self, "_asr_available", False)
@@ -86,21 +110,54 @@ class RecordingCleanupMixin:
             ):
                 chunks = vad.get_chunks()
                 start_idx = getattr(self, "_last_transcribed_chunk_count", 0)
-                asr = getattr(self, "_asr", None)
+                submit_task = getattr(self, "_submit_transcription_task", None)
+
+                # Submit remaining chunks for transcription (non-blocking)
                 for idx in range(start_idx, len(chunks)):
                     ch = chunks[idx]
                     if (
                         ch.file_path
                         and os.path.exists(ch.file_path)
-                        and asr is not None
+                        and submit_task is not None
                     ):
-                        res = asr.transcribe(ch.file_path)
-                        if res and getattr(res, "text", None):
-                            text = res.text.strip()
-                            if text:
-                                self._asr_chunk_texts.append(text)
+                        submit_task(ch.file_path, idx)
+
                 self._last_transcribed_chunk_count = len(chunks)
-                full_text = " ".join(t for t in self._asr_chunk_texts if t).strip()
+
+                # Wait for pending transcription tasks to complete
+                asr_queue = getattr(self, "_asr_queue", None)
+                if asr_queue is not None:
+                    try:
+                        # Wait for all pending tasks to complete (with timeout)
+                        import time as time_module
+
+                        timeout = 30.0  # Maximum wait time in seconds
+                        start_wait = time_module.time()
+                        # Wait for queue to be empty and all tasks to complete
+                        while (
+                            not asr_queue.empty() or asr_queue.unfinished_tasks > 0
+                        ) and (time_module.time() - start_wait) < timeout:
+                            time_module.sleep(0.1)
+                        # If there are still unfinished tasks after timeout, log a warning
+                        if asr_queue.unfinished_tasks > 0:
+                            print(
+                                f"***ASR: {asr_queue.unfinished_tasks} transcription task(s) "
+                                "still pending after timeout"
+                            )
+                    except Exception as e:
+                        print(f"***ASR: error waiting for transcription tasks: {e}")
+
+                # Get final transcription text (thread-safe)
+                asr_lock = getattr(self, "_asr_lock", None)
+                if asr_lock is not None:
+                    with asr_lock:
+                        full_text = " ".join(
+                            t for t in getattr(self, "_asr_chunk_texts", []) if t
+                        ).strip()
+                else:
+                    full_text = " ".join(
+                        t for t in getattr(self, "_asr_chunk_texts", []) if t
+                    ).strip()
             print(
                 f"***ASR: full transcription: {full_text if full_text else '[empty]'}"
             )
