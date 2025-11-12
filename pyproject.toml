@@ -17,6 +17,7 @@ dependencies = [
     "accelerate>=0.24.0", # For transformers acceleration
     "sentencepiece>=0.1.99", # Tokenizer dependency
     "numpy>=1.21.0",
+    "isort>=7.0.0",
 ]
 
 [dependency-groups]
