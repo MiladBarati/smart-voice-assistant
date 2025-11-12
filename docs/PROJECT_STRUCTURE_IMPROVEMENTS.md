@@ -1,44 +1,77 @@
-# Project Structure Improvement Analysis
+# Project Structure & Refactoring Overview
+
+This document merges the repository structure improvement plan with the `register_bot.py` refactoring summary. Use it as the single source of truth for the ongoing structural workstream.
+
+## Snapshot
+
+- Test suite already lives in `tests/`; audio, recordings, and infrastructure assets are scoped cleanly.
+- Utility and demo scripts still mix with application modules at the repository root.
+- `pyproject.toml` is the authoritative dependency manifest, yet `requirements.txt` remains checked in.
+- Modularization work split the 1081-line `register_bot.py` into focused modules under `src/pjsua_bot/`, but follow-up cleanup is pending.
+
+## ✅ Completed Work
+
+### Quick Wins Implemented
+
+- `.gitignore` excludes coverage artefacts (`.coverage`, `coverage.xml`, `htmlcov/`) and cache directories (`.pytest_cache/`).
+- Broader Python build artefacts are ignored to prevent noisy commits.
+
+### Modularization Delivered
+
+- The monolithic `register_bot.py` has been decomposed into importable modules that follow the Single Responsibility Principle.
+- New package structure:
+
+```
+src/pjsua_bot/
+├── __init__.py          # Package exports (updated)
+├── utils.py             # Utility helpers
+├── account.py           # SIP account lifecycle
+├── calls.py             # Call media handling
+└── register_bot.py      # CLI entry point and orchestration
+```
+
+## 🎯 Quick Wins Ready to Implement
+
+1. **Create directory scaffolding**  
+   - `src/pjsua_bot/` for primary application code (already hosting the refactored modules)  
+   - `scripts/` for utilities, demos, and operational tooling  
+   - *Impact*: High | *Effort*: 2 minutes
+
+2. **Move utility scripts into `scripts/`**  
+   - Candidates: `run_tests.py`, `demo_tests.py`, `test_connectivity.py`, `test_elasticsearch.py`  
+   - *Impact*: Medium | *Effort*: 3 minutes
+
+3. **Organize remaining application code under `src/`**  
+   - Move `register_bot.py`, `elasticsearch_client.py`, and related helpers already refactored  
+   - Add missing `__init__.py` files where required to cement package semantics  
+   - *Impact*: High | *Effort*: 10 minutes
+
+4. **Clean up dependency files**  
+   - Remove redundant `requirements.txt` after verifying `pyproject.toml` coverage  
+   - *Impact*: Low | *Effort*: 1 minute
+
+5. **Polish documentation layout**  
+   - Keep all guides inside `docs/` and update references to point at the modularized modules  
+   - *Impact*: Medium | *Effort*: 5 minutes
 
 ## Current Issues
 
-### 1. Root Directory Clutter ✅ (Partially fixed)
-- Test files have been moved to `tests/` directory (good!)
-- Still have multiple Python scripts at root level
-- Missing proper package structure
-- Demo and utility scripts mixed with application code
+1. **Root Directory Clutter**  
+   - Multiple Python entry points (`register_bot.py`, `mwe_register.py`, `main.py`) and demos live beside configuration files.
+   - Scripts and application modules are intermingled, complicating onboarding.
 
-### 2. Missing Key Files
-- No `src/` directory for organized application code
-- No centralized `scripts/` directory for utilities
-- Missing `pyproject.toml` configuration for build
-- Audio files are in `assets/audio/` but README references root-level files
+2. **Incomplete Package Structure**  
+   - `src/pjsua_bot/` exists, but some helpers still sit at the root and lack `__init__.py` coverage.
+   - Implicit namespace packages risk accidental module shadowing.
 
-### 3. Configuration Management
-- `.gitignore` exists but missing coverage files
-- `requirements.txt` redundant with `pyproject.toml`
-- Need `.env.example` template (exists)
+3. **Configuration Drift**  
+   - Legacy dependency lists (`requirements.txt`) overlap with `pyproject.toml`.
+   - `.env.example` is available, yet documentation should mirror actual configuration options.
 
-## Quick Wins (High Impact, Low Effort)
+4. **Documentation Sync**  
+   - Several guides reference pre-refactor paths; they need consolidation around the new layout.
 
-### 🚀 Quick Win #1: Update .gitignore (2 minutes)
-Add coverage and cache files to prevent committing large artifacts.
-
-### 🚀 Quick Win #2: Clean Up Root Directory (5 minutes)
-Move utility scripts to dedicated folders.
-
-### 🚀 Quick Win #3: Reorganize Application Code (10 minutes)
-Create proper package structure with `src/` directory.
-
-### 🚀 Quick Win #4: Consolidate Dependencies (5 minutes)
-Remove `requirements.txt` since `pyproject.toml` exists.
-
-### 🚀 Quick Win #5: Add Package Structure Files (3 minutes)
-Add `__init__.py` files and reorganize imports.
-
-## Detailed Improvement Plan
-
-### Recommended New Structure
+## Recommended Repository Layout
 
 ```
 pjsua-installation/
@@ -46,86 +79,130 @@ pjsua-installation/
 │   └── pjsua_bot/
 │       ├── __init__.py
 │       ├── register_bot.py
-│       ├── mwe_register.py
-│       └── elasticsearch_client.py
+│       ├── elasticsearch_client.py
+│       ├── account.py
+│       ├── calls.py
+│       └── utils.py
 ├── scripts/
 │   ├── run_tests.py
 │   ├── demo_tests.py
 │   ├── test_connectivity.py
 │   └── test_elasticsearch.py
+├── examples/
+│   └── asr_usage_example.py
 ├── tests/
-│   └── [existing test files]
+│   └── [...]
 ├── assets/
 │   └── audio/
-│       └── [audio files]
 ├── recordings/
 │   └── [date directories]
 ├── infrastructure/
-│   └── freepbx/
-├── .env.example
-├── .gitignore
+│   ├── freepbx/
+│   └── nginx/
+├── docs/
+│   └── [...]
 ├── pyproject.toml
 ├── pytest.ini
 ├── README.md
-├── LICENSE
-├── TESTING.md
-└── ELASTICSEARCH_INTEGRATION.md
+└── LICENSE
 ```
 
-## Implementation Priority
+## Module Breakdown
 
-### Phase 1: Quick Wins (Implement immediately)
-1. ✅ Update .gitignore
-2. ✅ Create scripts/ directory
-3. ✅ Move utility scripts
-4. ✅ Remove redundant files
+### `utils.py`
+- Shared helpers such as `generate_unique_id()`, `parse_sip_user()`, `setup_logging()`, `get_wav_duration()`, `ensure_recording_directory()`, `pump_events()`, and `wait_until()`.
 
-### Phase 2: Package Structure (Next steps)
-1. Create src/pjsua_bot/ directory
-2. Move application code
-3. Add __init__.py files
-4. Update imports
+### `account.py`
+- The `Account` class manages SIP registration, handling `onRegState()` updates and `onIncomingCall()` events.
 
-### Phase 3: Polish
-1. Update documentation
-2. Clean up old files
-3. Add setup.py for package installation
+### `calls.py`
+- Implements `OutCall` and `AnyCall` to coordinate playback, recording, and media state transitions.
+- Contains helpers like `check_playback_status()`, `should_hangup()`, and `_cleanup_recording()` for lifecycle management.
+
+### `register_bot.py`
+- Reduced to 228 lines.
+- Focuses on argument parsing, environment setup, and orchestrating the refactored modules.
+
+## Implementation Phases & Options
+
+### Phase 1 – Quick Wins (safe to execute immediately)
+1. Create `scripts/` and move utility scripts.
+2. Confirm `.gitignore` changes are committed (already complete).
+3. Remove stale build artefacts from the root.
+
+### Phase 2 – Package Structure
+1. Consolidate all application modules under `src/pjsua_bot/`.
+2. Add `__init__.py` files and update import paths.
+3. Run `pytest` to validate import changes.
+
+### Phase 3 – Polish
+1. Refresh documentation to reflect the new layout.
+2. Review remaining root-level files and archive anything obsolete.
+3. Add packaging metadata (`setup.cfg` or `setup.py`) only if distribution is required.
+
+**Execution choices**
+- *Option A: Conservative*: execute Phase 1, validate, then iterate.
+- *Option B: Full Restructure*: deliver Phases 1–3 in one branch for a production-ready layout.
+- *Option C: Hybrid*: Phase 1 plus key steps from Phase 2 to unblock imports while keeping examples at the root.
+
+## Import & Compatibility Notes
+
+```python
+# Before (monolithic module)
+from src.pjsua_bot import register_bot
+
+# After (package exports retained)
+from src.pjsua_bot import Account, OutCall, AnyCall, main
+
+# Alternative targeted imports
+from src.pjsua_bot.account import Account
+from src.pjsua_bot.calls import OutCall, AnyCall
+from src.pjsua_bot.utils import setup_logging, pump_events
+from src.pjsua_bot.register_bot import main
+```
+
+`src/pjsua_bot/__init__.py` now re-exports the primary classes to maintain backward compatibility with existing import statements.
 
 ## Benefits
 
-### Immediate Benefits
-- Cleaner root directory
-- Better organization for new contributors
-- Easier to find specific files
-- Reduced cognitive load
+- **Immediate**: Discoverability improves, clutter drops, and imports become explicit.
+- **Long-term**: Ready-to-package layout, better IDE support, and clearer contributor experience.
+- **Operational**: Consistent script locations simplify automation and CI integration.
 
-### Long-term Benefits
-- Professional project structure
-- Easy to package as pip-installable
-- Better IDE support
-- Standard Python project layout
+## Migration Checklist
 
-## Migration Steps
+1. Create the new directory structure.
+2. Move files and update imports.
+3. Remove `requirements.txt` after verifying parity with `pyproject.toml`.
+4. Run `pytest tests/` or `python scripts/run_tests.py`.
+5. Update documentation references (`README.md`, onboarding guides).
 
-1. **Create directory structure**
-2. **Move files to new locations**
-3. **Update import statements**
-4. **Update .gitignore**
-5. **Test everything works**
-6. **Update README documentation**
+## Testing & Risk
 
-## Risk Assessment
+- **Risk level**: Low, provided imports are updated atomically.
+- **Breaking changes**: None expected for CLI usage (`python register_bot.py ...`) once entry points are adjusted.
+- **Testing**: Execute existing automated tests plus smoke-test Elasticsearch integration.
+- **Rollback**: Straightforward via git history if issues arise.
 
-- **Low Risk**: Moving files with proper import updates
-- **Breaking Changes**: None for end users (CLI commands unchanged)
-- **Testing**: All existing tests will still work
-- **Rollback**: Easy with git
+### Testing Focus Areas
 
-## Estimated Time
+1. Registration flow (`Account` module).
+2. Incoming and outgoing call handling (`AnyCall`, `OutCall`).
+3. Media playback and recording lifecycle, including FFmpeg conversions.
+4. Elasticsearch logging and metadata persistence.
 
-- Phase 1: 15 minutes
-- Phase 2: 30 minutes
-- Phase 3: 20 minutes
-- **Total**: ~1 hour
+## Documentation Impact
+
+- `README.md` now mirrors the modular repository layout and references the `src/pjsua_bot/` package.
+- Import examples have been updated to highlight package-level, module-specific, and `main()` entry points.
+- Duplicated project structure snippets were removed to avoid confusion.
+- Version markers and the contributing checklist acknowledge the modularization milestone.
+
+## Next Steps
+
+1. Run the full test suite to confirm behaviour after relocations.
+2. Update CI/CD scripts to reference `scripts/` and the new package layout.
+3. Add unit tests for the newly separated modules.
+4. Continue polishing documentation to keep pace with structural changes.
 
 
