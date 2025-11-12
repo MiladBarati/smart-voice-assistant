@@ -3,6 +3,7 @@
 Quick test demonstration script for the PJSUA2 call monitoring system.
 This script shows how to run different types of tests.
 """
+
 import os
 import subprocess
 import sys
@@ -10,7 +11,7 @@ import sys
 
 def run_command(cmd, description):
     """Run a command and display the result."""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Running: {description}")
     print(f"Command: {' '.join(cmd)}")
     print("=" * 60)
@@ -66,7 +67,7 @@ def main():
     )
 
     # Summary
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("DEMO SUMMARY")
     print("=" * 60)
 

@@ -128,8 +128,7 @@ class ASRService:
         """Load the ASR model if transformers are available."""
         if not _TRANSFORMERS_AVAILABLE:
             self._load_error = (
-                f"transformers not available: "
-                f"{_TRANSFORMERS_ERROR or 'import failed'}"
+                f"transformers not available: {_TRANSFORMERS_ERROR or 'import failed'}"
             )
             return
 

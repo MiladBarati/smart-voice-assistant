@@ -67,7 +67,7 @@ class RecordingCleanupMixin:
                         )
                         print(
                             "***VAD: chunk "
-                            f"{i+1} - duration={chunk.duration_seconds:.2f}s, "
+                            f"{i + 1} - duration={chunk.duration_seconds:.2f}s, "
                             f"samples={chunk.start_sample_idx}-{chunk.end_sample_idx}"
                             f"{file_info}"
                         )
@@ -138,11 +138,12 @@ class RecordingCleanupMixin:
                             not asr_queue.empty() or asr_queue.unfinished_tasks > 0
                         ) and (time_module.time() - start_wait) < timeout:
                             time_module.sleep(0.1)
-                        # If there are still unfinished tasks after timeout, log a warning
+                        # Warn if tasks remain after the timeout.
                         if asr_queue.unfinished_tasks > 0:
                             print(
-                                f"***ASR: {asr_queue.unfinished_tasks} transcription task(s) "
-                                "still pending after timeout"
+                                "***ASR:",
+                                f"{asr_queue.unfinished_tasks} transcription task(s)",
+                                "still pending after timeout",
                             )
                     except Exception as e:
                         print(f"***ASR: error waiting for transcription tasks: {e}")
@@ -525,10 +526,7 @@ class RecordingCleanupMixin:
                                 )
                         else:
                             print(
-                                (
-                                    "***Recording: mixed file still not found "
-                                    "after delay"
-                                )
+                                ("***Recording: mixed file still not found after delay")
                             )
 
             except Exception as e:

@@ -68,13 +68,13 @@ def main() -> None:
     parser.add_argument(
         "--dest",
         default=None,
-        help=("Destination SIP URI or extension " "(sip:1002@host or just 1002)"),
+        help=("Destination SIP URI or extension (sip:1002@host or just 1002)"),
     )
     parser.add_argument(
         "--hangup-seconds",
         type=int,
         default=0,
-        help=("Auto hangup after N seconds of connection; " "0 to disable"),
+        help=("Auto hangup after N seconds of connection; 0 to disable"),
     )
     parser.add_argument(
         "--outbound-proxy",
@@ -110,7 +110,7 @@ def main() -> None:
         "--goodbye-file",
         default="goodbye_voice.wav",
         help=(
-            "Path to WAV file to play before hanging up " "(default: goodbye_voice.wav)"
+            "Path to WAV file to play before hanging up (default: goodbye_voice.wav)"
         ),
     )
     parser.add_argument(
@@ -123,9 +123,7 @@ def main() -> None:
         "--message-duration",
         type=int,
         default=5,
-        help=(
-            "Fallback duration in seconds if WAV file cannot be read " "(default: 5)"
-        ),
+        help=("Fallback duration in seconds if WAV file cannot be read (default: 5)"),
     )
     parser.add_argument(
         "--enable-recording",
@@ -136,23 +134,19 @@ def main() -> None:
         "--recording-path",
         default="./recordings",
         help=(
-            "Base directory for storing recorded audio files " "(default: ./recordings)"
+            "Base directory for storing recorded audio files (default: ./recordings)"
         ),
     )
     parser.add_argument(
         "--enable-vad",
         action="store_true",
-        help=(
-            "Enable Silero VAD-based hangup after caller silence " "(default: False)"
-        ),
+        help=("Enable Silero VAD-based hangup after caller silence (default: False)"),
     )
     parser.add_argument(
         "--silence-after-speech-sec",
         type=float,
         default=3.0,
-        help=(
-            "Seconds of silence after last caller speech to hang up " "(default: 3.0)"
-        ),
+        help=("Seconds of silence after last caller speech to hang up (default: 3.0)"),
     )
     parser.add_argument(
         "--vad-threshold",
@@ -215,7 +209,6 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _stop_handler)
 
     try:
-
         # Codec configuration: PCMU (G.711) is used by default for good quality
         # PJSUA2 by default uses PCMU/PCMA which provides 64kbps @ 8kHz
         # Good quality for VoIP
@@ -494,9 +487,9 @@ def main() -> None:
                     # Attempt to hang up all active calls
                     # Make a copy of the calls dict to avoid iteration issues
                     calls_copy = dict(getattr(acc, "calls", {}))
-                    for call_id, call in calls_copy.items():
+                    for _call_id, call in calls_copy.items():
                         try:
-                            # Try to check if call is active, but handle errors gracefully
+                            # Check if call is active; handle errors gracefully.
                             try:
                                 is_active = (
                                     hasattr(call, "isActive") and call.isActive()

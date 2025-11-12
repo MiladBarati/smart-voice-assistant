@@ -351,7 +351,7 @@ class SileroVAD:
                 print(
                     (
                         f"***VAD: WAV file parsed manually - {n_channels}ch, "
-                        f"{sampwidth*8}bit/sample, {framerate}Hz"
+                        f"{sampwidth * 8}bit/sample, {framerate}Hz"
                     )
                 )
 
