@@ -20,22 +20,28 @@ from .config import VADConfig
 from .silence import SilenceTracker
 from .types import VoiceChunk
 
+_torch_error: str | None = None
+torch: Any
 try:
-    import torch
-    import torchaudio
+    import torch as _torch_import
+except Exception as exc:  # pragma: no cover - optional dependency at runtime
+    torch = None
+    _torch_error = str(exc)
+else:
+    torch = _torch_import
+    _torch_error = None
 
-    _TORCH_AVAILABLE = True
-    _TORCH_ERROR = None
-except ImportError as e:  # pragma: no cover - optional dependency at runtime
-    torch = None
+torchaudio: Any
+try:
+    import torchaudio as _torchaudio_import
+except Exception as exc:  # pragma: no cover - optional dependency at runtime
     torchaudio = None
-    _TORCH_AVAILABLE = False
-    _TORCH_ERROR = str(e)
-except Exception as e:
-    torch = None
-    torchaudio = None
-    _TORCH_AVAILABLE = False
-    _TORCH_ERROR = str(e)
+    if _torch_error is None:
+        _torch_error = str(exc)
+else:
+    torchaudio = _torchaudio_import
+_TORCH_AVAILABLE = torch is not None and torchaudio is not None
+_TORCH_ERROR = None if _TORCH_AVAILABLE else _torch_error
 
 
 class SileroVAD:

@@ -5,8 +5,10 @@ This script tests basic network connectivity and Elasticsearch access.
 """
 
 import os
+from collections.abc import Sequence
+from typing import TypedDict
 
-import requests
+import requests  # type: ignore[import-untyped]
 import urllib3
 from dotenv import load_dotenv
 from urllib3.exceptions import InsecureRequestWarning
@@ -18,7 +20,7 @@ load_dotenv()
 urllib3.disable_warnings(InsecureRequestWarning)
 
 
-def test_basic_connectivity():
+def test_basic_connectivity() -> bool:
     """Test basic HTTP connectivity to Elasticsearch."""
     host = os.getenv("ES_HOST", "localhost")
     port = int(os.getenv("ES_PORT", "9200"))
@@ -91,7 +93,14 @@ def test_basic_connectivity():
     return False
 
 
-def test_elasticsearch_client():
+class ElasticsearchConfig(TypedDict, total=False):
+    hosts: Sequence[str]
+    basic_auth: tuple[str, str]
+    verify_certs: bool
+    request_timeout: float
+
+
+def test_elasticsearch_client() -> bool:
     """Test using the elasticsearch Python client."""
     print("\n4. Testing with elasticsearch Python client")
 
@@ -105,7 +114,7 @@ def test_elasticsearch_client():
         password = os.getenv("ES_PASSWORD", "")
 
         # Try different configurations
-        configs = [
+        configs: list[ElasticsearchConfig] = [
             # Config 1: HTTPS with verify_certs=False
             {
                 "hosts": [f"https://{host}:{port}"],
@@ -130,7 +139,9 @@ def test_elasticsearch_client():
 
         for i, config in enumerate(configs, 1):
             try:
-                print(f"   Config {i}: {config['hosts'][0]}")
+                hosts = config.get("hosts", [])
+                host_label = hosts[0] if hosts else "unknown host"
+                print(f"   Config {i}: {host_label}")
                 client = Elasticsearch(**config)
                 result = client.ping()
                 print(f"   ✅ Ping successful: {result}")

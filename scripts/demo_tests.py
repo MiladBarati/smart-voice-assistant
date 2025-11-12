@@ -7,9 +7,10 @@ This script shows how to run different types of tests.
 import os
 import subprocess
 import sys
+from collections.abc import Sequence
 
 
-def run_command(cmd, description):
+def run_command(cmd: Sequence[str], description: str) -> bool:
     """Run a command and display the result."""
     print(f"\n{'=' * 60}")
     print(f"Running: {description}")
@@ -34,7 +35,7 @@ def run_command(cmd, description):
         return False
 
 
-def main():
+def main() -> int:
     """Demonstrate different ways to run tests."""
     print("PJSUA2 Call Monitoring System - Test Framework Demo")
     print("=" * 60)

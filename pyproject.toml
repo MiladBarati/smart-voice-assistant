@@ -28,6 +28,7 @@ dev = [
     "black>=24.8.0",
     "mypy>=1.11.2",
     "pre-commit>=4.0.1",
+    "types-requests>=2.31.0.20241016",
 ]
 
 [tool.black]

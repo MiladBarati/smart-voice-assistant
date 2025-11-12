@@ -7,9 +7,14 @@ import argparse
 import os
 import subprocess
 import sys
+from typing import Literal
 
 
-def run_tests(test_type="all", verbose=False, coverage=True):
+def run_tests(
+    test_type: Literal["unit", "integration", "fast", "all"] = "all",
+    verbose: bool = False,
+    coverage: bool = True,
+) -> int:
     """
     Run tests with specified options.
 
@@ -64,7 +69,7 @@ def run_tests(test_type="all", verbose=False, coverage=True):
         return 1
 
 
-def main():
+def main() -> None:
     """Main entry point for the test runner."""
     parser = argparse.ArgumentParser(
         description="Run tests for PJSUA2 call monitoring system"

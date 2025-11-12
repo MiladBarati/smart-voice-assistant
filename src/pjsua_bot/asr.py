@@ -35,27 +35,50 @@ warnings.filterwarnings("ignore", message=".*SuppressTokens.*")
 logging.getLogger("transformers").setLevel(logging.ERROR)
 logging.getLogger("transformers.generation").setLevel(logging.ERROR)
 
+_torch_error: str | None = None
+torch: Any
 try:
-    import torch
-    import torchaudio
-    from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
+    import torch as _torch_import
+except Exception as exc:  # pragma: no cover - import guard
+    torch = None
+    _torch_error = str(exc)
+else:
+    torch = _torch_import
+    _torch_error = None
 
-    _TRANSFORMERS_AVAILABLE = True
-    _TRANSFORMERS_ERROR = None
-except ImportError as e:
-    AutoProcessor = None
-    AutoModelForSpeechSeq2Seq = None
-    torch = None
+torchaudio: Any
+try:
+    import torchaudio as _torchaudio_import
+except Exception as exc:  # pragma: no cover - import guard
     torchaudio = None
-    _TRANSFORMERS_AVAILABLE = False
-    _TRANSFORMERS_ERROR = str(e)
-except Exception as e:
-    AutoProcessor = None
+    if _torch_error is None:
+        _torch_error = str(exc)
+else:
+    torchaudio = _torchaudio_import
+
+_transformers_error: str | None = None
+AutoModelForSpeechSeq2Seq: Any
+AutoProcessor: Any
+try:
+    from transformers import (
+        AutoModelForSpeechSeq2Seq as _auto_model_for_speech_seq2seq,  # noqa: N813
+    )
+    from transformers import AutoProcessor as _auto_processor  # noqa: N813
+except Exception as exc:  # pragma: no cover - import guard
     AutoModelForSpeechSeq2Seq = None
-    torch = None
-    torchaudio = None
-    _TRANSFORMERS_AVAILABLE = False
-    _TRANSFORMERS_ERROR = str(e)
+    AutoProcessor = None
+    _transformers_error = str(exc)
+else:
+    AutoModelForSpeechSeq2Seq = _auto_model_for_speech_seq2seq
+    AutoProcessor = _auto_processor
+    _transformers_error = None
+
+_TRANSFORMERS_AVAILABLE = (
+    torch is not None
+    and AutoProcessor is not None
+    and AutoModelForSpeechSeq2Seq is not None
+)
+_TRANSFORMERS_ERROR = _transformers_error or _torch_error
 
 
 @dataclass
@@ -228,15 +251,17 @@ class ASRService:
                 raw_audio = wf.readframes(n_frames)
 
                 # Convert to numpy array
-                if wf.getsampwidth() == 1:
-                    dtype = np.int8
-                elif wf.getsampwidth() == 2:
-                    dtype = np.int16
-                elif wf.getsampwidth() == 4:
-                    dtype = np.int32
+                sample_width = wf.getsampwidth()
+                dtype: np.dtype[Any]
+                if sample_width == 1:
+                    dtype = np.dtype(np.int8)
+                elif sample_width == 2:
+                    dtype = np.dtype(np.int16)
+                elif sample_width == 4:
+                    dtype = np.dtype(np.int32)
                 else:
                     if self.cfg.log_errors:
-                        print(f"***ASR: Unsupported sample width: {wf.getsampwidth()}")
+                        print(f"***ASR: Unsupported sample width: {sample_width}")
                     return None, None
 
                 audio_array = np.frombuffer(raw_audio, dtype=dtype)

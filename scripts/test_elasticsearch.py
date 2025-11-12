@@ -9,7 +9,7 @@ import sys
 from pjsua_bot.elasticsearch_client import es_logger
 
 
-def test_elasticsearch_connection():
+def test_elasticsearch_connection() -> bool:
     """Test Elasticsearch connection and log sample data."""
     print("Testing Elasticsearch connection...")
 

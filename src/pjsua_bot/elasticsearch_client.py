@@ -177,7 +177,7 @@ class ElasticsearchLogger:
             client = self.client
             if client is None:
                 return False
-            client.index(index=index_name, body=doc, refresh=False)
+            client.index(index=index_name, document=doc, refresh=False)
             return True
         except Exception as e:
             self.logger.error(f"Error logging call record: {e}")
@@ -301,7 +301,7 @@ class ElasticsearchLogger:
                 return False
             response = client.index(
                 index=index_name,
-                body=doc,
+                document=doc,
                 refresh=False,  # Don't wait for refresh for better performance
             )
 
@@ -372,7 +372,7 @@ class ElasticsearchLogger:
             client = self.client
             if client is None:
                 return False
-            response = client.index(index=index_name, body=doc, refresh=False)
+            response = client.index(index=index_name, document=doc, refresh=False)
 
             self.logger.debug(f"Logged {event_type} event: {response['_id']}")
             return True
@@ -434,7 +434,7 @@ class ElasticsearchLogger:
             client = self.client
             if client is None:
                 return False
-            response = client.index(index=index_name, body=doc, refresh=False)
+            response = client.index(index=index_name, document=doc, refresh=False)
 
             self.logger.debug(f"Logged {event_type} event: {response['_id']}")
             return True
@@ -496,7 +496,7 @@ class ElasticsearchLogger:
             client = self.client
             if client is None:
                 return False
-            response = client.index(index=index_name, body=doc, refresh=False)
+            response = client.index(index=index_name, document=doc, refresh=False)
 
             self.logger.debug(f"Logged {event_type} event: {response['_id']}")
             return True

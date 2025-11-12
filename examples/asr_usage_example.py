@@ -7,14 +7,15 @@ audio recordings, including VAD chunks and complete call recordings.
 import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 # Ensure 'src' is on sys.path to import the package-style layout
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from pjsua_bot.asr import ASRConfig, ASRService
+from pjsua_bot.asr import ASRConfig, ASRService, TranscriptionResult
 
 
-def transcribe_single_file(audio_path: str):
+def transcribe_single_file(audio_path: str) -> Optional[TranscriptionResult]:
     """Transcribe a single audio file."""
     print(f"\n=== Transcribing {audio_path} ===")
 
@@ -39,7 +40,9 @@ def transcribe_single_file(audio_path: str):
         return None
 
 
-def transcribe_vad_chunks(chunks_dir: str):
+def transcribe_vad_chunks(
+    chunks_dir: str,
+) -> Optional[list[TranscriptionResult]]:
     """Transcribe all VAD chunks in a directory."""
     print(f"\n=== Transcribing VAD chunks from {chunks_dir} ===")
 
@@ -48,19 +51,19 @@ def transcribe_vad_chunks(chunks_dir: str):
 
     if not asr.available:
         print(f"ASR service not available: {asr._load_error}")
-        return
+        return None
 
     # Find all WAV files in the directory
     chunk_files = sorted(Path(chunks_dir).glob("*.wav"))
 
     if not chunk_files:
         print(f"No WAV files found in {chunks_dir}")
-        return
+        return None
 
     print(f"Found {len(chunk_files)} chunk files")
 
     # Transcribe each chunk
-    results = []
+    results: list[TranscriptionResult] = []
     for i, chunk_file in enumerate(chunk_files, 1):
         print(f"\nProcessing chunk {i}/{len(chunk_files)}: {chunk_file.name}")
         result = asr.transcribe(str(chunk_file))
@@ -89,7 +92,9 @@ def transcribe_vad_chunks(chunks_dir: str):
     return results
 
 
-def transcribe_with_custom_config(audio_path: str):
+def transcribe_with_custom_config(
+    audio_path: str,
+) -> Optional[TranscriptionResult]:
     """Transcribe with custom ASR configuration."""
     print("\n=== Transcribing with custom config ===")
 
