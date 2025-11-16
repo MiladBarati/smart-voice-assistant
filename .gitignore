@@ -37,6 +37,7 @@ htmlcov/
 coverage.xml
 *.coveragerc
 test-results.xml
+var/coverage/
 
 # Local environment files (secrets)
 .env
@@ -59,3 +60,20 @@ GitCommitPractices.md
 recordings/
 *.wav
 !assets/audio/*.wav
+
+# Docker
+*.log
+logs/
+
+# ML Model caches
+.cache/
+.huggingface/
+*.pt
+*.pth
+*.onnx
+
+# WSL backups
+*.wsl.backup
+
+# Reports
+reports/**
