@@ -90,10 +90,14 @@ class ElasticsearchLogger:
                 f"{'https' if self.use_ssl else 'http'}://{self.host}:{self.port}"
             )
 
-            # Use simple configuration for Elasticsearch 7.x client
+            # Configure client for Elasticsearch 7.x/8.x servers
+            # Using elasticsearch-py 7.17.x which defaults to API version 7/8
+            auth = (self.username, self.password) if self.username and self.password else None
+            
+            # Simple configuration - elasticsearch-py 7.17.x should work with ES 7.x/8.x servers
             self.client = Elasticsearch(
                 [connection_url],
-                http_auth=(self.username, self.password),
+                http_auth=auth,
                 verify_certs=self.verify_certs,
                 request_timeout=10,
                 retry_on_timeout=True,

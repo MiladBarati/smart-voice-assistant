@@ -114,6 +114,13 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--waiting-file",
+        default="waiting_voice.wav",
+        help=(
+            "Path to WAV file to play when VAD detects silence (default: waiting_voice.wav)"
+        ),
+    )
+    parser.add_argument(
         "--hangup-delay",
         type=int,
         default=2,
@@ -319,6 +326,7 @@ def main() -> None:
         acc.auto_answer = args.auto_answer or not args.no_auto_answer
         acc.play_file = args.play_file
         acc.goodbye_file = args.goodbye_file
+        acc.waiting_file = args.waiting_file
         acc.hangup_delay = args.hangup_delay
         acc.enable_recording = args.enable_recording
         acc.recording_path = args.recording_path
