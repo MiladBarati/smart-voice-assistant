@@ -117,7 +117,8 @@ def main() -> None:
         "--waiting-file",
         default="waiting_voice.wav",
         help=(
-            "Path to WAV file to play when VAD detects silence (default: waiting_voice.wav)"
+            "Path to WAV file to play when VAD detects silence "
+            "(default: waiting_voice.wav)"
         ),
     )
     parser.add_argument(
@@ -168,6 +169,17 @@ def main() -> None:
             "Enable Whisper-based ASR for live and final transcription "
             "(default: disabled)"
         ),
+    )
+    parser.add_argument(
+        "--enable-intent",
+        action="store_true",
+        help="Enable intent classification from transcription (default: False)",
+    )
+    parser.add_argument(
+        "--faq-config",
+        type=str,
+        default=None,
+        help="Path to custom FAQ JSON config file (optional)",
     )
     args = parser.parse_args()
 
@@ -393,6 +405,42 @@ def main() -> None:
             except Exception as e:
                 print(f"***ASR init error: {e}")
                 acc._asr_available = False
+
+        # Initialize intent classifier before registration (if enabled)
+        if args.enable_intent:
+            print("***Intent: initializing classifier before registration...")
+            try:
+                # Support both module and script execution
+                if __package__ in (None, ""):
+                    from pjsua_bot.intent.classifier import RuleBasedClassifier
+                    from pjsua_bot.intent.faq_config import FAQS
+                else:
+                    from .intent.classifier import RuleBasedClassifier
+                    from .intent.faq_config import FAQS
+
+                # Load custom FAQ config if provided, otherwise use default
+                faqs = FAQS
+                if args.faq_config and os.path.exists(args.faq_config):
+                    import json
+
+                    with open(args.faq_config, "r", encoding="utf-8") as f:
+                        faqs = json.load(f)
+                    print(f"***Intent: loaded custom FAQ config from {args.faq_config}")
+                else:
+                    if args.faq_config:
+                        print(
+                            f"***Intent: warning: FAQ config file not found: "
+                            f"{args.faq_config}, using default"
+                        )
+
+                # Create classifier instance
+                acc._intent_classifier = RuleBasedClassifier(faqs=faqs)
+                acc.enable_intent = True
+                print("***Intent: classifier initialized and ready")
+            except Exception as e:
+                print(f"***Intent init error: {e}")
+                acc._intent_classifier = None
+                acc.enable_intent = False
 
         # Wait for registration with active event pumping
         print(f"***Waiting for registration (up to {args.wait_seconds}s)...")

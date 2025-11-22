@@ -202,11 +202,13 @@ class GoodbyePlaybackMixin:
 
         if not os.path.exists(waiting_file):
             print(f"***Waiting: file not found: {waiting_file}")
+            self._waiting_requested = True  # Prevent repeated attempts
             self._waiting_playback_finished = True
             return
 
         if not self._call_media:
             print("***Waiting: no call media available")
+            self._waiting_requested = True  # Prevent repeated attempts
             self._waiting_playback_finished = True
             return
 

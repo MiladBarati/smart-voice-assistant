@@ -11,6 +11,7 @@ from .mixins import (
     CallMediaHandlerMixin,
     CallStateHandlerMixin,
     EventLoggerMixin,
+    IntentHandlerMixin,
     PlaybackMonitorMixin,
 )
 from .recording_cleanup import RecordingCleanupMixin
@@ -19,6 +20,7 @@ from .recording_cleanup import RecordingCleanupMixin
 class AnyCall(
     EventLoggerMixin,
     ASRSupportMixin,
+    IntentHandlerMixin,
     PlaybackMonitorMixin,
     GoodbyePlaybackMixin,
     RecordingCleanupMixin,
@@ -41,6 +43,7 @@ class AnyCall(
         self._init_recording_state()
         self._init_vad_state()
         self._init_asr_support()
+        self._init_intent_state()
 
     # ------------------------------------------------------------------#
     # Internal state initialisation helpers
