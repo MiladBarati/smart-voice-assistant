@@ -2,7 +2,7 @@
 # Generated from project analysis
 
 # Core dependencies
-elasticsearch>=7.0.0,<8.0.0
+elasticsearch==7.17.9  # Pin to specific version for ES 7.x/8.x server compatibility (avoids API v9)
 python-dotenv>=1.0.0
 requests>=2.25.0
 urllib3>=1.26.0

@@ -5,19 +5,19 @@ description = "PJSUA2 SIP Bot with VAD, ASR, call recording, and Elasticsearch i
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "elasticsearch>=7.0.0,<8.0.0",
+    "elasticsearch==7.17.9",  # Pin to specific version for ES 7.x/8.x server compatibility (avoids API v9)
     "python-dotenv>=1.0.0",
     "requests>=2.25.0",
-    "urllib3>=1.26.0",
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
-    "torch>=2.1.0 ; platform_machine != 'x86' or sys_platform != 'win32'", # may require manual install on Windows
-    "torchaudio>=2.1.0 ; platform_machine != 'x86' or sys_platform != 'win32'",
+    "torch>=2.1.0",
+    "torchaudio>=2.1.0",
     "transformers>=4.35.0", # For Whisper ASR models
     "accelerate>=0.24.0", # For transformers acceleration
     "sentencepiece>=0.1.99", # Tokenizer dependency
     "numpy>=1.21.0",
     "isort>=7.0.0",
+    "omnilingual-asr>=0.1.0", # Multilingual ASR (WSL/Linux only)
 ]
 
 [dependency-groups]
@@ -28,8 +28,16 @@ dev = [
     "black>=24.8.0",
     "mypy>=1.11.2",
     "pre-commit>=4.0.1",
-    "types-requests>=2.31.0.20241016",
+    "types-requests<2.32.0.20240521",
 ]
+
+[tool.uv]
+# When using WSL, comment out the Windows-specific constraint below
+# and uncomment the Linux constraint
+# For Windows native (without omnilingual-asr):
+# required-environments = ["sys_platform == 'win32'"]
+# For WSL/Linux (with omnilingual-asr):
+required-environments = ["sys_platform == 'linux'"]
 
 [tool.black]
 line-length = 88
