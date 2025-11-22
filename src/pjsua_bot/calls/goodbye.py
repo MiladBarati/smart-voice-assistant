@@ -20,6 +20,14 @@ class GoodbyePlaybackMixin:
         self._goodbye_playback_finished: bool = False
         self._goodbye_stop_time: float | None = None
         self._goodbye_requested: bool = False
+        # Waiting voice playback state
+        self._waiting_player: Any = None
+        self._waiting_playback_started: bool = False
+        self._waiting_playback_finished: bool = False
+        self._waiting_stop_time: float | None = None
+        self._waiting_requested: bool = False
+        # ASR completion tracking
+        self._asr_complete: bool = False
         # Host-provided hangup scheduling timestamp
         self._hangup_time: float | None = None
 
@@ -185,3 +193,158 @@ class GoodbyePlaybackMixin:
                 # Small delay to ensure audio finishes
                 self._hangup_time = time.time() + 0.5
                 self._goodbye_stop_time = None
+
+    def _play_waiting_message(self: Any) -> None:
+        """Play the waiting message when VAD detects silence."""
+        waiting_file = getattr(self._acc_ref, "waiting_file", None)
+        if not waiting_file or self._waiting_requested:
+            return
+
+        if not os.path.exists(waiting_file):
+            print(f"***Waiting: file not found: {waiting_file}")
+            self._waiting_playback_finished = True
+            return
+
+        if not self._call_media:
+            print("***Waiting: no call media available")
+            self._waiting_playback_finished = True
+            return
+
+        try:
+            self._waiting_requested = True
+            print(f"***Waiting: playing waiting message: {waiting_file}")
+
+            # Get WAV file duration
+            from ..utils import get_wav_duration
+
+            waiting_duration = get_wav_duration(waiting_file)
+            if waiting_duration is None:
+                waiting_duration = getattr(self._acc_ref, "message_duration", 3)
+                print(f"***Waiting: using fallback duration {waiting_duration}s")
+
+            # Create player for waiting message
+            import pjsua2 as pj  # local import to avoid module-level dependency
+
+            self._waiting_player = pj.AudioMediaPlayer()
+            self._waiting_player.createPlayer(waiting_file, False)  # No loop
+            self._waiting_player.startTransmit(self._call_media)  # waiting -> remote
+
+            # Also transmit waiting message to mixed recorder if it exists
+            if getattr(self, "_mixed_recorder", None):
+                try:
+                    self._waiting_player.startTransmit(self._mixed_recorder)
+                    print("***Waiting: transmitting to mixed recorder")
+                except Exception as e:
+                    print(f"***Waiting: error transmitting to mixed recorder: {e}")
+
+            # Monitor on local speakers
+            adm = pj.Endpoint.instance().audDevManager()
+            playback = adm.getPlaybackDevMedia()
+            # remote -> local speakers (monitor waiting)
+            self._call_media.startTransmit(playback)
+
+            self._waiting_playback_started = True
+            self._waiting_stop_time = time.time() + waiting_duration
+
+            # Notify VAD that bot playback started (waiting message)
+            if getattr(self, "_vad", None) and getattr(self._vad, "available", False):
+                try:
+                    self._vad.set_bot_playback_state(True, time.time)
+                except Exception as e:  # pragma: no cover - defensive
+                    print(f"***VAD: error notifying waiting playback start: {e}")
+
+            # Collect waiting playback started event
+            try:
+                self._collect_event(
+                    event_type="waiting_playback_started",
+                    media_type="audio",
+                    file_played=waiting_file,
+                )
+            except Exception:
+                pass
+
+            print(
+                "***Waiting: started playing, will stop after "
+                f"{waiting_duration:.2f} seconds"
+            )
+
+        except Exception as e:
+            print(f"***Waiting: error playing waiting message: {e}")
+            self._waiting_playback_finished = True
+            # Collect error event
+            try:
+                self._collect_event(
+                    event_type="waiting_playback_error",
+                    media_type="audio",
+                    error=str(e),
+                )
+            except Exception:
+                pass
+
+    def check_waiting_status(self: Any) -> None:
+        """Check if waiting playback has finished."""
+        if not self._waiting_playback_started:
+            return
+
+        current_time = time.time()
+
+        # Check if it's time to stop the waiting player
+        if (
+            self._waiting_stop_time
+            and current_time >= self._waiting_stop_time
+            and not self._waiting_playback_finished
+        ):
+            if self._waiting_player and self._call_media:
+                try:
+                    import pjsua2 as pj  # local import
+
+                    # Stop the transmission from waiting player to call media
+                    self._waiting_player.stopTransmit(self._call_media)
+                    print("***Waiting: stopped player transmission")
+
+                    # Stop the transmission from waiting player to mixed recorder
+                    if getattr(self, "_mixed_recorder", None):
+                        try:
+                            self._waiting_player.stopTransmit(self._mixed_recorder)
+                            print("***Waiting: stopped transmission to mixed recorder")
+                        except Exception:
+                            # Mixed recorder might already be stopped, ignore
+                            pass
+
+                    # Also stop the call media to playback transmission
+                    adm = pj.Endpoint.instance().audDevManager()
+                    playback = adm.getPlaybackDevMedia()
+                    self._call_media.stopTransmit(playback)
+
+                    # Destroy the waiting player
+                    self._waiting_player = None
+                    print("***Waiting: destroyed player")
+
+                except Exception as e:
+                    print(f"***Waiting: error stopping player transmission: {e}")
+
+            # Mark waiting playback finished
+            if not self._waiting_playback_finished:
+                print("***Waiting: finished playback")
+
+                # Notify VAD that bot playback finished (waiting message)
+                if getattr(self, "_vad", None) and getattr(
+                    self._vad, "available", False
+                ):
+                    try:
+                        self._vad.set_bot_playback_state(False, time.time)
+                    except Exception as e:  # pragma: no cover - defensive
+                        print(f"***VAD: error notifying waiting playback stop: {e}")
+
+                # Collect waiting playback finished event
+                try:
+                    self._collect_event(
+                        event_type="waiting_playback_finished",
+                        media_type="audio",
+                        file_played=getattr(self._acc_ref, "waiting_file", None),
+                    )
+                except Exception:
+                    pass
+
+                self._waiting_playback_finished = True
+                self._waiting_stop_time = None

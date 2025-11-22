@@ -267,6 +267,7 @@ class CallStateHandlerMixin:
 
                 # Collect VAD metrics if VAD was enabled and available
                 vad_metrics = None
+                bot_talk_duration = None
                 if self._vad and self._vad.available:
                     try:
                         # Finalize silence tracking at call end
@@ -276,6 +277,7 @@ class CallStateHandlerMixin:
                         chunk_count = self._vad.get_chunk_count()
                         vad_confidence = self._vad.get_vad_confidence()
                         silence_duration = self._vad.get_silence_duration(time.time)
+                        bot_talk_duration = self._vad.get_bot_playback_duration(time.time)
 
                         vad_metrics = {
                             "speech_duration": speech_duration,
@@ -285,6 +287,33 @@ class CallStateHandlerMixin:
                         }
                     except Exception as exc:
                         print(f"***Error calculating VAD metrics: {exc}")
+
+                # Collect transcription text if ASR was enabled
+                transcription_text = None
+                transcription_chunks = None
+                try:
+                    asr_chunk_texts = getattr(self, "_asr_chunk_texts", [])
+                    asr_lock = getattr(self, "_asr_lock", None)
+                    
+                    # Get transcription text thread-safely
+                    if asr_lock is not None:
+                        with asr_lock:
+                            if asr_chunk_texts:
+                                transcription_text = " ".join(
+                                    t for t in asr_chunk_texts if t
+                                ).strip()
+                                transcription_chunks = asr_chunk_texts.copy()
+                    else:
+                        if asr_chunk_texts:
+                            transcription_text = " ".join(
+                                t for t in asr_chunk_texts if t
+                            ).strip()
+                            transcription_chunks = asr_chunk_texts.copy()
+                    
+                    if transcription_text:
+                        print(f"***ASR: including transcription in call record: {transcription_text[:100]}...")
+                except Exception as exc:
+                    print(f"***Error collecting transcription: {exc}")
 
                 call_record = {
                     "event_type": "call_record",
@@ -316,7 +345,21 @@ class CallStateHandlerMixin:
                         "auto_answer": getattr(self._acc_ref, "auto_answer", False),
                         "domain": getattr(self._acc_ref, "domain", None),
                         "user": getattr(self._acc_ref, "username", None),
+                        "talk_duration": (
+                            round(bot_talk_duration, 2)
+                            if bot_talk_duration is not None
+                            else None
+                        ),
                     },
+                    "transcription": (
+                        {
+                            "text": transcription_text,
+                            "chunks": transcription_chunks,
+                            "chunk_count": len(transcription_chunks) if transcription_chunks else 0,
+                        }
+                        if transcription_text
+                        else None
+                    ),
                     "host": socket.gethostname(),
                     "ingest_ts": datetime.utcnow().isoformat() + "Z",
                 }

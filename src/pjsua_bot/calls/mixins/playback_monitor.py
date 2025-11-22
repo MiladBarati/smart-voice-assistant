@@ -31,6 +31,9 @@ class PlaybackMonitorMixin:
 
     _goodbye_playback_finished: bool
     _goodbye_requested: bool
+    _waiting_playback_finished: bool
+    _waiting_requested: bool
+    _asr_complete: bool
     _stop_player_time: float | None
 
     if TYPE_CHECKING:
@@ -38,6 +41,10 @@ class PlaybackMonitorMixin:
         def check_goodbye_status(self) -> None: ...
 
         def _play_goodbye_message(self) -> None: ...
+
+        def check_waiting_status(self) -> None: ...
+
+        def _play_waiting_message(self) -> None: ...
 
     def _init_playback_state(self) -> None:
         """Initialise playback-related attributes."""
@@ -60,6 +67,8 @@ class PlaybackMonitorMixin:
         """Check if playback has finished and set hangup time if needed."""
         # Check goodbye message status
         self.check_goodbye_status()
+        # Check waiting message status
+        self.check_waiting_status()
 
         if not self._playback_started:
             return
@@ -128,7 +137,7 @@ class PlaybackMonitorMixin:
                 # Clear stop time to prevent re-running this block
                 self._stop_player_time = None
 
-        # If VAD is available, process new audio and schedule hangup
+        # If VAD is available, process new audio and handle silence
         if self._vad and self._vad.available and self._recording_file:
             try:
                 # Debug: confirm VAD is being called
@@ -142,7 +151,44 @@ class PlaybackMonitorMixin:
                         self._vad.last_speech_time_monotonic
                         + self._silence_after_speech_sec
                     )
-                    if not self._hangup_time or self._hangup_time < target:
+                    current_time = time.time()
+                    # If silence detected and waiting voice not yet played, play it
+                    if (
+                        current_time >= target
+                        and not self._waiting_requested
+                        and not self._waiting_playback_started
+                        and not self._asr_complete
+                    ):
+                        # Finalize any current chunk before playing waiting voice
+                        if self._asr_enabled and self._asr_available:
+                            try:
+                                # Finalize current chunk if it exists
+                                current_chunk = self._vad.get_current_chunk()
+                                if current_chunk is not None:
+                                    # Force finalize the current chunk
+                                    self._vad.finalize_all_chunks(time.time)
+                                    print("***VAD: finalized current chunk due to silence")
+                                    # Immediately submit the newly finalized chunk for transcription
+                                    chunks = self._vad.get_chunks()
+                                    if chunks and len(chunks) > self._last_transcribed_chunk_count:
+                                        last_chunk = chunks[-1]
+                                        if last_chunk.file_path and os.path.exists(last_chunk.file_path):
+                                            self._submit_transcription_task(
+                                                last_chunk.file_path, 
+                                                len(chunks) - 1
+                                            )
+                                            self._last_transcribed_chunk_count = len(chunks)
+                            except Exception as e:
+                                print(f"***VAD: error finalizing chunk: {e}")
+                        
+                        # Play waiting voice instead of setting hangup time
+                        self._play_waiting_message()
+                        print(
+                            "***VAD: silence detected, playing waiting voice. "
+                            f"Last speech at {self._vad.last_speech_time_monotonic:.3f}"
+                        )
+                    elif not self._hangup_time or self._hangup_time < target:
+                        # Update hangup time if needed (for cases without waiting voice)
                         self._hangup_time = target
                         print(
                             "***VAD: last speech at "
@@ -179,6 +225,28 @@ class PlaybackMonitorMixin:
                                 # Submit chunk to worker thread.
                                 self._submit_transcription_task(ch.file_path, idx)
                     self._last_transcribed_chunk_count = len(chunks)
+                    
+                    # Check if ASR transcription is complete
+                    # (all chunks submitted and queue is empty)
+                    if (
+                        self._asr_enabled
+                        and self._asr_available
+                        and not self._asr_complete
+                        and self._waiting_playback_finished
+                    ):
+                        asr_queue = getattr(self, "_asr_queue", None)
+                        if asr_queue is not None:
+                            # Check if all chunks have been submitted and queue is empty
+                            if (
+                                self._last_transcribed_chunk_count == len(chunks)
+                                and asr_queue.empty()
+                                and asr_queue.unfinished_tasks == 0
+                            ):
+                                # ASR transcription is complete
+                                self._asr_complete = True
+                                print("***ASR: transcription complete, playing goodbye message")
+                                # Play goodbye message now that ASR is complete
+                                self._play_goodbye_message()
                 except Exception as exc:  # pragma: no cover - defensive
                     print(f"***ASR: live transcription error: {exc}")
             except Exception as exc:  # pragma: no cover - defensive
@@ -193,10 +261,55 @@ class PlaybackMonitorMixin:
     def should_hangup(self) -> bool:
         """Check if it's time to hang up the call.
 
-        If hangup time is reached and goodbye file exists, play it first.
+        New flow:
+        1. When VAD detects silence, play waiting voice
+        2. Wait for ASR transcription to complete
+        3. After ASR completes, play goodbye message
+        4. After goodbye finishes, hang up
+
         Returns True only when it's actually time to hang up
         (after goodbye if applicable).
         """
+        # If ASR is enabled and we're waiting for it, check completion
+        if (
+            self._asr_enabled
+            and self._asr_available
+            and self._waiting_playback_finished
+            and not self._asr_complete
+        ):
+            # Still waiting for ASR to complete, don't hang up yet
+            return False
+        
+        # If waiting voice finished but ASR is not enabled, skip to goodbye
+        if (
+            self._waiting_playback_finished
+            and not self._asr_enabled
+            and not self._asr_complete
+        ):
+            # ASR not enabled, mark as complete to proceed to goodbye
+            self._asr_complete = True
+        
+        # If ASR is complete (or not enabled) and goodbye needs to be played
+        if self._asr_complete:
+            goodbye_file = getattr(self._acc_ref, "goodbye_file", None)
+            if (
+                goodbye_file
+                and not self._goodbye_playback_finished
+                and not self._goodbye_requested
+            ):
+                # ASR complete, need to play goodbye first
+                self._play_goodbye_message()
+                return False  # Don't hang up yet, goodbye is playing
+            if self._goodbye_playback_finished:
+                # Goodbye finished, now we can hang up
+                return True
+            if not goodbye_file:
+                # No goodbye file, hang up immediately after ASR
+                return True
+            # Goodbye is playing, wait for it to finish
+            return False
+        
+        # Fallback: original hangup logic for cases without ASR or waiting voice
         if self._hangup_time and time.time() >= self._hangup_time:
             # Check if we need to play goodbye message first
             goodbye_file = getattr(self._acc_ref, "goodbye_file", None)
