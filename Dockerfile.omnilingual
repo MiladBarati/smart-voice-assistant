@@ -1,0 +1,161 @@
+# Dockerfile with omnilingual-asr support
+# Multi-stage build for PJSUA2 SIP Bot with omnilingual-asr
+
+# Stage 1: Build PJSIP from source
+# Using python:3.11-slim as fallback if 3.12 is not available
+FROM python:3.11-slim AS builder
+
+ARG PJSIP_VERSION=2.14
+
+# Install build dependencies
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    wget \
+    ca-certificates \
+    libssl-dev \
+    libopus-dev \
+    libspeex-dev \
+    libspeexdsp-dev \
+    libgsm1-dev \
+    libasound2-dev \
+    python3-dev \
+    swig
+
+# Download and extract PJSIP
+WORKDIR /tmp
+RUN wget -q https://github.com/pjsip/pjproject/archive/refs/tags/${PJSIP_VERSION}.tar.gz && \
+    tar -xzf ${PJSIP_VERSION}.tar.gz && \
+    rm ${PJSIP_VERSION}.tar.gz
+
+# Configure and build PJSIP
+WORKDIR /tmp/pjproject-${PJSIP_VERSION}
+RUN ./configure \
+    --prefix=/usr/local \
+    --enable-shared \
+    --disable-video \
+    --disable-v4l2 \
+    --disable-sdl \
+    --disable-libyuv \
+    --disable-opencore-amr \
+    --with-external-speex \
+    --with-external-gsm \
+    CFLAGS="-O2 -DNDEBUG -DPJ_AUTOCONF=1 -fPIC" \
+    CXXFLAGS="-O2 -DNDEBUG" && \
+    make dep && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig
+
+# Build Python bindings
+WORKDIR /tmp/pjproject-${PJSIP_VERSION}/pjsip-apps/src/swig/python
+RUN make && python3 setup.py install
+
+# Stage 2: Python dependencies with omnilingual-asr
+FROM python:3.11-slim AS python-builder
+
+WORKDIR /app
+
+# Install build dependencies needed for kenlm and other compiled packages
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    g++ \
+    gcc \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy pyproject.toml and uv.lock for dependency installation
+COPY pyproject.toml uv.lock* ./
+
+# Install uv
+RUN pip install uv
+
+# Install dependencies using uv from pyproject.toml (includes omnilingual-asr)
+# This improves caching - only rebuilds when pyproject.toml changes
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system --no-cache .
+
+# Stage 3: Final runtime image
+FROM python:3.11-slim
+
+LABEL maintainer="Amin Raay"
+LABEL description="PJSUA2 SIP Bot with omnilingual-asr support"
+
+# Install runtime dependencies including Intel TBB
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    libssl3 \
+    libopus0 \
+    libspeex1 \
+    libspeexdsp1 \
+    libgsm1 \
+    libasound2 \
+    libasound2-plugins \
+    alsa-utils \
+    ffmpeg \
+    libtbb12 \
+    libtbb-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy PJSIP libraries from builder
+COPY --from=builder /usr/local/lib/ /usr/local/lib/
+COPY --from=builder /usr/local/include/ /usr/local/include/
+COPY --from=builder /usr/local/lib/python3.11/site-packages/pjsua2* /usr/local/lib/python3.11/site-packages/
+COPY --from=builder /usr/local/lib/python3.11/site-packages/_pjsua2* /usr/local/lib/python3.11/site-packages/
+
+# Copy Python packages from python-builder stage
+COPY --from=python-builder /usr/local/lib/python3.11/site-packages/ /usr/local/lib/python3.11/site-packages/
+
+# Update library cache
+RUN ldconfig
+
+# Create ALSA config for null audio device (headless operation)
+RUN mkdir -p /etc/alsa && \
+    echo 'pcm.!default { type plug slave.pcm "null" }' > /etc/alsa/asound.conf
+
+WORKDIR /app
+
+# Copy application code
+COPY src/ ./src/
+COPY assets/ ./assets/
+COPY examples/ ./examples/
+
+# Create necessary directories
+RUN mkdir -p /app/recordings /app/logs
+
+# Create non-root user for security
+RUN useradd -m -u 1000 voicebot && \
+    chown -R voicebot:voicebot /app
+
+USER voicebot
+
+# Environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app:/app/src \
+    LD_LIBRARY_PATH=/usr/local/lib:/usr/lib/x86_64-linux-gnu \
+    AUDIODEV=null \
+    HF_HOME=/app/.cache/huggingface \
+    HUGGINGFACE_HUB_CACHE=/app/.cache/huggingface/hub \
+    TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers \
+    TORCH_HOME=/app/.cache/torch \
+    FAIRSEQ2_CACHE=/app/.cache/fairseq2
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD python3 -c "import pjsua2; import omnilingual_asr; print('OK')" || exit 1
+
+# Persistent volumes
+VOLUME ["/app/recordings", "/app/assets/audio", "/app/.cache"]
+
+# SIP and RTP ports
+EXPOSE 5060/udp 10000-20000/udp
+
+# Default command (can be overridden)
+CMD ["python3", "-m", "pjsua_bot.register_bot"]
+
