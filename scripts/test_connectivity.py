@@ -8,7 +8,7 @@ import os
 from collections.abc import Sequence
 from typing import TypedDict
 
-import requests  # type: ignore[import-untyped]
+import requests
 import urllib3
 from dotenv import load_dotenv
 from urllib3.exceptions import InsecureRequestWarning

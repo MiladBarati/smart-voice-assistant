@@ -754,7 +754,9 @@ class SileroVAD:
     def get_silence_duration(self, monotonic_time_fn: Callable[[], float]) -> float:
         return self.silence.get_silence_duration(monotonic_time_fn)
 
-    def get_bot_playback_duration(self, monotonic_time_fn: Callable[[], float]) -> float:
+    def get_bot_playback_duration(
+        self, monotonic_time_fn: Callable[[], float]
+    ) -> float:
         """Get total duration that bot has been playing audio."""
         return self.silence.get_bot_playback_duration(monotonic_time_fn)
 

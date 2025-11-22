@@ -65,6 +65,29 @@ class PlaybackMonitorMixin:
     # ------------------------------------------------------------------#
     def check_playback_status(self) -> None:
         """Check if playback has finished and set hangup time if needed."""
+        # Check intent response status (must be checked before goodbye)
+        if hasattr(self, "check_intent_response_status"):
+            try:
+                self.check_intent_response_status()
+            except Exception:
+                pass  # Ignore errors in intent status check
+
+        # Check if intent response finished and we should play goodbye
+        if (
+            hasattr(self, "_intent_response_played")
+            and getattr(self, "_intent_response_played", False)
+            and hasattr(self, "check_intent_response_status")
+            and not getattr(self, "_goodbye_requested", False)
+        ):
+            try:
+                intent_finished = self.check_intent_response_status()
+                if intent_finished:
+                    # Intent response finished, now play goodbye
+                    print("***Intent: response finished, triggering goodbye message")
+                    self._play_goodbye_message()
+            except Exception:
+                pass  # If check fails, continue normally
+
         # Check goodbye message status
         self.check_goodbye_status()
         # Check waiting message status
@@ -156,7 +179,7 @@ class PlaybackMonitorMixin:
                     if (
                         current_time >= target
                         and not self._waiting_requested
-                        and not self._waiting_playback_started
+                        and not self._waiting_playback_finished
                         and not self._asr_complete
                     ):
                         # Finalize any current chunk before playing waiting voice
@@ -167,20 +190,30 @@ class PlaybackMonitorMixin:
                                 if current_chunk is not None:
                                     # Force finalize the current chunk
                                     self._vad.finalize_all_chunks(time.time)
-                                    print("***VAD: finalized current chunk due to silence")
-                                    # Immediately submit the newly finalized chunk for transcription
+                                    print(
+                                        "***VAD: finalized current chunk due to silence"
+                                    )
+                                    # Immediately submit the newly finalized chunk
+                                    # for transcription
                                     chunks = self._vad.get_chunks()
-                                    if chunks and len(chunks) > self._last_transcribed_chunk_count:
+                                    if (
+                                        chunks
+                                        and len(chunks)
+                                        > self._last_transcribed_chunk_count
+                                    ):
                                         last_chunk = chunks[-1]
-                                        if last_chunk.file_path and os.path.exists(last_chunk.file_path):
+                                        if last_chunk.file_path and os.path.exists(
+                                            last_chunk.file_path
+                                        ):
                                             self._submit_transcription_task(
-                                                last_chunk.file_path, 
-                                                len(chunks) - 1
+                                                last_chunk.file_path, len(chunks) - 1
                                             )
-                                            self._last_transcribed_chunk_count = len(chunks)
+                                            self._last_transcribed_chunk_count = len(
+                                                chunks
+                                            )
                             except Exception as e:
                                 print(f"***VAD: error finalizing chunk: {e}")
-                        
+
                         # Play waiting voice instead of setting hangup time
                         self._play_waiting_message()
                         print(
@@ -225,7 +258,7 @@ class PlaybackMonitorMixin:
                                 # Submit chunk to worker thread.
                                 self._submit_transcription_task(ch.file_path, idx)
                     self._last_transcribed_chunk_count = len(chunks)
-                    
+
                     # Check if ASR transcription is complete
                     # (all chunks submitted and queue is empty)
                     if (
@@ -244,9 +277,45 @@ class PlaybackMonitorMixin:
                             ):
                                 # ASR transcription is complete
                                 self._asr_complete = True
-                                print("***ASR: transcription complete, playing goodbye message")
-                                # Play goodbye message now that ASR is complete
-                                self._play_goodbye_message()
+                                print("***ASR: transcription complete")
+
+                                # PHASE 1: Classify intent and play response
+                                if hasattr(self, "_classify_intent") and hasattr(
+                                    self, "_play_intent_response"
+                                ):
+                                    try:
+                                        # Check if intent classification is enabled
+                                        if getattr(self, "_intent_enabled", False):
+                                            # Classify intent from transcription
+                                            classification = self._classify_intent()
+                                            if classification:
+                                                intent_name, confidence = classification
+                                                print(
+                                                    f"***Intent: classified intent "
+                                                    f"'{intent_name}' "
+                                                    f"with confidence {confidence:.2f}"
+                                                )
+
+                                                # Play intent response
+                                                # Goodbye will be triggered by
+                                                # check_playback_status once intent
+                                                # response finishes
+                                                self._play_intent_response()
+                                    except Exception as exc:
+                                        print(
+                                            f"***Intent: error in intent "
+                                            f"classification: {exc}"
+                                        )
+
+                                # If no intent response is playing, trigger goodbye
+                                # immediately. Otherwise, goodbye will be triggered by
+                                # check_playback_status when intent response finishes
+                                if not getattr(self, "_intent_response_played", False):
+                                    print(
+                                        "***ASR: no intent response, "
+                                        "playing goodbye message"
+                                    )
+                                    self._play_goodbye_message()
                 except Exception as exc:  # pragma: no cover - defensive
                     print(f"***ASR: live transcription error: {exc}")
             except Exception as exc:  # pragma: no cover - defensive
@@ -264,8 +333,9 @@ class PlaybackMonitorMixin:
         New flow:
         1. When VAD detects silence, play waiting voice
         2. Wait for ASR transcription to complete
-        3. After ASR completes, play goodbye message
-        4. After goodbye finishes, hang up
+        3. After ASR completes, play intent response (if classified)
+        4. After intent response finishes, play goodbye message
+        5. After goodbye finishes, hang up
 
         Returns True only when it's actually time to hang up
         (after goodbye if applicable).
@@ -279,7 +349,7 @@ class PlaybackMonitorMixin:
         ):
             # Still waiting for ASR to complete, don't hang up yet
             return False
-        
+
         # If waiting voice finished but ASR is not enabled, skip to goodbye
         if (
             self._waiting_playback_finished
@@ -288,27 +358,42 @@ class PlaybackMonitorMixin:
         ):
             # ASR not enabled, mark as complete to proceed to goodbye
             self._asr_complete = True
-        
+
         # If ASR is complete (or not enabled) and goodbye needs to be played
         if self._asr_complete:
+            # First check if intent response is playing - wait for it to finish
+            if hasattr(self, "_intent_response_played") and getattr(
+                self, "_intent_response_played", False
+            ):
+                if hasattr(self, "check_intent_response_status"):
+                    try:
+                        intent_finished = self.check_intent_response_status()
+                        if not intent_finished:
+                            # Intent response is still playing, wait for it to finish
+                            return False
+                    except Exception:
+                        # If check fails, assume intent is finished and proceed
+                        pass
+
+            # Intent response finished (or not playing), now check goodbye
             goodbye_file = getattr(self._acc_ref, "goodbye_file", None)
             if (
                 goodbye_file
                 and not self._goodbye_playback_finished
                 and not self._goodbye_requested
             ):
-                # ASR complete, need to play goodbye first
+                # ASR complete and intent response finished, need to play goodbye first
                 self._play_goodbye_message()
                 return False  # Don't hang up yet, goodbye is playing
             if self._goodbye_playback_finished:
                 # Goodbye finished, now we can hang up
                 return True
             if not goodbye_file:
-                # No goodbye file, hang up immediately after ASR
+                # No goodbye file, hang up immediately after ASR and intent response
                 return True
             # Goodbye is playing, wait for it to finish
             return False
-        
+
         # Fallback: original hangup logic for cases without ASR or waiting voice
         if self._hangup_time and time.time() >= self._hangup_time:
             # Check if we need to play goodbye message first

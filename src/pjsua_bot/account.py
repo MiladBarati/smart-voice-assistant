@@ -25,6 +25,9 @@ class Account(pj.Account):
         # ASR service (shared across all calls for this account)
         self._asr_service: Any | None = None
         self._asr_available: bool = False
+        # Intent classification (shared across all calls for this account)
+        self.enable_intent: bool = False
+        self._intent_classifier: Any | None = None
 
     def _collect_event(self, event_type: str, **kwargs: Any) -> None:
         """Collect an event for batch logging."""

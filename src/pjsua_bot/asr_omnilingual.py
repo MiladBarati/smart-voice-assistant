@@ -7,13 +7,12 @@ improved multilingual support and translation capabilities.
 
 from __future__ import annotations
 
-import logging
 import os
 import time
 import warnings
 import wave
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 # Suppress warnings
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -24,7 +23,10 @@ _omnilingual_error: str | None = None
 ASRInferencePipeline: Any = None
 
 try:
-    from omnilingual_asr.models.inference.pipeline import ASRInferencePipeline as _ASRInferencePipeline
+    from omnilingual_asr.models.inference.pipeline import (
+        ASRInferencePipeline as _ASRInferencePipeline,
+    )
+
     ASRInferencePipeline = _ASRInferencePipeline
     _omnilingual_error = None
 except Exception as exc:
@@ -40,13 +42,13 @@ class ASRConfig:
     # omnilingual-asr models: "omniASR_CTC_1B", "omniASR_CTC_350M"
     model_name: str = "omniASR_CTC_1B"
     device: str = "auto"  # "auto", "cpu", or "cuda"
-    
+
     # Language code in omnilingual format (e.g., "fas_Arab" for Farsi)
     language: Optional[str] = "fas_Arab"  # Farsi/Persian
-    
+
     # For translation (set target_language to translate)
     target_language: Optional[str] = None  # e.g., "eng_Latn" for English
-    
+
     batch_size: int = 1  # Batch size for processing
 
     # Retry configuration
@@ -103,9 +105,8 @@ class ASRService:
     def _load_model_if_possible(self) -> None:
         """Load the ASR model if omnilingual-asr is available."""
         if not _OMNILINGUAL_AVAILABLE:
-            self._load_error = (
-                f"omnilingual-asr not available: {_omnilingual_error or 'import failed'}"
-            )
+            error_msg = _omnilingual_error or "import failed"
+            self._load_error = f"omnilingual-asr not available: {error_msg}"
             return
 
         try:
@@ -113,13 +114,15 @@ class ASRService:
             if self.cfg.device == "auto":
                 try:
                     import torch
+
                     if torch.cuda.is_available():
                         self._device = "cuda"
-                        print(f"***ASR: Using CUDA device: {torch.cuda.get_device_name(0)}")
+                        device_name = torch.cuda.get_device_name(0)
+                        print(f"***ASR: Using CUDA device: {device_name}")
                     else:
                         self._device = "cpu"
                         print("***ASR: Using CPU device")
-                except:
+                except Exception:
                     self._device = "cpu"
                     print("***ASR: Using CPU device (torch not available)")
             else:
@@ -128,14 +131,12 @@ class ASRService:
 
             # Load omnilingual-asr pipeline
             print(f"***ASR: Loading model {self.cfg.model_name}...")
-            print(f"***ASR: This may download ~1-2GB on first run...")
-            
-            self._pipeline = ASRInferencePipeline(
-                model_card=self.cfg.model_name
-            )
-            
+            print("***ASR: This may download ~1-2GB on first run...")
+
+            self._pipeline = ASRInferencePipeline(model_card=self.cfg.model_name)
+
             print(f"***ASR: Model loaded successfully on {self._device}")
-            
+
             self.available = True
             self._load_error = None
 
@@ -192,12 +193,12 @@ class ASRService:
 
             # Prepare language parameter
             lang = [self.cfg.language] if self.cfg.language else None
-            
+
             # Transcribe using omnilingual-asr
+            if self._pipeline is None:
+                raise RuntimeError("ASR pipeline not initialized")
             transcriptions = self._pipeline.transcribe(
-                [audio_path],
-                lang=lang,
-                batch_size=self.cfg.batch_size
+                [audio_path], lang=lang, batch_size=self.cfg.batch_size
             )
 
             processing_time = time.time() - start_time
@@ -300,25 +301,28 @@ class ASRService:
 
         # Use provided languages or default config language
         if languages is None:
-            languages = [self.cfg.language] * len(audio_files)
+            default_lang = self.cfg.language or ""
+            languages = [default_lang] * len(audio_files)
 
         try:
             start_time = time.time()
 
             # Batch transcribe
+            if self._pipeline is None:
+                raise RuntimeError("ASR pipeline not initialized")
             transcriptions = self._pipeline.transcribe(
-                audio_files,
-                lang=languages,
-                batch_size=self.cfg.batch_size
+                audio_files, lang=languages, batch_size=self.cfg.batch_size
             )
 
             processing_time = time.time() - start_time
 
             # Create result objects
-            results = []
-            for i, (audio_path, text) in enumerate(zip(audio_files, transcriptions)):
+            results: List[Optional[TranscriptionResult]] = []
+            for i, (audio_path, text) in enumerate(
+                zip(audio_files, transcriptions, strict=False)
+            ):
                 duration = self._get_audio_duration(audio_path)
-                
+
                 result = TranscriptionResult(
                     text=text,
                     language=languages[i] if i < len(languages) else None,
@@ -338,7 +342,7 @@ class ASRService:
                 print(
                     f"***ASR: Batch transcribed {len(audio_files)} files "
                     f"in {processing_time:.2f}s "
-                    f"({processing_time/len(audio_files):.2f}s avg per file)"
+                    f"({processing_time / len(audio_files):.2f}s avg per file)"
                 )
 
             return results
@@ -346,7 +350,7 @@ class ASRService:
         except Exception as e:
             if self.cfg.log_errors:
                 print(f"***ASR: Batch transcription failed: {e}")
-            
+
             if self.cfg.skip_on_error:
                 return [None] * len(audio_files)
             else:
@@ -372,4 +376,3 @@ class ASRService:
 # Backward compatibility aliases
 OmnilingualASRService = ASRService
 OmnilingualASRConfig = ASRConfig
-

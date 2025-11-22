@@ -61,7 +61,9 @@ class SilenceTracker:
                 self._start_silence_period(current_time)
         return round(self._total_silence_duration, 2)
 
-    def get_bot_playback_duration(self, monotonic_time_fn: Callable[[], float]) -> float:
+    def get_bot_playback_duration(
+        self, monotonic_time_fn: Callable[[], float]
+    ) -> float:
         """Get total duration that bot has been playing audio."""
         current_time = float(monotonic_time_fn())
         total = self._total_bot_playback_duration

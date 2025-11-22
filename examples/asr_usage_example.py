@@ -103,7 +103,6 @@ def transcribe_with_custom_config(
         model_name="vhdm/whisper-large-fa-v1",  # Persian/Farsi model
         device="auto",  # Use GPU if available
         language="fa",  # Persian/Farsi
-        task="transcribe",  # Transcribe (not translate)
         max_retries=5,  # More retries
         retry_delay=2.0,  # Longer delay between retries
     )

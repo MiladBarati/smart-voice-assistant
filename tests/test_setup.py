@@ -38,9 +38,19 @@ class TestSetup:
     def test_environment_variables(self) -> None:
         """Test that environment variables are set correctly in tests."""
         # These should be set by the conftest.py fixture
-        assert os.environ.get("ELASTICSEARCH_HOST") == "localhost"
-        assert os.environ.get("ELASTICSEARCH_PORT") == "9200"
-        assert os.environ.get("ELASTICSEARCH_INDEX") == "test_calls"
+        # Check both old and new variable names for compatibility
+        assert (
+            os.environ.get("ES_HOST") == "localhost"
+            or os.environ.get("ELASTICSEARCH_HOST") == "localhost"
+        )
+        assert (
+            os.environ.get("ES_PORT") == "9200"
+            or os.environ.get("ELASTICSEARCH_PORT") == "9200"
+        )
+        assert (
+            os.environ.get("ELASTIC_INDEX_PREFIX") == "test_calls"
+            or os.environ.get("ELASTICSEARCH_INDEX") == "test_calls"
+        )
 
     def test_mock_fixtures(
         self,

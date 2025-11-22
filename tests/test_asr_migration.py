@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """Test script to verify ASR migration from Whisper to omnilingual-asr."""
 
-import sys
 import os
+import sys
 
-print("="*70)
+print("=" * 70)
 print("ASR MIGRATION TEST")
-print("="*70)
+print("=" * 70)
 print()
 
 # Test 1: Import new ASR module
 print("Test 1: Importing ASR module...")
 try:
-    from pjsua_bot.asr import ASRService, ASRConfig, TranscriptionResult
+    from pjsua_bot.asr import ASRConfig, ASRService, TranscriptionResult
+
     print("  ✓ Successfully imported ASR components")
 except ImportError as e:
     print(f"  ✗ Failed to import: {e}")
@@ -26,7 +27,7 @@ asr = ASRService(config)
 model_info = asr.get_model_info()
 
 if "backend" in model_info and model_info["backend"] == "omnilingual-asr":
-    print(f"  ✓ Using omnilingual-asr backend")
+    print("  ✓ Using omnilingual-asr backend")
 else:
     print(f"  ⚠ Backend: {model_info.get('backend', 'unknown')}")
 
@@ -34,7 +35,7 @@ print(f"  Model: {model_info.get('model_name', 'unknown')}")
 print(f"  Device: {model_info.get('device', 'unknown')}")
 print(f"  Available: {model_info.get('available', False)}")
 
-if not model_info.get('available'):
+if not model_info.get("available"):
     print(f"  Load error: {model_info.get('load_error', 'unknown')}")
     print()
     print("⚠️  ASR not available (expected in non-Docker environment)")
@@ -64,7 +65,7 @@ try:
         batch_size=1,
         max_retries=3,
         skip_on_error=True,
-        log_errors=True
+        log_errors=True,
     )
     print("  ✓ Configuration created successfully")
     print(f"    Model: {config.model_name}")
@@ -78,25 +79,20 @@ print()
 print("Test 5: Testing interface compatibility...")
 try:
     asr = ASRService()
-    
+
     # Check all expected methods exist
-    methods = [
-        'transcribe',
-        'transcribe_chunks',
-        'transcribe_batch',
-        'get_model_info'
-    ]
-    
+    methods = ["transcribe", "transcribe_chunks", "transcribe_batch", "get_model_info"]
+
     missing_methods = []
     for method in methods:
         if not hasattr(asr, method):
             missing_methods.append(method)
-    
+
     if missing_methods:
         print(f"  ✗ Missing methods: {', '.join(missing_methods)}")
     else:
-        print(f"  ✓ All expected methods present")
-        
+        print("  ✓ All expected methods present")
+
 except Exception as e:
     print(f"  ✗ Interface test failed: {e}")
 
@@ -109,29 +105,29 @@ try:
         language="fas_Arab",
         duration=10.0,
         processing_time=2.5,
-        metadata={"test": True}
+        metadata={"test": True},
     )
-    
+
     # Check all expected fields
-    fields = ['text', 'language', 'duration', 'processing_time', 'metadata']
+    fields = ["text", "language", "duration", "processing_time", "metadata"]
     missing_fields = []
     for field in fields:
         if not hasattr(result, field):
             missing_fields.append(field)
-    
+
     if missing_fields:
         print(f"  ✗ Missing fields: {', '.join(missing_fields)}")
     else:
-        print(f"  ✓ All expected fields present")
-        
+        print("  ✓ All expected fields present")
+
 except Exception as e:
     print(f"  ✗ TranscriptionResult test failed: {e}")
 
 # Summary
 print()
-print("="*70)
+print("=" * 70)
 print("SUMMARY")
-print("="*70)
+print("=" * 70)
 print()
 
 if asr.available:
@@ -156,6 +152,4 @@ else:
     print("Migration files are ready for Docker environment!")
 
 print()
-print("="*70)
-
-
+print("=" * 70)

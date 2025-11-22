@@ -43,7 +43,7 @@ class TestElasticsearchLogger:
     def test_connect_success(self, mock_elasticsearch_client: Any) -> None:
         """Test successful connection to Elasticsearch."""
         with patch(
-            "elasticsearch_client.Elasticsearch",
+            "pjsua_bot.elasticsearch_client.Elasticsearch",
             return_value=mock_elasticsearch_client,
         ):
             client = ElasticsearchLogger()
@@ -58,7 +58,9 @@ class TestElasticsearchLogger:
         mock_client.info.side_effect = Exception("Connection failed")
         mock_client.ping.return_value = False
 
-        with patch("elasticsearch_client.Elasticsearch", return_value=mock_client):
+        with patch(
+            "pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client
+        ):
             client = ElasticsearchLogger()
             result = client._connect()
             assert result is False
@@ -70,7 +72,7 @@ class TestElasticsearchLogger:
     ) -> None:
         """Test logging call record to Elasticsearch."""
         with patch(
-            "elasticsearch_client.Elasticsearch",
+            "pjsua_bot.elasticsearch_client.Elasticsearch",
             return_value=mock_elasticsearch_client,
         ):
             client = ElasticsearchLogger()
@@ -84,7 +86,7 @@ class TestElasticsearchLogger:
     def test_log_call_event(self, mock_elasticsearch_client: Any) -> None:
         """Test logging call event to Elasticsearch."""
         with patch(
-            "elasticsearch_client.Elasticsearch",
+            "pjsua_bot.elasticsearch_client.Elasticsearch",
             return_value=mock_elasticsearch_client,
         ):
             client = ElasticsearchLogger()
@@ -98,7 +100,7 @@ class TestElasticsearchLogger:
     def test_health_check(self, mock_elasticsearch_client: Any) -> None:
         """Test health check functionality."""
         with patch(
-            "elasticsearch_client.Elasticsearch",
+            "pjsua_bot.elasticsearch_client.Elasticsearch",
             return_value=mock_elasticsearch_client,
         ):
             client = ElasticsearchLogger()

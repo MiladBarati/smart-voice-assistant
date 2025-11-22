@@ -277,7 +277,9 @@ class CallStateHandlerMixin:
                         chunk_count = self._vad.get_chunk_count()
                         vad_confidence = self._vad.get_vad_confidence()
                         silence_duration = self._vad.get_silence_duration(time.time)
-                        bot_talk_duration = self._vad.get_bot_playback_duration(time.time)
+                        bot_talk_duration = self._vad.get_bot_playback_duration(
+                            time.time
+                        )
 
                         vad_metrics = {
                             "speech_duration": speech_duration,
@@ -294,7 +296,7 @@ class CallStateHandlerMixin:
                 try:
                     asr_chunk_texts = getattr(self, "_asr_chunk_texts", [])
                     asr_lock = getattr(self, "_asr_lock", None)
-                    
+
                     # Get transcription text thread-safely
                     if asr_lock is not None:
                         with asr_lock:
@@ -309,9 +311,13 @@ class CallStateHandlerMixin:
                                 t for t in asr_chunk_texts if t
                             ).strip()
                             transcription_chunks = asr_chunk_texts.copy()
-                    
+
                     if transcription_text:
-                        print(f"***ASR: including transcription in call record: {transcription_text[:100]}...")
+                        truncated = transcription_text[:100]
+                        print(
+                            f"***ASR: including transcription in call record: "
+                            f"{truncated}..."
+                        )
                 except Exception as exc:
                     print(f"***Error collecting transcription: {exc}")
 
@@ -355,7 +361,9 @@ class CallStateHandlerMixin:
                         {
                             "text": transcription_text,
                             "chunks": transcription_chunks,
-                            "chunk_count": len(transcription_chunks) if transcription_chunks else 0,
+                            "chunk_count": (
+                                len(transcription_chunks) if transcription_chunks else 0
+                            ),
                         }
                         if transcription_text
                         else None
