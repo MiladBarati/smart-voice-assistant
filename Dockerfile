@@ -2,9 +2,13 @@ FROM nvidia/cuda:11.4.3-cudnn8-runtime-ubuntu20.04
 
 ARG PJSIP_VERSION=2.14
 
+ENV TZ=Asia/Tehran
+ENV DEBIAN_FRONTEND=noninteractive
+
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \      
+    build-essential \
     wget \
     ca-certificates \
     python3-dev \
@@ -15,9 +19,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libspeex-dev \
     libspeexdsp-dev \
     libgsm1-dev \
-    alsa-utils \           
-    ffmpeg \               
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    alsa-utils \
+    ffmpeg \
+    tzdata \
+    && ln -fs /usr/share/zoneinfo/$TZ /etc/localtime \
+    && echo $TZ > /etc/timezone \
+    && dpkg-reconfigure --frontend noninteractive tzdata \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Download and extract PJSIP
 WORKDIR /tmp
