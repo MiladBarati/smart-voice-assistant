@@ -91,14 +91,20 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # Stage 3: Final runtime image with GPU support
 FROM nvidia/cuda:11.4.3-cudnn8-runtime-ubuntu20.04
 
+# Prevent interactive prompts during installation
+ENV DEBIAN_FRONTEND=noninteractive
+
 # Install Python 3.11 and runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
+    ca-certificates \
+    gnupg \
     && add-apt-repository ppa:deadsnakes/ppa \
     && apt-get update && apt-get install -y --no-install-recommends \
     python3.11 \
-    python3.11-distutils \
-    libssl1.1 \
+    python3.11-venv \
+    python3-pip \
+    libssl-dev \
     libopus0 \
     libspeex1 \
     libspeexdsp1 \
@@ -163,5 +169,5 @@ VOLUME ["/app/data/recordings", "/app/assets/audio", "/app/.cache/huggingface"]
 # SIP and RTP ports
 EXPOSE 5060/udp 10000-20000/udp
 
-# Run the voicebot (ASR disabled by default; pass --enable-asr to enable)
+# Run the voicebot
 CMD ["python3", "/app/src/pjsua_bot/register_bot.py", "--user", "1004", "--auth-user", "1004", "--password", "05e858b1bbd57d5b1f42fbdbdf5c7616", "--domain", "178.239.151.95", "--transport", "udp", "--local-port", "0", "--wait-seconds", "20", "--stay-online", "--auto-answer", "--play-file", "/app/assets/audio/welcome_message.wav", "--message-duration", "8", "--hangup-delay", "2", "--enable-recording", "--enable-vad", "--silence-after-speech-sec", "3.0", "--vad-threshold", "0.5", "--goodbye-file", "/app/assets/audio/goodbye_voice.wav"]
