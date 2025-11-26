@@ -4,7 +4,8 @@ ARG PJSIP_VERSION=2.14
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    && apt-get clean 
+    && apt-get clean \
+    && wget
 
 # Download and extract PJSIP
 WORKDIR /tmp
