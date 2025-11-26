@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libspeexdsp-dev \
     libgsm1-dev \
     # libasound2-dev \
-    # python3-dev \
+    python3-dev \
     swig
 # && apt-get clean
 
