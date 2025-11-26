@@ -66,8 +66,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11-venv \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+# Install uv and set PATH in same layer
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    echo 'export PATH="/root/.cargo/bin:$PATH"' >> /root/.bashrc
+
 ENV PATH="/root/.cargo/bin:$PATH"
 
 # Make Python 3.11 default
@@ -82,7 +84,7 @@ COPY pyproject.toml ./
 
 # Install dependencies using uv with CUDA 11.8 PyTorch index
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install \
+    /root/.cargo/bin/uv pip install \
     --python $(which python3.11) \
     --system \
     --prefix=/install \
