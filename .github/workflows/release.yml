@@ -1,208 +1,27 @@
-name: Build and Deploy GPU-enabled Bot to Server
+name: Build & Push Docker Image
 
 on:
-  workflow_dispatch:
-  release:
-    types: [published]
   push:
-    branches:
-      - main
-  
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+    branches: ["main"]
 
 jobs:
-  build-and-deploy:
-    name: Build, Push and Deploy
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
 
     steps:
-      - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: true
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          docker-images: true
-          swap-storage: true
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
 
-      # Detect which stages need rebuild
-      - name: Detect changes
-        id: changes
-        run: |
-          # Check if Dockerfile changed
-          if git diff --quiet HEAD~1 HEAD -- Dockerfile; then
-            echo "dockerfile_changed=false" >> $GITHUB_OUTPUT
-          else
-            echo "dockerfile_changed=true" >> $GITHUB_OUTPUT
-          fi
-          
-          # Check if pyproject.toml changed (dependencies)
-          if git diff --quiet HEAD~1 HEAD -- pyproject.toml; then
-            echo "dependencies_changed=false" >> $GITHUB_OUTPUT
-          else
-            echo "dependencies_changed=true" >> $GITHUB_OUTPUT
-          fi
-          
-          # Check if source code changed
-          if git diff --quiet HEAD~1 HEAD -- src/ assets/; then
-            echo "source_changed=false" >> $GITHUB_OUTPUT
-          else
-            echo "source_changed=true" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: |
-            image=moby/buildkit:latest
-            network=host
-
-      - name: Log in to GitHub Container Registry
+      - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest
-            type=raw,value=gpu-latest
-            type=sha,prefix={{branch}}-
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-
-      # Build and push stage 1: PJSIP builder (rarely changes)
-      - name: Build and cache PJSIP stage
-        if: steps.changes.outputs.dockerfile_changed == 'true' || github.event_name == 'workflow_dispatch'
+      - name: Build image
         uses: docker/build-push-action@v5
         with:
           context: .
-          target: builder
+          file: ./Dockerfile
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:builder-cache
-          cache-from: |
-            type=gha,scope=pjsip-builder
-            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:builder-cache
-          cache-to: |
-            type=gha,mode=max,scope=pjsip-builder
-            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:builder-cache,mode=max
-          build-args: |
-            BUILDKIT_INLINE_CACHE=1
-            PJSIP_VERSION=2.14
-
-      # Build and push stage 2: Python dependencies with GPU support
-      - name: Build and cache Python GPU dependencies stage
-        if: steps.changes.outputs.dependencies_changed == 'true' || steps.changes.outputs.dockerfile_changed == 'true' || github.event_name == 'workflow_dispatch'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          target: python-deps-builder
-          push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:python-gpu-cache
-          cache-from: |
-            type=gha,scope=python-gpu-deps
-            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:python-gpu-cache
-            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:builder-cache
-          cache-to: |
-            type=gha,mode=max,scope=python-gpu-deps
-            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:python-gpu-cache,mode=max
-          build-args: |
-            BUILDKIT_INLINE_CACHE=1
-
-      # Build and push final GPU-enabled image
-      - name: Build and push final GPU image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          # Use all cached stages for maximum speed
-          cache-from: |
-            type=gha,scope=final-gpu
-            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:gpu-latest
-            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:builder-cache
-            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:python-gpu-cache
-          cache-to: |
-            type=gha,mode=max,scope=final-gpu
-          build-args: |
-            BUILDKIT_INLINE_CACHE=1
-
-      - name: Deploy to GPU Server with Docker Compose
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SERVER_PORT }}
-          command_timeout: 15m
-          script: |
-            # Navigate to project directory
-            cd /home/aminry/app
-            
-            # Pull latest GPU image with retry mechanism
-            for i in 1 2 3; do
-              docker compose pull pjsua-bot && break || sleep 5
-            done
-            
-            # Verify GPU is accessible before deploying
-            echo "Checking GPU availability..."
-            docker run --rm --gpus all nvidia/cuda:11.4.3-base-ubuntu20.04 nvidia-smi || {
-              echo "ERROR: GPU not accessible in Docker!"
-              exit 1
-            }
-            
-            # Stop old container gracefully (if exists)
-            docker compose stop pjsua-bot || true
-            
-            # Deploy new GPU-enabled container
-            docker compose up -d --no-deps pjsua-bot
-            
-            # Wait for container to be healthy or running
-            echo "Waiting for container to be ready..."
-            timeout 90 sh -c 'until docker compose ps pjsua-bot | grep -q "healthy\|running"; do 
-              echo "Waiting..."; 
-              sleep 3; 
-            done' || {
-              echo "Container failed to start properly. Checking logs..."
-              docker compose logs --tail=100 pjsua-bot
-              exit 1
-            }
-            
-            # Verify GPU is being used inside container
-            echo "Verifying GPU inside container..."
-            docker compose exec -T pjsua-bot python3 -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}'); print(f'GPU count: {torch.cuda.device_count()}'); print(f'GPU name: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"N/A\"}')" || true
-            
-            # Clean up old images and dangling resources
-            docker image prune -f
-            docker volume prune -f || true
-            
-            # Show final status and recent logs
-            echo "=== Deployment Status ==="
-            docker compose ps pjsua-bot
-            echo ""
-            echo "=== Recent Logs ==="
-            docker compose logs --tail=50 pjsua-bot
-            
-            # Show GPU usage
-            echo ""
-            echo "=== GPU Status ==="
-            nvidia-smi || true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/smart-voice-assistant:latest
