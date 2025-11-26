@@ -1,14 +1,16 @@
-# Single-stage build for PJSUA2 SIP Bot
-FROM python:3.11-slim
+FROM nvidia/cuda:11.4.3-cudnn8-runtime-ubuntu20.04
 
+ENV TZ=UTC
 ARG PJSIP_VERSION=2.14
 
-RUN DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get update && apt-get install -y --no-install-recommends \
+# Install build and runtime dependencies
+
+RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y --no-install-recommends \
+    tzdata \
     build-essential \
     wget \
     ca-certificates \
     libssl-dev \
-    libssl1.1 \
     libopus-dev \
     libspeex-dev \
     libspeexdsp-dev \
@@ -18,7 +20,7 @@ RUN DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get update && apt-get install 
     swig \
     alsa-utils \
     ffmpeg \
-    tzdata \
+    && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*
 
 # Download and extract PJSIP
