@@ -1,9 +1,9 @@
-FROM nvidia/cuda:11.4.3-cudnn8-runtime-ubuntu20.04
+# Single-stage build for PJSUA2 SIP Bot
+FROM python:3.11-slim
 
 ARG PJSIP_VERSION=2.14
 
-# Install build and runtime dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     wget \
     ca-certificates \
@@ -18,8 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     swig \
     alsa-utils \
     ffmpeg \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
-
 
 # Download and extract PJSIP
 WORKDIR /tmp
