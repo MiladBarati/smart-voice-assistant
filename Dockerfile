@@ -10,8 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     libopus-dev \
     libspeex-dev \
-    # libspeexdsp-dev \
-    # libgsm1-dev \
+    libspeexdsp-dev \
+    libgsm1-dev \
     # libasound2-dev \
     # python3-dev \
     swig
