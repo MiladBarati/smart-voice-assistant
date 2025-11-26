@@ -47,7 +47,7 @@ RUN ./configure \
 WORKDIR /tmp/pjproject-${PJSIP_VERSION}/pjsip-apps/src/swig/python
 RUN make && python3 setup.py install
 
-# Stage 2: Build Python dependencies with GPU support
+# Stage 2: Build Python dependencies with GPU support using uv
 FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04 AS python-deps-builder
 
 # Prevent interactive prompts
@@ -64,39 +64,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11 \
     python3.11-dev \
     python3.11-venv \
-    python3.11-distutils \
     && rm -rf /var/lib/apt/lists/*
 
-# Install pip for Python 3.11
-RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11
+# Install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.cargo/bin:$PATH"
 
 # Make Python 3.11 default
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 && \
     update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1
 
 WORKDIR /app
+
+# Copy pyproject.toml (and optionally uv.lock if exists)
 COPY pyproject.toml ./
+# COPY uv.lock ./ 
 
-# Install PyTorch with CUDA 11.8 support
-RUN --mount=type=cache,target=/root/.cache/pip \
-    python3.11 -m pip install --upgrade pip setuptools wheel && \
-    python3.11 -m pip install --prefix=/install \
-    torch==2.1.0+cu118 \
-    torchaudio==2.1.0+cu118 \
-    --index-url https://download.pytorch.org/whl/cu118
-
-# Install other dependencies
-RUN --mount=type=cache,target=/root/.cache/pip \
-    python3.11 -m pip install --prefix=/install \
-    elasticsearch==7.17.9 \
-    python-dotenv>=1.0.0 \
-    requests>=2.25.0 \
-    transformers>=4.35.0 \
-    accelerate>=0.24.0 \
-    sentencepiece>=0.1.99 \
-    numpy>=1.21.0 \
-    pytest>=7.0.0 \
-    pytest-cov>=4.0.0
+# Install dependencies using uv with CUDA 11.8 PyTorch index
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install \
+    --python $(which python3.11) \
+    --system \
+    --prefix=/install \
+    --index-url https://download.pytorch.org/whl/cu118 \
+    --extra-index-url https://pypi.org/simple \
+    -r pyproject.toml
 
 # Stage 3: Final runtime image with GPU support
 FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
@@ -113,7 +105,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get update && apt-get install -y --no-install-recommends \
     python3.11 \
     python3.11-venv \
-    python3-pip \
     libssl3 \
     libopus0 \
     libspeex1 \
