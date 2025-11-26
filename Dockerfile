@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.4.1-base-ubuntu20.04
+FROM nvidia/cuda:11.4.3-cudnn8-runtime-ubuntu20.04
 
 RUN apt-get update && apt-get install -y pciutils wget
 
