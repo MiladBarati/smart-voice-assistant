@@ -6,7 +6,16 @@ ARG PJSIP_VERSION=2.14
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     build-essential \
-    && apt-get clean
+    ca-certificates \
+    libssl-dev \
+    # libopus-dev \
+    # libspeex-dev \
+    # libspeexdsp-dev \
+    # libgsm1-dev \
+    # libasound2-dev \
+    # python3-dev \
+    swig
+# && apt-get clean
 
 # Download and extract PJSIP
 WORKDIR /tmp
