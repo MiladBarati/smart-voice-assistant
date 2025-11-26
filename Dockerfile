@@ -2,24 +2,9 @@ FROM nvidia/cuda:11.4.3-cudnn8-runtime-ubuntu20.04
 
 ARG PJSIP_VERSION=2.14
 
-# Install build and runtime dependencies
-
-RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    wget \
-    ca-certificates \
-    libssl-dev \
-    libopus-dev \
-    libspeex-dev \
-    libspeexdsp-dev \
-    libgsm1-dev \
-    libasound2-dev \
-    python3-dev \
-    swig \
-    alsa-utils \
-    ffmpeg \
-    && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone \
-    && rm -rf /var/lib/apt/lists/*
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    && apt-get clean 
 
 # Download and extract PJSIP
 WORKDIR /tmp
