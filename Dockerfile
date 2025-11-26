@@ -48,15 +48,21 @@ WORKDIR /tmp/pjproject-${PJSIP_VERSION}/pjsip-apps/src/swig/python
 RUN make && python3 setup.py install
 
 # Stage 2: Build Python dependencies with GPU support
-FROM nvidia/cuda:11.4.3-cudnn8-runtime-ubuntu20.04 AS python-deps-builder
+FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04 AS python-deps-builder
 
-# Install Python 3.11
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Python 3.11 (Ubuntu 22.04 has Python 3.10 by default)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
+    ca-certificates \
+    gnupg \
     && add-apt-repository ppa:deadsnakes/ppa \
     && apt-get update && apt-get install -y --no-install-recommends \
     python3.11 \
     python3.11-dev \
+    python3.11-venv \
     python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
@@ -67,17 +73,17 @@ RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 WORKDIR /app
 COPY pyproject.toml ./
 
-# Install PyTorch with CUDA 11.3 support (compatible with CUDA 11.4 driver)
+# Install PyTorch with CUDA 11.8 support
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --upgrade pip setuptools wheel && \
-    pip install --prefix=/install \
+    python3.11 -m pip install --upgrade pip setuptools wheel && \
+    python3.11 -m pip install --prefix=/install \
     torch==2.1.0+cu118 \
     torchaudio==2.1.0+cu118 \
     --index-url https://download.pytorch.org/whl/cu118
 
 # Install other dependencies
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --prefix=/install \
+    python3.11 -m pip install --prefix=/install \
     elasticsearch==7.17.9 \
     python-dotenv>=1.0.0 \
     requests>=2.25.0 \
@@ -89,7 +95,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pytest-cov>=4.0.0
 
 # Stage 3: Final runtime image with GPU support
-FROM nvidia/cuda:11.4.3-cudnn8-runtime-ubuntu20.04
+FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
 
 # Prevent interactive prompts during installation
 ENV DEBIAN_FRONTEND=noninteractive
@@ -104,7 +110,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11 \
     python3.11-venv \
     python3-pip \
-    libssl-dev \
+    libssl3 \
     libopus0 \
     libspeex1 \
     libspeexdsp1 \
