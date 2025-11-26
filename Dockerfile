@@ -53,7 +53,7 @@ FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04 AS python-deps-builder
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Python 3.11 (Ubuntu 22.04 has Python 3.10 by default)
+# Install Python 3.11 and build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
     ca-certificates \
@@ -64,6 +64,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11 \
     python3.11-dev \
     python3.11-venv \
+    build-essential \
+    cmake \
+    libboost-all-dev \
+    zlib1g-dev \
+    libbz2-dev \
+    liblzma-dev \
+    libeigen3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv directly from GitHub releases
