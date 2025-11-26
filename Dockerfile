@@ -3,13 +3,12 @@ FROM nvidia/cuda:11.4.3-cudnn8-runtime-ubuntu20.04
 ARG PJSIP_VERSION=2.14
 
 # Install build and runtime dependencies
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     wget \
     ca-certificates \
     libssl-dev \
+    libssl1.1 \
     libopus-dev \
     libspeex-dev \
     libspeexdsp-dev \
@@ -17,16 +16,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     libasound2-dev \
     python3-dev \
     swig \
-    libssl3 \
-    libopus0 \
-    libspeex1 \
-    libspeexdsp1 \
-    libgsm1 \
-    libasound2 \
-    libasound2-plugins \
     alsa-utils \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
+
 
 # Download and extract PJSIP
 WORKDIR /tmp
