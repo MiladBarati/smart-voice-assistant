@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libopus-dev \
     libspeex-dev \
     libspeexdsp-dev \
-    libgsm1-dev \
+    # libgsm1-dev \
     # libasound2-dev \
     python3-dev \
     swig
