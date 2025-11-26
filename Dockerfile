@@ -3,9 +3,9 @@ FROM nvidia/cuda:11.4.3-cudnn8-runtime-ubuntu20.04
 ARG PJSIP_VERSION=2.14
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
-    && apt-get clean \
-    && wget
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
+    && apt-get clean 
 
 # Download and extract PJSIP
 WORKDIR /tmp
