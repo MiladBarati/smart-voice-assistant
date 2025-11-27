@@ -21,8 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11-dev \
     python3.11-distutils \
     python3-pip \
-    swig && \
-    rm -rf /var/lib/apt/lists/*
+    swig && 
 
 # Set python3.11 as default python3
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
@@ -69,7 +68,9 @@ RUN uv pip install --system --python python3.11 soundfile>=0.12.1
 # Then install other dependencies
 RUN uv pip install --system --python python3.11 -r pyproject.toml
 
-RUN apt install  libsndfile1 
+RUN apt update \
+    && apt install -y --no-install-recommends libsndfile1 \
+    && rm -rf /var/lib/apt/lists/* 
 
 # Copy application code
 COPY src/ ./src/
