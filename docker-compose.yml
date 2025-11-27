@@ -3,8 +3,15 @@ services:
     image: ghcr.io/aminraay/smart-voice-assistant:latest
     container_name: sipbot
     restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     environment:
-      - ES_HOST=elasticsearch
+      - ES_HOST=185.243.48.247
       - ES_PORT=9200
       - ES_USERNAME=elastic
       - ES_PASSWORD=${ES_PASSWORD}
@@ -12,6 +19,8 @@ services:
       - ES_VERIFY_CERTS=false
       - ELASTIC_INDEX_PREFIX=pjsua-calls
       - LOG_LEVEL=3
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     ports:
       - "5060:5060/udp"
       - "5060:5060/tcp"
@@ -20,7 +29,8 @@ services:
       - ./logs:/app/logs
       - ./.env:/app/src/.env:ro
     networks:
-      - elk-stack_elk
+      - smart-voice-assistance
+
 networks:
-  elk-stack_elk:
-    external: true
+  smart-voice-assistance:
+    name: smart-voice-assistance
