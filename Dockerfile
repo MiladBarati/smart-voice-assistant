@@ -6,7 +6,7 @@ ARG PJSIP_VERSION=2.14
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=UTC
 
-# Install system dependencies
+# Install system dependencies - WITHOUT libsndfile1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     curl \
@@ -14,7 +14,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl-dev \
     libopus-dev \
-    libsndfile1-dev \
     libspeex-dev \
     libspeexdsp-dev \
     libgsm1-dev \
@@ -22,9 +21,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11-dev \
     python3.11-distutils \
     python3-pip \
-    swig \
-    ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
+    swig && \
+    rm -rf /var/lib/apt/lists/*
 
 # Set python3.11 as default python3
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
@@ -64,6 +62,11 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 # Install Python dependencies with uv (system Python)
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
+
+# Install soundfile with bundled libsndfile first
+RUN uv pip install --system --python python3.11 soundfile>=0.12.1
+
+# Then install other dependencies
 RUN uv pip install --system --python python3.11 -r pyproject.toml
 
 # Copy application code
