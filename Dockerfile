@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl-dev \
     libopus-dev \
+    libsndfile1 \
     libspeex-dev \
     libspeexdsp-dev \
     libgsm1-dev \
