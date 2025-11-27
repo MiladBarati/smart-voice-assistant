@@ -1,21 +1,33 @@
-FROM nvidia/cuda:11.4.3-cudnn8-runtime-ubuntu20.04
+FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
 
 ARG PJSIP_VERSION=2.14
+
+# Set timezone and non-interactive mode
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=UTC
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
+    curl \
     build-essential \
     ca-certificates \
     libssl-dev \
     libopus-dev \
     libspeex-dev \
     libspeexdsp-dev \
-    # libgsm1-dev \
-    # libasound2-dev \
-    python3-dev \
-    swig
-# && apt-get clean
+    libgsm1-dev \
+    python3.11 \
+    python3.11-dev \
+    python3.11-distutils \
+    swig && \
+    rm -rf /var/lib/apt/lists/*
+
+# Set python3.11 as default python3
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Download and extract PJSIP
 WORKDIR /tmp
@@ -46,16 +58,14 @@ RUN ./configure \
 WORKDIR /tmp/pjproject-${PJSIP_VERSION}/pjsip-apps/src/swig/python
 RUN make && python3 setup.py install
 
-# Install Python dependencies
+# Install Python dependencies with uv
 WORKDIR /app
-COPY requirements.txt .
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -r requirements.txt
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --python python3.11
 
 # Copy application code
 COPY src/ ./src/
 COPY assets/ ./assets/
-# COPY goodbye_voice.wav /app/assets/audio/goodbye_voice.wav
 
 # Create necessary directories
 RUN mkdir -p /app/data/recordings /app/logs
@@ -67,18 +77,19 @@ RUN useradd -m -u 1000 voicebot && \
 USER voicebot
 
 # ALSA null device config
-RUN mkdir -p /etc/alsa && \
-    echo 'pcm.!default { type plug slave.pcm "null" }' > /etc/alsa/asound.conf
+RUN mkdir -p ~/.config/alsa && \
+    echo 'pcm.!default { type plug slave.pcm "null" }' > ~/.config/alsa/asound.conf
 
 # Environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH \
-    AUDIODEV=null
+    AUDIODEV=null \
+    PATH="/app/.venv/bin:$PATH"
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD python3 -c "import pjsua2; print('OK')" || exit 1
+    CMD python3.11 -c "import pjsua2; print('OK')" || exit 1
 
 # Persistent volumes
 VOLUME ["/app/data/recordings", "/app/assets/audio"]
