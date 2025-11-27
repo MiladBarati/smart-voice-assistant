@@ -2,10 +2,11 @@ FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
 
 ARG PJSIP_VERSION=2.14
 
+# Set timezone and non-interactive mode
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=UTC
 
-# Install system dependencies including libsndfile1
+# Install system dependencies - WITHOUT libsndfile1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     curl \
@@ -13,7 +14,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl-dev \
     libopus-dev \
-    libsndfile1 \
     libspeex-dev \
     libspeexdsp-dev \
     libgsm1-dev \
@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     swig && \
     rm -rf /var/lib/apt/lists/*
 
+# Set python3.11 as default python3
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 
 # Download and extract PJSIP
@@ -58,21 +59,17 @@ RUN make && python3.11 setup.py install
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Install PyTorch FIRST with exact CUDA version match
+# Install Python dependencies with uv (system Python)
 WORKDIR /app
-RUN uv pip install --system --python python3.11 \
-    torch==2.5.1 \
-    torchaudio==2.5.1 \
-    --index-url https://download.pytorch.org/whl/cu118
-
-# Now install other dependencies
 COPY pyproject.toml uv.lock ./
+
+# Install soundfile with bundled libsndfile first
+RUN uv pip install --system --python python3.11 soundfile>=0.12.1
+
+# Then install other dependencies
 RUN uv pip install --system --python python3.11 -r pyproject.toml
 
-# Install fairseq2 with matching PyTorch version for CUDA 11.8
-# Check your omnilingual-asr requirements to see which fairseq2 version it needs
-RUN uv pip install --system --python python3.11 fairseq2 \
-    --extra-index-url https://fair.pkg.atmeta.com/fairseq2/whl/pt2.5.1/cu118
+RUN apt install  libsndfile1 
 
 # Copy application code
 COPY src/ ./src/
