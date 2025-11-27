@@ -1,12 +1,13 @@
-FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu22.04
+FROM nvidia/cuda:12.1.0-cudnn8-devel-ubuntu22.04
 
 ARG PJSIP_VERSION=2.14
 
 # Set timezone and non-interactive mode
+ENV PYTORCH_JIT=0
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=UTC
 
-# Install system dependencies - WITHOUT libsndfile1
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     curl \
@@ -17,11 +18,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libspeex-dev \
     libspeexdsp-dev \
     libgsm1-dev \
+    libsndfile1 \
     python3.11 \
     python3.11-dev \
     python3.11-distutils \
     python3-pip \
-    swig 
+    swig \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set python3.11 as default python3
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
@@ -65,12 +68,8 @@ COPY pyproject.toml uv.lock ./
 # Install soundfile with bundled libsndfile first
 RUN uv pip install --system --python python3.11 soundfile>=0.12.1
 
-# Then install other dependencies
+# Install other dependencies
 RUN uv pip install --system --python python3.11 -r pyproject.toml
-
-RUN apt update \
-    && apt install -y --no-install-recommends libsndfile1 \
-    && rm -rf /var/lib/apt/lists/* 
 
 # Copy application code
 COPY src/ ./src/
@@ -93,7 +92,11 @@ RUN mkdir -p ~/.config/alsa && \
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH \
-    AUDIODEV=null
+    AUDIODEV=null \
+    PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512 \
+    OMP_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    PYTORCH_JIT=0
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
@@ -106,4 +109,22 @@ VOLUME ["/app/data/recordings", "/app/assets/audio"]
 EXPOSE 5060/udp 10000-20000/udp
 
 # Run the voicebot
-CMD ["python3.11", "/app/src/pjsua_bot/register_bot.py", "--user", "1004", "--auth-user", "1004", "--password", "05e858b1bbd57d5b1f42fbdbdf5c7616", "--domain", "178.239.151.95", "--transport", "udp", "--local-port", "0", "--wait-seconds", "20", "--stay-online", "--auto-answer", "--play-file", "/app/assets/audio/welcome_message.wav", "--message-duration", "8", "--hangup-delay", "2", "--enable-recording", "--enable-vad", "--silence-after-speech-sec", "3.0", "--vad-threshold", "0.5", "--goodbye-file", "/app/assets/audio/goodbye_voice.wav", "--enable-asr"]
+CMD ["python3.11", "/app/src/pjsua_bot/register_bot.py", \
+    "--user", "1004", \
+    "--auth-user", "1004", \
+    "--password", "05e858b1bbd57d5b1f42fbdbdf5c7616", \
+    "--domain", "178.239.151.95", \
+    "--transport", "udp", \
+    "--local-port", "0", \
+    "--wait-seconds", "20", \
+    "--stay-online", \
+    "--auto-answer", \
+    "--play-file", "/app/assets/audio/welcome_message.wav", \
+    "--message-duration", "8", \
+    "--hangup-delay", "2", \
+    "--enable-recording", \
+    "--enable-vad", \
+    "--silence-after-speech-sec", "3.0", \
+    "--vad-threshold", "0.5", \
+    "--goodbye-file", "/app/assets/audio/goodbye_voice.wav", \
+    "--enable-asr"]
