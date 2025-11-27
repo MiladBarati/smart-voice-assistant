@@ -5,19 +5,19 @@ description = "PJSUA2 SIP Bot with VAD, ASR, call recording, and Elasticsearch i
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "elasticsearch==7.17.9",  # Pin to specific version for ES 7.x/8.x server compatibility (avoids API v9)
+    "elasticsearch==7.17.9", # Pin to specific version for ES 7.x/8.x server compatibility (avoids API v9)
     "python-dotenv>=1.0.0",
     "requests>=2.25.0",
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
-    "torch>=2.1.0",
-    "torchaudio>=2.1.0",
-    "transformers>=4.35.0", # For Whisper ASR models
-    "accelerate>=0.24.0", # For transformers acceleration
-    "sentencepiece>=0.1.99", # Tokenizer dependency
-    "numpy>=1.21.0",
-    "isort>=7.0.0",
-    "omnilingual-asr>=0.1.0", # Multilingual ASR (WSL/Linux only)
+    # "torch>=2.1.0",
+    # "torchaudio>=2.1.0",
+    # "transformers>=4.35.0", # For Whisper ASR models
+    # "accelerate>=0.24.0", # For transformers acceleration
+    # "sentencepiece>=0.1.99", # Tokenizer dependency
+    # "numpy>=1.21.0",
+    # "isort>=7.0.0",
+    # "omnilingual-asr>=0.1.0", # Multilingual ASR (WSL/Linux only)
 ]
 
 [dependency-groups]
@@ -50,12 +50,12 @@ target-version = "py311"
 line-length = 88
 src = ["src"]
 extend-exclude = [
-  "recordings",
-  "htmlcov",
-  "assets",
-  "infrastructure",
-  "docs",
-  "**/*.egg-info",
+    "recordings",
+    "htmlcov",
+    "assets",
+    "infrastructure",
+    "docs",
+    "**/*.egg-info",
 ]
 
 [tool.ruff.lint]
@@ -81,16 +81,14 @@ no_implicit_optional = true
 check_untyped_defs = true
 show_error_codes = true
 pretty = true
-exclude = [
-    "^pjsua installation/",
-]
+exclude = ["^pjsua installation/"]
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -98,12 +96,7 @@ namespaces = false
 
 [tool.coverage.run]
 source = ["src"]
-omit = [
-    "*/tests/*",
-    "*/test_*.py",
-    "*/__pycache__/*",
-    "*/.*",
-]
+omit = ["*/tests/*", "*/test_*.py", "*/__pycache__/*", "*/.*"]
 
 [tool.coverage.report]
 exclude_lines = [
