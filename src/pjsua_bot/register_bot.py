@@ -176,6 +176,24 @@ def main() -> None:
         help="Enable intent classification from transcription (default: False)",
     )
     parser.add_argument(
+        "--intent-classifier",
+        choices=["rule-based", "ollama"],
+        default="rule-based",
+        help="Intent classifier to use: rule-based (keyword matching) or ollama (LLM-based) (default: rule-based)",
+    )
+    parser.add_argument(
+        "--ollama-url",
+        type=str,
+        default="http://localhost:11434",
+        help="Ollama API base URL (default: http://localhost:11434)",
+    )
+    parser.add_argument(
+        "--ollama-model",
+        type=str,
+        default="qwen2.5:14b",
+        help="Ollama model name (default: qwen2.5:14b)",
+    )
+    parser.add_argument(
         "--faq-config",
         type=str,
         default=None,
@@ -414,9 +432,11 @@ def main() -> None:
                 if __package__ in (None, ""):
                     from pjsua_bot.intent.classifier import RuleBasedClassifier
                     from pjsua_bot.intent.faq_config import FAQS
+                    from pjsua_bot.intent.ollama_classifier import OllamaClassifier
                 else:
                     from .intent.classifier import RuleBasedClassifier
                     from .intent.faq_config import FAQS
+                    from .intent.ollama_classifier import OllamaClassifier
 
                 # Load custom FAQ config if provided, otherwise use default
                 faqs = FAQS
@@ -433,8 +453,19 @@ def main() -> None:
                             f"{args.faq_config}, using default"
                         )
 
-                # Create classifier instance
-                acc._intent_classifier = RuleBasedClassifier(faqs=faqs)
+                # Create classifier instance based on selected type
+                if args.intent_classifier == "ollama":
+                    print(f"***Intent: using Ollama classifier (model: {args.ollama_model})")
+                    acc._intent_classifier = OllamaClassifier(
+                        ollama_url=args.ollama_url,
+                        model=args.ollama_model,
+                        faqs=faqs,
+                    )
+                    print(f"***Intent: Ollama classifier initialized at {args.ollama_url}")
+                else:
+                    print("***Intent: using rule-based classifier")
+                    acc._intent_classifier = RuleBasedClassifier(faqs=faqs)
+
                 acc.enable_intent = True
                 print("***Intent: classifier initialized and ready")
             except Exception as e:
