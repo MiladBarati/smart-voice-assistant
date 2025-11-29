@@ -143,8 +143,18 @@ class ASRService:
         except Exception as e:
             self._pipeline = None
             self.available = False
-            self._load_error = f"model loading failed: {str(e)}"
+            error_str = str(e)
+            self._load_error = f"model loading failed: {error_str}"
             print(f"***ASR: Error loading model: {e}")
+            
+            # Provide helpful diagnostics for common issues
+            if "checkpoint" in error_str.lower() or "cannot be loaded" in error_str.lower():
+                print("***ASR: Model checkpoint error detected. This may indicate:")
+                print("  - Corrupted or incomplete model download")
+                print("  - Cache directory permission issues")
+                print("  - Incompatible model format")
+                print("***ASR: Try clearing the cache: rm -rf /app/.cache/fairseq2/* /app/.cache/huggingface/*")
+                print("***ASR: Then restart the container to re-download the model")
 
     def _get_audio_duration(self, audio_path: str) -> Optional[float]:
         """Get duration of audio file in seconds.

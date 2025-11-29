@@ -24,10 +24,12 @@ services:
     ports:
       - "5060:5060/udp"
       - "5060:5060/tcp"
+    user: "1000:1000"
     volumes:
       - ./recordings:/app/recordings
       - ./logs:/app/logs
       - ./.env:/app/src/.env:ro
+      - ./cache:/app/.cache
     networks:
       - smart-voice-assistance
 
