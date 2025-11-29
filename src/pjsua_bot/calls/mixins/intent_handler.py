@@ -220,6 +220,15 @@ class IntentHandlerMixin:
             self._intent_response_stop_time = time.time() + response_duration
             self._intent_response_finished = False
 
+            # Start tracking bot talk duration
+            if hasattr(self, "_start_bot_playback_tracking"):
+                try:
+                    self._start_bot_playback_tracking()
+                except Exception as exc:
+                    print(
+                        f"***Bot tracking: error starting intent response tracking: {exc}"
+                    )
+
             print(
                 f"***Intent: playing response audio for '{intent_name}': {audio_path}"
             )
@@ -271,6 +280,15 @@ class IntentHandlerMixin:
                     print("***Intent: response audio finished")
                 except Exception as e:
                     print(f"***Intent: error stopping response player: {e}")
+
+                # Stop tracking bot talk duration
+                if hasattr(self, "_stop_bot_playback_tracking"):
+                    try:
+                        self._stop_bot_playback_tracking()
+                    except Exception as e:
+                        print(
+                            f"***Bot tracking: error stopping intent response tracking: {e}"
+                        )
 
             self._intent_response_finished = True
             return True

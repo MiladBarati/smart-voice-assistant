@@ -88,6 +88,15 @@ class GoodbyePlaybackMixin:
             self._goodbye_playback_started = True
             self._goodbye_stop_time = time.time() + goodbye_duration
 
+            # Start tracking bot talk duration
+            if hasattr(self, "_start_bot_playback_tracking"):
+                try:
+                    self._start_bot_playback_tracking()
+                except Exception as e:  # pragma: no cover - defensive
+                    print(
+                        f"***Bot tracking: error starting goodbye playback tracking: {e}"
+                    )
+
             # Notify VAD that bot playback started (goodbye message)
             if getattr(self, "_vad", None) and getattr(self._vad, "available", False):
                 try:
@@ -169,6 +178,15 @@ class GoodbyePlaybackMixin:
             if not self._goodbye_playback_finished:
                 print("***Goodbye: finished. Will hang up now.")
 
+                # Stop tracking bot talk duration
+                if hasattr(self, "_stop_bot_playback_tracking"):
+                    try:
+                        self._stop_bot_playback_tracking()
+                    except Exception as e:  # pragma: no cover - defensive
+                        print(
+                            f"***Bot tracking: error stopping goodbye playback tracking: {e}"
+                        )
+
                 # Notify VAD that bot playback finished (goodbye message)
                 if getattr(self, "_vad", None) and getattr(
                     self._vad, "available", False
@@ -247,6 +265,15 @@ class GoodbyePlaybackMixin:
 
             self._waiting_playback_started = True
             self._waiting_stop_time = time.time() + waiting_duration
+
+            # Start tracking bot talk duration
+            if hasattr(self, "_start_bot_playback_tracking"):
+                try:
+                    self._start_bot_playback_tracking()
+                except Exception as e:  # pragma: no cover - defensive
+                    print(
+                        f"***Bot tracking: error starting waiting playback tracking: {e}"
+                    )
 
             # Notify VAD that bot playback started (waiting message)
             if getattr(self, "_vad", None) and getattr(self._vad, "available", False):
@@ -328,6 +355,15 @@ class GoodbyePlaybackMixin:
             # Mark waiting playback finished
             if not self._waiting_playback_finished:
                 print("***Waiting: finished playback")
+
+                # Stop tracking bot talk duration
+                if hasattr(self, "_stop_bot_playback_tracking"):
+                    try:
+                        self._stop_bot_playback_tracking()
+                    except Exception as e:  # pragma: no cover - defensive
+                        print(
+                            f"***Bot tracking: error stopping waiting playback tracking: {e}"
+                        )
 
                 # Notify VAD that bot playback finished (waiting message)
                 if getattr(self, "_vad", None) and getattr(

@@ -35,6 +35,11 @@ class CallStateHandlerMixin:
     _vad: Any | None
     _playback_started: bool
     _playback_finished: bool
+    _bot_playback_start_time: float | None
+    _total_bot_talk_duration: float
+    _start_bot_playback_tracking: Callable[[], None]
+    _stop_bot_playback_tracking: Callable[[], None]
+    _get_total_bot_talk_duration: Callable[[], float]
 
     if TYPE_CHECKING:
 
@@ -290,6 +295,33 @@ class CallStateHandlerMixin:
                     except Exception as exc:
                         print(f"***Error calculating VAD metrics: {exc}")
 
+                # Finalize any ongoing bot playback session
+                if hasattr(self, "_stop_bot_playback_tracking"):
+                    try:
+                        self._stop_bot_playback_tracking()
+                    except Exception as exc:
+                        print(
+                            f"***Bot tracking: error finalizing playback tracking: {exc}"
+                        )
+
+                # Use VAD's bot talk duration if available (preferred, more accurate),
+                # otherwise fall back to manually tracked duration
+                if bot_talk_duration is None:
+                    if hasattr(self, "_get_total_bot_talk_duration"):
+                        try:
+                            bot_talk_duration = self._get_total_bot_talk_duration()
+                        except Exception as exc:
+                            print(
+                                f"***Bot tracking: error getting total duration: {exc}"
+                            )
+                            bot_talk_duration = 0.0
+                    else:
+                        bot_talk_duration = 0.0
+
+                # Ensure bot_talk_duration is always a number (never None)
+                if bot_talk_duration is None:
+                    bot_talk_duration = 0.0
+
                 # Collect transcription text if ASR was enabled
                 transcription_text = None
                 transcription_chunks = None
@@ -351,11 +383,7 @@ class CallStateHandlerMixin:
                         "auto_answer": getattr(self._acc_ref, "auto_answer", False),
                         "domain": getattr(self._acc_ref, "domain", None),
                         "user": getattr(self._acc_ref, "username", None),
-                        "talk_duration": (
-                            round(bot_talk_duration, 2)
-                            if bot_talk_duration is not None
-                            else None
-                        ),
+                        "talk_duration": round(bot_talk_duration, 2),
                     },
                     "transcription": (
                         {

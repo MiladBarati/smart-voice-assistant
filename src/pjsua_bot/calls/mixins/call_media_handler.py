@@ -509,6 +509,20 @@ class CallMediaHandlerMixin:
                                         self._playback_started = True
                                         print("***Welcome message playback started")
 
+                                        # Start tracking bot talk duration
+                                        if hasattr(
+                                            self, "_start_bot_playback_tracking"
+                                        ):
+                                            try:
+                                                self._start_bot_playback_tracking()
+                                            except Exception as exc:
+                                                print(
+                                                    (
+                                                        "***Bot tracking: error starting "
+                                                        f"playback tracking: {exc}"
+                                                    )
+                                                )
+
                                         # Notify VAD that bot playback started
                                         if self._vad and self._vad.available:
                                             try:

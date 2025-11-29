@@ -142,6 +142,18 @@ class PlaybackMonitorMixin:
                     "***Welcome message finished. Monitoring caller speech for hangup"
                 )
 
+                # Stop tracking bot talk duration
+                if hasattr(self, "_stop_bot_playback_tracking"):
+                    try:
+                        self._stop_bot_playback_tracking()
+                    except Exception as exc:  # pragma: no cover - defensive
+                        print(
+                            (
+                                "***Bot tracking: error stopping "
+                                f"playback tracking: {exc}"
+                            )
+                        )
+
                 # Notify VAD that bot playback finished
                 if self._vad and self._vad.available:
                     try:

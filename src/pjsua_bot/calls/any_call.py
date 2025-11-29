@@ -55,6 +55,39 @@ class AnyCall(
         self._caller_number = None
         self._callee_ext = None
         self._recording_metadata = None
+        # Bot talk duration tracking (fallback when VAD unavailable)
+        self._bot_playback_start_time: float | None = None
+        self._total_bot_talk_duration: float = 0.0
+
+    def _start_bot_playback_tracking(self) -> None:
+        """Start tracking bot playback duration."""
+        import time
+
+        if self._bot_playback_start_time is None:
+            self._bot_playback_start_time = time.time()
+
+    def _stop_bot_playback_tracking(self) -> None:
+        """Stop tracking bot playback duration and accumulate total."""
+        import time
+
+        if self._bot_playback_start_time is not None:
+            current_time = time.time()
+            duration = current_time - self._bot_playback_start_time
+            if duration > 0:
+                self._total_bot_talk_duration += duration
+            self._bot_playback_start_time = None
+
+    def _get_total_bot_talk_duration(self) -> float:
+        """Get total bot talk duration including any ongoing session."""
+        import time
+
+        total = self._total_bot_talk_duration
+        if self._bot_playback_start_time is not None:
+            current_time = time.time()
+            current_session = current_time - self._bot_playback_start_time
+            if current_session > 0:
+                total += current_session
+        return total
 
     def _init_recording_state(self) -> None:
         self._recorder = None
