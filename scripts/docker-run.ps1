@@ -55,7 +55,7 @@ $runArgs = @(
     "-v", "${PWD}/.cache:/app/.cache",
     "-v", "${PWD}/test_omnilingual.py:/app/test_omnilingual.py:ro",
     "-v", "${PWD}/test_asr_migration.py:/app/test_asr_migration.py:ro",
-    "-v", "${PWD}/debug_cache.py:/app/debug_cache.py:ro",
+    "-v", "${PWD}/scripts/debug_cache.py:/app/debug_cache.py:ro",
     "-v", "${PWD}/src:/app/src:ro",
     "-e", "HOME=/home/voicebot",
     "-e", "XDG_CACHE_HOME=/app/.cache",

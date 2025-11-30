@@ -232,14 +232,7 @@ class StreamingWavReader:
                     raw = f.read(available_bytes)
                     frames_read = len(raw) // bytes_per_frame
                     self._last_frame_idx += frames_read
-                    if frames_read > 0:
-                        print(
-                            (
-                                f"***VAD: read {frames_read} frames "
-                                f"({len(raw)} bytes) manually "
-                                f"(total_idx={self._last_frame_idx})"
-                            )
-                        )
+                    # Verbose frame reading logs removed for cleaner output
             except Exception as e:
                 print(f"***VAD: manual read error: {e}")
                 return None, None

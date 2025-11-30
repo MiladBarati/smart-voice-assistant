@@ -2,6 +2,7 @@ import argparse
 import os
 import signal
 import sys
+import threading
 import time
 from types import FrameType
 from typing import Any
@@ -24,6 +25,98 @@ else:
     from .calls import OutCall
     from .elasticsearch_client import es_logger
     from .utils import get_wav_duration, pump_events, setup_logging, wait_until
+
+
+# ---------- Resource Cleanup ----------
+
+
+def cleanup_resources(acc: Any) -> None:
+    """Clean up all resources including ASR models, intent classifiers, and connections.
+    
+    Args:
+        acc: Account instance that may contain resources to clean up
+    """
+    print("***Cleaning up resources...")
+    
+    # Stop all ASR threads from all calls
+    try:
+        calls_copy = dict(getattr(acc, "calls", {}))
+        for _call_id, call in calls_copy.items():
+            try:
+                if hasattr(call, "_stop_asr_thread"):
+                    call._stop_asr_thread()
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"***ASR thread cleanup error: {e}")
+    
+    # Cleanup ASR Service
+    try:
+        if hasattr(acc, "_asr_service") and acc._asr_service is not None:
+            print("***Cleaning up ASR service...")
+            asr_service = acc._asr_service
+            
+            # Release the pipeline/model
+            if hasattr(asr_service, "_pipeline") and asr_service._pipeline is not None:
+                asr_service._pipeline = None
+                print("***ASR: Pipeline released")
+            
+            # Clear CUDA cache if GPU was used
+            if hasattr(asr_service, "_device") and asr_service._device == "cuda":
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()  # Wait for all CUDA operations to complete
+                        print("***ASR: CUDA cache cleared")
+                except ImportError:
+                    pass  # torch not available
+                except Exception as e:
+                    print(f"***ASR: Error clearing CUDA cache: {e}")
+            
+            # Clear the service reference
+            acc._asr_service = None
+            print("***ASR: Service cleaned up")
+    except Exception as e:
+        print(f"***ASR cleanup error: {e}")
+    
+    # Cleanup Intent Classifier
+    try:
+        if hasattr(acc, "_intent_classifier") and acc._intent_classifier is not None:
+            print("***Cleaning up intent classifier...")
+            classifier = acc._intent_classifier
+            
+            # For OllamaClassifier, clear fallback classifier if it exists
+            if hasattr(classifier, "_fallback_classifier"):
+                classifier._fallback_classifier = None
+            
+            # Clear the classifier reference
+            acc._intent_classifier = None
+            acc.enable_intent = False
+            print("***Intent: Classifier cleaned up")
+    except Exception as e:
+        print(f"***Intent classifier cleanup error: {e}")
+    
+    # Cleanup Elasticsearch client
+    try:
+        if es_logger.client is not None:
+            print("***Cleaning up Elasticsearch connection...")
+            # Try to close the connection if the client has a close method
+            if hasattr(es_logger.client, "close"):
+                try:
+                    es_logger.client.close()
+                    print("***Elasticsearch: Connection closed")
+                except Exception as e:
+                    print(f"***Elasticsearch: Error closing connection: {e}")
+            
+            # Clear the client reference
+            es_logger.client = None
+            es_logger.connected = False
+            print("***Elasticsearch: Client cleaned up")
+    except Exception as e:
+        print(f"***Elasticsearch cleanup error: {e}")
+    
+    print("***Resource cleanup complete")
 
 
 # ---------- Main ----------
@@ -118,7 +211,7 @@ def main() -> None:
         default="waiting_voice.wav",
         help=(
             "Path to WAV file to play when VAD detects silence "
-            "(default: waiting_voice.wav)"
+            "(default: assets/audio/waiting_voice.wav)"
         ),
     )
     parser.add_argument(
@@ -140,9 +233,10 @@ def main() -> None:
     )
     parser.add_argument(
         "--recording-path",
-        default="./recordings",
+        default=os.getenv("RECORDING_PATH", "./recordings"),
         help=(
-            "Base directory for storing recorded audio files (default: ./recordings)"
+            "Base directory for storing recorded audio files "
+            "(default: ./recordings or RECORDING_PATH env var)"
         ),
     )
     parser.add_argument(
@@ -190,8 +284,15 @@ def main() -> None:
     parser.add_argument(
         "--ollama-model",
         type=str,
-        default="qwen2.5:14b",
-        help="Ollama model name (default: qwen2.5:14b)",
+        default="qwen2.5:7b",
+        help="Ollama model name (default: qwen2.5:7b). "
+        "For CPU usage, use smaller models: qwen2.5:0.5b, qwen2.5:1.5b, qwen2.5:3b, or qwen2.5:7b",
+    )
+    parser.add_argument(
+        "--ollama-use-cpu",
+        action="store_true",
+        help="Attempt to force CPU usage for Ollama (hint only). "
+        "To truly force CPU, set OLLAMA_NUM_GPU=0 before starting Ollama server",
     )
     parser.add_argument(
         "--faq-config",
@@ -236,11 +337,18 @@ def main() -> None:
     ep.libInit(ep_cfg)
 
     # Graceful shutdown on SIGINT/SIGTERM
-    stopping = {"flag": False}
+    stopping = {"flag": False, "cleanup_done": False}
 
     def _stop_handler(signum: int, frame: FrameType | None) -> None:
         print(f"***Signal {signum}: stopping...")
         stopping["flag"] = True
+        # Set a timeout to force exit if cleanup takes too long (WSL-specific issue)
+        def _force_exit():
+            time.sleep(15)  # Wait 15 seconds for cleanup
+            if not stopping.get("cleanup_done", False):
+                print("***Force exit: cleanup taking too long, forcing exit...")
+                os._exit(1)  # Force exit, bypassing cleanup
+        threading.Thread(target=_force_exit, daemon=True).start()
 
     signal.signal(signal.SIGINT, _stop_handler)
     signal.signal(signal.SIGTERM, _stop_handler)
@@ -460,6 +568,12 @@ def main() -> None:
                         ollama_url=args.ollama_url,
                         model=args.ollama_model,
                         faqs=faqs,
+                        use_cpu=getattr(args, "ollama_use_cpu", False),
+                    )
+                    if getattr(args, "ollama_use_cpu", False):
+                        print(
+                            "***Intent: CPU mode requested. "
+                            "Note: Set OLLAMA_NUM_GPU=0 before starting Ollama server for true CPU mode"
                     )
                     print(f"***Intent: Ollama classifier initialized at {args.ollama_url}")
                 else:
@@ -567,13 +681,48 @@ def main() -> None:
                             print(f"***Hangup error: {e}")
 
     finally:
+        stopping["cleanup_done"] = False
         # Graceful shutdown: hang up active calls and pump events briefly
         try:
             if "acc" in locals() and isinstance(acc, Account):
                 try:
+                    # Unregister account FIRST before any other cleanup
+                    try:
+                        print("***Unregistering account...")
+                        acc.setRegistration(False)  # Unregister
+                        # Pump events to allow unregistration to complete
+                        end_by = time.time() + 2.0
+                        while time.time() < end_by and "ep" in locals():
+                            try:
+                                ep.libHandleEvents(50)
+                            except Exception:
+                                break
+                    except Exception as e:
+                        print(f"***Account unregistration error: {e}")
+                    
+                    # Stop all ASR threads from all calls FIRST
+                    print("***Stopping all ASR worker threads...")
+                    calls_copy = dict(getattr(acc, "calls", {}))
+                    for _call_id, call in calls_copy.items():
+                        try:
+                            # Stop ASR thread if it exists
+                            if hasattr(call, "_stop_asr_thread"):
+                                try:
+                                    call._stop_asr_thread()
+                                except Exception as e:
+                                    print(f"***ASR: Error stopping thread: {e}")
+                        except Exception:
+                            pass
+                    
+                    # Force stop any remaining ASR threads that didn't stop
+                    for thread in threading.enumerate():
+                        if thread.name == "ASRWorker" and thread.is_alive():
+                            print(f"***ASR: Force stopping thread {thread.name}")
+                            # Thread is daemon, but we'll wait a bit more
+                            thread.join(timeout=1.0)
+                    
                     # Attempt to hang up all active calls
                     # Make a copy of the calls dict to avoid iteration issues
-                    calls_copy = dict(getattr(acc, "calls", {}))
                     for _call_id, call in calls_copy.items():
                         try:
                             # Check if call is active; handle errors gracefully.
@@ -616,6 +765,7 @@ def main() -> None:
                         pass
                 except Exception:
                     pass
+                
                 # Pump events for a short period to let teardown complete
                 end_by = time.time() + 1.0
                 # Use a local alias to avoid shadowing the global name
@@ -631,18 +781,70 @@ def main() -> None:
                         except Exception:
                             pass
 
-                while time.time() < end_by:
+                while time.time() < end_by and "ep" in locals():
                     try:
                         _pump_events(ep, 50)
                     except Exception:
                         break
+                
+                # Clean up resources (ASR, intent classifier, Elasticsearch, etc.)
+                try:
+                    cleanup_resources(acc)
+                except Exception as e:
+                    print(f"***Resource cleanup error: {e}")
+                
+                # Account cleanup - PJSUA2 will handle account deletion when endpoint is destroyed
+                # Just ensure we've unregistered and cleared references
+                try:
+                    print("***Account cleanup complete")
+                    # Pump events to allow any pending operations to complete
+                    end_by = time.time() + 0.5
+                    while time.time() < end_by and "ep" in locals():
+                        try:
+                            _pump_events(ep, 50)
+                        except Exception:
+                            break
+                except Exception as e:
+                    print(f"***Account cleanup error: {e}")
         except Exception:
             pass
 
+        # Destroy transports explicitly before destroying the endpoint
         try:
-            ep.libDestroy()
+            if "ep" in locals():
+                print("***Destroying transports...")
+                # Get all transports and destroy them
+                try:
+                    transports = ep.transportEnum()
+                    for tp in transports:
+                        try:
+                            ep.transportClose(tp.id)
+                        except Exception:
+                            pass
+                    # Pump events to allow transport cleanup
+                    end_by = time.time() + 0.5
+                    while time.time() < end_by:
+                        try:
+                            ep.libHandleEvents(50)
+                        except Exception:
+                            break
+                except Exception as e:
+                    print(f"***Transport destruction error: {e}")
         except Exception:
             pass
+
+        # Destroy endpoint - MUST be called from main thread (PJSUA2 requirement)
+        # If it hangs, the force exit mechanism will kill the process after 15 seconds
+        try:
+            if "ep" in locals():
+                print("***Destroying endpoint...")
+                # Call directly from main thread - PJSUA2 requires this
+                # If it blocks, the force exit timeout will handle it
+                ep.libDestroy()
+        except Exception as e:
+            print(f"***Endpoint destruction error: {e}")
+        
+        stopping["cleanup_done"] = True
         print("***Shutdown complete")
 
 

@@ -11,16 +11,29 @@ services:
               count: all
               capabilities: [gpu]
     environment:
-      - ES_HOST=185.243.48.247
-      - ES_PORT=9200
-      - ES_USERNAME=elastic
+      - ES_HOST=${ES_HOST}
+      - ES_PORT=${ES_PORT:-9200}
+      - ES_USERNAME=${ES_USERNAME:-elastic}
       - ES_PASSWORD=${ES_PASSWORD}
-      - ES_USE_SSL=false
-      - ES_VERIFY_CERTS=false
-      - ELASTIC_INDEX_PREFIX=pjsua-calls
-      - LOG_LEVEL=3
+      - ES_USE_SSL=${ES_USE_SSL:-false}
+      - ES_VERIFY_CERTS=${ES_VERIFY_CERTS:-false}
+      - ELASTIC_INDEX_PREFIX=${ELASTIC_INDEX_PREFIX:-pjsua-calls}
+      - LOG_LEVEL=${LOG_LEVEL:-3}
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      # SIP Configuration (required)
+      - SIP_USER=${SIP_USER}
+      - SIP_AUTH_USER=${SIP_AUTH_USER:-${SIP_USER}}
+      - SIP_PASSWORD=${SIP_PASSWORD}
+      - SIP_DOMAIN=${SIP_DOMAIN}
+      - SIP_TRANSPORT=${SIP_TRANSPORT:-udp}
+      - SIP_LOCAL_PORT=${SIP_LOCAL_PORT:-0}
+      - SIP_WAIT_SECONDS=${SIP_WAIT_SECONDS:-20}
+      - SIP_MESSAGE_DURATION=${SIP_MESSAGE_DURATION:-8}
+      - SIP_HANGUP_DELAY=${SIP_HANGUP_DELAY:-2}
+      - SIP_SILENCE_AFTER_SPEECH_SEC=${SIP_SILENCE_AFTER_SPEECH_SEC:-3.0}
+      - SIP_VAD_THRESHOLD=${SIP_VAD_THRESHOLD:-0.5}
+      - RECORDING_PATH=${RECORDING_PATH:-/app/recordings}
     ports:
       - "5060:5060/udp"
       - "5060:5060/tcp"

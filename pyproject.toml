@@ -79,9 +79,8 @@ warn_return_any = true
 warn_unused_ignores = true
 no_implicit_optional = true
 check_untyped_defs = true
-show_error_codes = true
-pretty = true
-exclude = ["^pjsua installation/"]
+    show_error_codes = true
+    pretty = true
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

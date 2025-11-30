@@ -76,7 +76,7 @@ COPY src/ ./src/
 COPY assets/ ./assets/
 
 # Create necessary directories
-RUN mkdir -p /app/data/recordings /app/logs
+RUN mkdir -p /app/recordings /app/logs
 
 # Create non-root user
 RUN useradd -m -u 1000 voicebot && \
@@ -103,28 +103,30 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD python3.11 -c "import pjsua2; print('OK')" || exit 1
 
 # Persistent volumes
-VOLUME ["/app/data/recordings", "/app/assets/audio"]
+VOLUME ["/app/recordings", "/app/assets/audio"]
 
 # SIP and RTP ports
 EXPOSE 5060/udp 10000-20000/udp
 
 # Run the voicebot
-CMD ["python3.11", "/app/src/pjsua_bot/register_bot.py", \
-    "--user", "1004", \
-    "--auth-user", "1004", \
-    "--password", "05e858b1bbd57d5b1f42fbdbdf5c7616", \
-    "--domain", "178.239.151.95", \
-    "--transport", "udp", \
-    "--local-port", "0", \
-    "--wait-seconds", "20", \
-    "--stay-online", \
-    "--auto-answer", \
-    "--play-file", "/app/assets/audio/welcome_message.wav", \
-    "--message-duration", "8", \
-    "--hangup-delay", "2", \
-    "--enable-recording", \
-    "--enable-vad", \
-    "--silence-after-speech-sec", "3.0", \
-    "--vad-threshold", "0.5", \
-    "--goodbye-file", "/app/assets/audio/goodbye_voice.wav", \
-    "--enable-asr"]
+# SIP credentials and domain must be provided via environment variables
+CMD ["sh", "-c", "python3.11 /app/src/pjsua_bot/register_bot.py \
+    --user \"${SIP_USER}\" \
+    --auth-user \"${SIP_AUTH_USER:-${SIP_USER}}\" \
+    --password \"${SIP_PASSWORD}\" \
+    --domain \"${SIP_DOMAIN}\" \
+    --transport \"${SIP_TRANSPORT:-udp}\" \
+    --local-port \"${SIP_LOCAL_PORT:-0}\" \
+    --wait-seconds \"${SIP_WAIT_SECONDS:-20}\" \
+    --stay-online \
+    --auto-answer \
+    --play-file \"/app/assets/audio/welcome_message.wav\" \
+    --message-duration \"${SIP_MESSAGE_DURATION:-8}\" \
+    --hangup-delay \"${SIP_HANGUP_DELAY:-2}\" \
+    --enable-recording \
+    --recording-path \"/app/recordings\" \
+    --enable-vad \
+    --silence-after-speech-sec \"${SIP_SILENCE_AFTER_SPEECH_SEC:-3.0}\" \
+    --vad-threshold \"${SIP_VAD_THRESHOLD:-0.5}\" \
+    --goodbye-file \"/app/assets/audio/goodbye_voice.wav\" \
+    --enable-asr"]

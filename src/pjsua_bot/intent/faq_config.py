@@ -265,46 +265,51 @@ FAQS: Dict[str, Dict[str, Any]] = {
 
 
 def get_faq_system_prompt(faqs: Dict[str, Dict[str, Any]] | None = None) -> str:
-    """Generate system prompt for Ollama with FAQ questions and answers.
+    """Generate system prompt for Ollama to classify intents.
 
     Args:
         faqs: FAQ configuration dict. If None, uses default FAQS.
 
     Returns:
-        Formatted system prompt string with all FAQ Q&As
+        Formatted system prompt string that instructs Ollama to return intent names
     """
     if faqs is None:
         faqs = FAQS
 
     prompt_parts = [
-        "You are a chatbot. Use the following questions and answers to respond to user questions."
+        "You are an intent classifier. Analyze user questions and classify them into one of the following intents.",
+        "You must respond with ONLY a JSON object in this exact format:",
+        '{"intent": "intent_name"}',
+        "",
+        "Available intents:",
+        ""
     ]
-    prompt_parts.append("")
-    prompt_parts.append("Questions and Answers:")
-    prompt_parts.append("")
 
-    # Extract Q&As from each FAQ (excluding default)
+    # List all available intents with their keywords/questions
+    intent_descriptions = []
     for intent_name, faq_config in faqs.items():
         if intent_name == "default":
             continue
 
         questions = faq_config.get("questions", [])
-        response_text = faq_config.get("response_text", "")
-
-        if questions and response_text:
-            # Add all questions for this FAQ
-            for question in questions:
-                prompt_parts.append(f"Q: {question}")
-            prompt_parts.append(f"A: {response_text}")
-            prompt_parts.append("")
-
+        keywords = faq_config.get("keywords", [])
+        
+        description_parts = [f"  - {intent_name}:"]
+        if questions:
+            description_parts.append(f"    Example questions: {', '.join(questions[:3])}")
+        if keywords:
+            description_parts.append(f"    Keywords: {', '.join(keywords[:5])}")
+        
+        intent_descriptions.append("\n".join(description_parts))
+    
+    prompt_parts.extend(intent_descriptions)
+    prompt_parts.append("")
     prompt_parts.append(
-        "If the user's question is outside this list, respond with exactly: "
-        "'Sorry, I don't know'"
+        'If the question does not match any intent, return: {"intent": "default"}'
     )
     prompt_parts.append("")
     prompt_parts.append(
-        "Otherwise, respond with the answer that best matches the user's question."
+        "IMPORTANT: Respond with ONLY the JSON object. Do not include any other text or explanation."
     )
 
     return "\n".join(prompt_parts)

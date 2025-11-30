@@ -415,13 +415,7 @@ class SileroVAD:
                         import time as time_module
 
                         if time_module.time() - self._last_read_report_time > 5.0:
-                            print(
-                                (
-                                    f"***VAD: read {frames_read} frames "
-                                    f"({len(raw)} bytes) manually "
-                                    f"(total_idx={self._last_frame_idx})"
-                                )
-                            )
+                            # Verbose frame reading logs removed for cleaner output
                             self._last_read_report_time = time_module.time()
 
             except Exception as e:

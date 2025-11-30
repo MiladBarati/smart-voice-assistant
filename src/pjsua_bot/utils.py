@@ -90,6 +90,26 @@ def ensure_recording_directory(base_path: str, call_id: Optional[str] = None) ->
         Full path to the recording directory
     """
     try:
+        # Convert to absolute path to avoid relative path issues
+        base_path = os.path.abspath(base_path)
+        
+        # Ensure base directory exists first
+        try:
+            os.makedirs(base_path, exist_ok=True)
+        except PermissionError as e:
+            print(
+                f"***Error: Permission denied creating base recording directory "
+                f"{base_path}: {e}"
+            )
+            print(
+                f"***Hint: Ensure the directory exists and is writable by the "
+                f"current user (UID {os.getuid()})"
+            )
+            raise
+        except OSError as e:
+            print(f"***Error creating base recording directory {base_path}: {e}")
+            raise
+        
         # Create date-specific subdirectory directly under base_path
         current_date = datetime.now().strftime("%Y-%m-%d")
         date_dir = os.path.join(base_path, current_date)
@@ -97,16 +117,34 @@ def ensure_recording_directory(base_path: str, call_id: Optional[str] = None) ->
         # If call_id is provided, create a call-specific subdirectory
         if call_id:
             call_dir = os.path.join(date_dir, call_id)
-            os.makedirs(call_dir, exist_ok=True)
-            print(f"***Recording directory: {call_dir}")
-            return call_dir
+            try:
+                os.makedirs(call_dir, exist_ok=True, mode=0o755)
+                print(f"***Recording directory: {call_dir}")
+                return call_dir
+            except PermissionError as e:
+                print(
+                    f"***Error: Permission denied creating call recording directory "
+                    f"{call_dir}: {e}"
+                )
+                raise
         else:
-            os.makedirs(date_dir, exist_ok=True)
-            print(f"***Recording directory: {date_dir}")
-            return date_dir
+            try:
+                os.makedirs(date_dir, exist_ok=True, mode=0o755)
+                print(f"***Recording directory: {date_dir}")
+                return date_dir
+            except PermissionError as e:
+                print(
+                    f"***Error: Permission denied creating date recording directory "
+                    f"{date_dir}: {e}"
+                )
+                raise
+    except PermissionError:
+        # Re-raise permission errors as-is
+        raise
     except Exception as e:
         print(f"***Error creating recording directory: {e}")
         # Fallback to base path if date directory creation fails
+        # (but only if it's not a permission error)
         return base_path
 
 
