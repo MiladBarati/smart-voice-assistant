@@ -13,52 +13,34 @@ jobs:
       packages: write 
 
     steps:
-      - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: true
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          docker-images: true
-          swap-storage: true
+      # - name: Free Disk Space (Ubuntu)
+      #   uses: jlumbroso/free-disk-space@main
+      #   with:
+      #     tool-cache: true
+      #     android: true
+      #     dotnet: true
+      #     haskell: true
+      #     large-packages: true
+      #     docker-images: true
+      #     swap-storage: true
 
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      # - name: Checkout repo
+      #   uses: actions/checkout@v4
 
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      # - name: Login to GHCR
+      #   uses: docker/login-action@v3
+      #   with:
+      #     registry: ghcr.io
+      #     username: ${{ github.actor }}
+      #     password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and Push image to GHCR
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          tags: ghcr.io/${{ github.repository_owner }}/smart-voice-assistant:latest
-
-    # Build and push stage 1: PJSIP builder (rarely changes)
-      - name: Build and cache PJSIP stage
-        if: steps.changes.outputs.dockerfile_changed == 'true' || github.event_name == 'workflow_dispatch'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          target: builder
-          push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:builder-cache
-          cache-from: |
-            type=gha,scope=builder
-            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:builder-cache
-          cache-to: |
-            type=gha,mode=max,scope=builder
-            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:builder-cache,mode=max
-          build-args: |
-            BUILDKIT_INLINE_CACHE=1
+      # - name: Build and Push image to GHCR
+      #   uses: docker/build-push-action@v5
+      #   with:
+      #     context: .
+      #     file: ./Dockerfile
+      #     push: true
+      #     tags: ghcr.io/${{ github.repository_owner }}/smart-voice-assistant:latest
 
       - name: Deploy to Server with Docker Compose
         uses: appleboy/ssh-action@v1.0.3
