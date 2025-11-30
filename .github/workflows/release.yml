@@ -52,16 +52,7 @@ jobs:
           command_timeout: 10m
           script: |
             cd /home/aminry/app
+            docker compose down 
+            docker compose up -d --pull always
 
-            for i in 1 2 3; do
-              docker compose pull sipbot && break || sleep 5
-            done
 
-            docker compose up -d --no-deps sipbot
-
-            timeout 60 sh -c 'until docker compose ps sipbot | grep -q "healthy\|running"; do sleep 2; done' || true
-            
-            docker image prune -f
-
-            docker compose ps sipbot
-            docker compose logs --tail=50 sipbot
