@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11-distutils \
     python3-pip \
     swig \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Set python3.11 as default python3
@@ -75,6 +76,10 @@ RUN uv pip install --system --python python3.11 -r pyproject.toml
 COPY src/ ./src/
 COPY assets/ ./assets/
 
+# Copy entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 # Create necessary directories
 RUN mkdir -p /app/recordings /app/logs
 
@@ -82,11 +87,13 @@ RUN mkdir -p /app/recordings /app/logs
 RUN useradd -m -u 1000 voicebot && \
     chown -R voicebot:voicebot /app
 
-USER voicebot
+# ALSA null device config for voicebot user
+RUN mkdir -p /home/voicebot/.config/alsa && \
+    echo 'pcm.!default { type plug slave.pcm "null" }' > /home/voicebot/.config/alsa/asound.conf && \
+    chown -R voicebot:voicebot /home/voicebot/.config
 
-# ALSA null device config
-RUN mkdir -p ~/.config/alsa && \
-    echo 'pcm.!default { type plug slave.pcm "null" }' > ~/.config/alsa/asound.conf
+# Keep as root for entrypoint script to fix permissions
+# Entrypoint will switch to voicebot user
 
 # Environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -107,6 +114,9 @@ VOLUME ["/app/recordings", "/app/assets/audio"]
 
 # SIP and RTP ports
 EXPOSE 5060/udp 10000-20000/udp
+
+# Set entrypoint
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
 # Run the voicebot
 # SIP credentials and domain must be provided via environment variables

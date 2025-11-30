@@ -37,7 +37,8 @@ services:
     ports:
       - "5060:5060/udp"
       - "5060:5060/tcp"
-    user: "1000:1000"
+    # Note: user switching is handled by docker-entrypoint.sh
+    # This allows the entrypoint to fix permissions on mounted volumes
     volumes:
       - ./recordings:/app/recordings
       - ./logs:/app/logs
