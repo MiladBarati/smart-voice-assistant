@@ -40,3 +40,51 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/smart-voice-assistant:latest
+
+    # Build and push stage 1: PJSIP builder (rarely changes)
+      - name: Build and cache PJSIP stage
+        if: steps.changes.outputs.dockerfile_changed == 'true' || github.event_name == 'workflow_dispatch'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: builder
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:builder-cache
+          cache-from: |
+            type=gha,scope=builder
+            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:builder-cache
+          cache-to: |
+            type=gha,mode=max,scope=builder
+            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:builder-cache,mode=max
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+            
+      - name: Deploy to Server with Docker Compose
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SERVER_PORT }}
+          command_timeout: 10m
+          script: |
+            # Navigate to project directory
+            cd /home/aminry/app
+            
+            # Pull latest image with retry mechanism
+            for i in 1 2 3; do
+              docker compose pull sipbot && break || sleep 5
+            done
+            
+            # Restart service with zero-downtime deployment
+            docker compose up -d --no-deps sipbot
+            
+            # Wait for container to be healthy
+            timeout 60 sh -c 'until docker compose ps sipbot | grep -q "healthy\|running"; do sleep 2; done' || true
+            
+            # Clean up dangling images only
+            docker image prune -f
+            
+            # Show status and recent logs
+            docker compose ps sipbot
+            docker compose logs --tail=50 sipbot
