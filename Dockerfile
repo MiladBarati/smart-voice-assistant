@@ -1,16 +1,15 @@
-FROM nvidia/cuda:12.1.0-cudnn8-devel-ubuntu22.04
+# Stage 1: Build PJSIP (cached separately for faster rebuilds)
+FROM nvidia/cuda:12.1.0-cudnn8-devel-ubuntu22.04 AS pjsip-builder
 
 ARG PJSIP_VERSION=2.14
 
-# Set timezone and non-interactive mode
-ENV PYTORCH_JIT=0
-ENV DEBIAN_FRONTEND=noninteractive \
-    TZ=UTC
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install build dependencies with cache
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     wget \
-    curl \
     build-essential \
     ca-certificates \
     libssl-dev \
@@ -18,13 +17,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libspeex-dev \
     libspeexdsp-dev \
     libgsm1-dev \
-    libsndfile1 \
+    swig \
     python3.11 \
     python3.11-dev \
     python3.11-distutils \
-    python3-pip \
-    swig \
-    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Set python3.11 as default python3
@@ -59,18 +55,61 @@ RUN ./configure \
 WORKDIR /tmp/pjproject-${PJSIP_VERSION}/pjsip-apps/src/swig/python
 RUN make && python3.11 setup.py install
 
+# Stage 2: Final runtime image
+FROM nvidia/cuda:12.1.0-cudnn8-devel-ubuntu22.04
+
+ARG PJSIP_VERSION=2.14
+
+# Set timezone and non-interactive mode
+ENV PYTORCH_JIT=0
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=UTC
+
+# Install runtime dependencies with cache
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    libssl-dev \
+    libopus-dev \
+    libspeex-dev \
+    libspeexdsp-dev \
+    libgsm1-dev \
+    libsndfile1 \
+    python3.11 \
+    python3.11-dev \
+    python3.11-distutils \
+    python3-pip \
+    gosu \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set python3.11 as default python3
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+
+# Copy PJSIP libraries and Python bindings from builder stage
+COPY --from=pjsip-builder /usr/local/lib/ /usr/local/lib/
+COPY --from=pjsip-builder /usr/local/include/ /usr/local/include/
+COPY --from=pjsip-builder /usr/local/lib/python3.11/site-packages/pjsua2* /usr/local/lib/python3.11/site-packages/
+COPY --from=pjsip-builder /usr/local/lib/python3.11/site-packages/_pjsua2* /usr/local/lib/python3.11/site-packages/
+
+# Update library cache
+RUN ldconfig
+
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Install Python dependencies with uv (system Python)
+# Install Python dependencies with uv (system Python) using cache
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 
-# Install soundfile with bundled libsndfile first
-RUN uv pip install --system --python python3.11 soundfile>=0.12.1
+# Install soundfile with bundled libsndfile first (with cache)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system --python python3.11 soundfile>=0.12.1
 
-# Install other dependencies
-RUN uv pip install --system --python python3.11 -r pyproject.toml
+# Install other dependencies (with cache)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system --python python3.11 -r pyproject.toml
 
 # Copy application code
 COPY src/ ./src/
