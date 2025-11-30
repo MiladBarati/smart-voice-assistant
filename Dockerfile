@@ -90,10 +90,9 @@ RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 # Copy PJSIP libraries and Python bindings from builder stage
 COPY --from=pjsip-builder /usr/local/lib/ /usr/local/lib/
 COPY --from=pjsip-builder /usr/local/include/ /usr/local/include/
-# Create site-packages directory before copying Python bindings
+# Copy Python bindings - copy entire site-packages directory to ensure directory exists
 RUN mkdir -p /usr/local/lib/python3.11/site-packages
-COPY --from=pjsip-builder /usr/local/lib/python3.11/site-packages/pjsua2* /usr/local/lib/python3.11/site-packages/
-COPY --from=pjsip-builder /usr/local/lib/python3.11/site-packages/_pjsua2* /usr/local/lib/python3.11/site-packages/
+COPY --from=pjsip-builder /usr/local/lib/python3.11/site-packages/ /usr/local/lib/python3.11/site-packages/
 
 # Update library cache
 RUN ldconfig
