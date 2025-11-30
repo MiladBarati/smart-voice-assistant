@@ -226,7 +226,8 @@ class IntentHandlerMixin:
                     self._start_bot_playback_tracking()
                 except Exception as exc:
                     print(
-                        f"***Bot tracking: error starting intent response tracking: {exc}"
+                        "***Bot tracking: error starting intent response "
+                        f"tracking: {exc}"
                     )
 
             print(
@@ -287,7 +288,8 @@ class IntentHandlerMixin:
                         self._stop_bot_playback_tracking()
                     except Exception as e:
                         print(
-                            f"***Bot tracking: error stopping intent response tracking: {e}"
+                            "***Bot tracking: error stopping intent response "
+                            f"tracking: {e}"
                         )
 
             self._intent_response_finished = True

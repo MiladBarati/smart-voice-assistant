@@ -92,7 +92,7 @@ def ensure_recording_directory(base_path: str, call_id: Optional[str] = None) ->
     try:
         # Convert to absolute path to avoid relative path issues
         base_path = os.path.abspath(base_path)
-        
+
         # Ensure base directory exists first
         try:
             os.makedirs(base_path, exist_ok=True)
@@ -109,7 +109,7 @@ def ensure_recording_directory(base_path: str, call_id: Optional[str] = None) ->
         except OSError as e:
             print(f"***Error creating base recording directory {base_path}: {e}")
             raise
-        
+
         # Create date-specific subdirectory directly under base_path
         current_date = datetime.now().strftime("%Y-%m-%d")
         date_dir = os.path.join(base_path, current_date)

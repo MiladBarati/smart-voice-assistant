@@ -8,7 +8,9 @@ from typing import Optional
 import requests
 
 
-def check_ollama_health(ollama_url: str = "http://localhost:11434", timeout: int = 5) -> bool:
+def check_ollama_health(
+    ollama_url: str = "http://localhost:11434", timeout: int = 5
+) -> bool:
     """Check if Ollama service is running and accessible.
 
     Args:
@@ -61,9 +63,16 @@ def check_model_available(
         model_base = model.split(":")[0]
         matching_models = [m for m in models if m.startswith(model_base)]
         if matching_models:
-            return True, f"Model '{model}' not found, but found: {', '.join(matching_models)}"
+            return (
+                True,
+                f"Model '{model}' not found, but found: {', '.join(matching_models)}",
+            )
 
-        return False, f"Model '{model}' not found. Available models: {', '.join(models) if models else 'none'}"
+        available = ", ".join(models) if models else "none"
+        return (
+            False,
+            f"Model '{model}' not found. Available models: {available}",
+        )
     except requests.exceptions.ConnectionError:
         return False, f"Cannot connect to Ollama at {ollama_url}"
     except requests.exceptions.Timeout:
@@ -77,7 +86,10 @@ def check_model_available(
 def main() -> int:
     """Main entry point for the script."""
     parser = argparse.ArgumentParser(
-        description="Check if Ollama is running and accessible, optionally check for a specific model."
+        description=(
+            "Check if Ollama is running and accessible, "
+            "optionally check for a specific model."
+        )
     )
     parser.add_argument(
         "--ollama-url",
@@ -89,7 +101,10 @@ def main() -> int:
         "--model",
         type=str,
         default=None,
-        help="Model name to check (e.g., qwen2.5:14b). If not specified, only checks if Ollama is running.",
+        help=(
+            "Model name to check (e.g., qwen2.5:14b). "
+            "If not specified, only checks if Ollama is running."
+        ),
     )
     parser.add_argument(
         "--timeout",
@@ -132,7 +147,7 @@ def main() -> int:
         if not is_available:
             if not args.quiet:
                 print(f"❌ {error_msg}")
-                if "not found" in error_msg.lower():
+                if error_msg and "not found" in error_msg.lower():
                     print(f"   Pull the model with: ollama pull {args.model}")
             return 1
 
@@ -147,7 +162,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
-
-
-

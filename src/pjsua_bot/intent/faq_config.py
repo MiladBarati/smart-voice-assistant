@@ -277,12 +277,15 @@ def get_faq_system_prompt(faqs: Dict[str, Dict[str, Any]] | None = None) -> str:
         faqs = FAQS
 
     prompt_parts = [
-        "You are an intent classifier. Analyze user questions and classify them into one of the following intents.",
+        (
+            "You are an intent classifier. Analyze user questions and "
+            "classify them into one of the following intents."
+        ),
         "You must respond with ONLY a JSON object in this exact format:",
         '{"intent": "intent_name"}',
         "",
         "Available intents:",
-        ""
+        "",
     ]
 
     # List all available intents with their keywords/questions
@@ -293,15 +296,17 @@ def get_faq_system_prompt(faqs: Dict[str, Dict[str, Any]] | None = None) -> str:
 
         questions = faq_config.get("questions", [])
         keywords = faq_config.get("keywords", [])
-        
+
         description_parts = [f"  - {intent_name}:"]
         if questions:
-            description_parts.append(f"    Example questions: {', '.join(questions[:3])}")
+            description_parts.append(
+                f"    Example questions: {', '.join(questions[:3])}"
+            )
         if keywords:
             description_parts.append(f"    Keywords: {', '.join(keywords[:5])}")
-        
+
         intent_descriptions.append("\n".join(description_parts))
-    
+
     prompt_parts.extend(intent_descriptions)
     prompt_parts.append("")
     prompt_parts.append(
@@ -309,7 +314,8 @@ def get_faq_system_prompt(faqs: Dict[str, Dict[str, Any]] | None = None) -> str:
     )
     prompt_parts.append("")
     prompt_parts.append(
-        "IMPORTANT: Respond with ONLY the JSON object. Do not include any other text or explanation."
+        "IMPORTANT: Respond with ONLY the JSON object. "
+        "Do not include any other text or explanation."
     )
 
     return "\n".join(prompt_parts)

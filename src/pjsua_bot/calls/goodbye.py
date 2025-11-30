@@ -94,7 +94,8 @@ class GoodbyePlaybackMixin:
                     self._start_bot_playback_tracking()
                 except Exception as e:  # pragma: no cover - defensive
                     print(
-                        f"***Bot tracking: error starting goodbye playback tracking: {e}"
+                        "***Bot tracking: error starting goodbye "
+                        f"playback tracking: {e}"
                     )
 
             # Notify VAD that bot playback started (goodbye message)
@@ -184,7 +185,8 @@ class GoodbyePlaybackMixin:
                         self._stop_bot_playback_tracking()
                     except Exception as e:  # pragma: no cover - defensive
                         print(
-                            f"***Bot tracking: error stopping goodbye playback tracking: {e}"
+                            "***Bot tracking: error stopping goodbye "
+                            f"playback tracking: {e}"
                         )
 
                 # Notify VAD that bot playback finished (goodbye message)
@@ -272,7 +274,8 @@ class GoodbyePlaybackMixin:
                     self._start_bot_playback_tracking()
                 except Exception as e:  # pragma: no cover - defensive
                     print(
-                        f"***Bot tracking: error starting waiting playback tracking: {e}"
+                        "***Bot tracking: error starting waiting "
+                        f"playback tracking: {e}"
                     )
 
             # Notify VAD that bot playback started (waiting message)
@@ -362,7 +365,8 @@ class GoodbyePlaybackMixin:
                         self._stop_bot_playback_tracking()
                     except Exception as e:  # pragma: no cover - defensive
                         print(
-                            f"***Bot tracking: error stopping waiting playback tracking: {e}"
+                            "***Bot tracking: error stopping waiting "
+                            f"playback tracking: {e}"
                         )
 
                 # Notify VAD that bot playback finished (waiting message)

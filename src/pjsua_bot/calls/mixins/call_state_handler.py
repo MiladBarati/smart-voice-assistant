@@ -301,7 +301,8 @@ class CallStateHandlerMixin:
                         self._stop_bot_playback_tracking()
                     except Exception as exc:
                         print(
-                            f"***Bot tracking: error finalizing playback tracking: {exc}"
+                            "***Bot tracking: error finalizing "
+                            f"playback tracking: {exc}"
                         )
 
                 # Use VAD's bot talk duration if available (preferred, more accurate),

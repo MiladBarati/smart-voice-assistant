@@ -32,12 +32,12 @@ else:
 
 def cleanup_resources(acc: Any) -> None:
     """Clean up all resources including ASR models, intent classifiers, and connections.
-    
+
     Args:
         acc: Account instance that may contain resources to clean up
     """
     print("***Cleaning up resources...")
-    
+
     # Stop all ASR threads from all calls
     try:
         calls_copy = dict(getattr(acc, "calls", {}))
@@ -49,54 +49,56 @@ def cleanup_resources(acc: Any) -> None:
                 pass
     except Exception as e:
         print(f"***ASR thread cleanup error: {e}")
-    
+
     # Cleanup ASR Service
     try:
         if hasattr(acc, "_asr_service") and acc._asr_service is not None:
             print("***Cleaning up ASR service...")
             asr_service = acc._asr_service
-            
+
             # Release the pipeline/model
             if hasattr(asr_service, "_pipeline") and asr_service._pipeline is not None:
                 asr_service._pipeline = None
                 print("***ASR: Pipeline released")
-            
+
             # Clear CUDA cache if GPU was used
             if hasattr(asr_service, "_device") and asr_service._device == "cuda":
                 try:
                     import torch
+
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
-                        torch.cuda.synchronize()  # Wait for all CUDA operations to complete
+                        # Wait for all CUDA operations to complete
+                        torch.cuda.synchronize()
                         print("***ASR: CUDA cache cleared")
                 except ImportError:
                     pass  # torch not available
                 except Exception as e:
                     print(f"***ASR: Error clearing CUDA cache: {e}")
-            
+
             # Clear the service reference
             acc._asr_service = None
             print("***ASR: Service cleaned up")
     except Exception as e:
         print(f"***ASR cleanup error: {e}")
-    
+
     # Cleanup Intent Classifier
     try:
         if hasattr(acc, "_intent_classifier") and acc._intent_classifier is not None:
             print("***Cleaning up intent classifier...")
             classifier = acc._intent_classifier
-            
+
             # For OllamaClassifier, clear fallback classifier if it exists
             if hasattr(classifier, "_fallback_classifier"):
                 classifier._fallback_classifier = None
-            
+
             # Clear the classifier reference
             acc._intent_classifier = None
             acc.enable_intent = False
             print("***Intent: Classifier cleaned up")
     except Exception as e:
         print(f"***Intent classifier cleanup error: {e}")
-    
+
     # Cleanup Elasticsearch client
     try:
         if es_logger.client is not None:
@@ -108,14 +110,14 @@ def cleanup_resources(acc: Any) -> None:
                     print("***Elasticsearch: Connection closed")
                 except Exception as e:
                     print(f"***Elasticsearch: Error closing connection: {e}")
-            
+
             # Clear the client reference
             es_logger.client = None
             es_logger.connected = False
             print("***Elasticsearch: Client cleaned up")
     except Exception as e:
         print(f"***Elasticsearch cleanup error: {e}")
-    
+
     print("***Resource cleanup complete")
 
 
@@ -273,7 +275,10 @@ def main() -> None:
         "--intent-classifier",
         choices=["rule-based", "ollama"],
         default="rule-based",
-        help="Intent classifier to use: rule-based (keyword matching) or ollama (LLM-based) (default: rule-based)",
+        help=(
+            "Intent classifier to use: rule-based (keyword matching) "
+            "or ollama (LLM-based) (default: rule-based)"
+        ),
     )
     parser.add_argument(
         "--ollama-url",
@@ -285,8 +290,11 @@ def main() -> None:
         "--ollama-model",
         type=str,
         default="qwen2.5:7b",
-        help="Ollama model name (default: qwen2.5:7b). "
-        "For CPU usage, use smaller models: qwen2.5:0.5b, qwen2.5:1.5b, qwen2.5:3b, or qwen2.5:7b",
+        help=(
+            "Ollama model name (default: qwen2.5:7b). "
+            "For CPU usage, use smaller models: qwen2.5:0.5b, "
+            "qwen2.5:1.5b, qwen2.5:3b, or qwen2.5:7b"
+        ),
     )
     parser.add_argument(
         "--ollama-use-cpu",
@@ -342,12 +350,14 @@ def main() -> None:
     def _stop_handler(signum: int, frame: FrameType | None) -> None:
         print(f"***Signal {signum}: stopping...")
         stopping["flag"] = True
+
         # Set a timeout to force exit if cleanup takes too long (WSL-specific issue)
-        def _force_exit():
+        def _force_exit() -> None:
             time.sleep(15)  # Wait 15 seconds for cleanup
             if not stopping.get("cleanup_done", False):
                 print("***Force exit: cleanup taking too long, forcing exit...")
                 os._exit(1)  # Force exit, bypassing cleanup
+
         threading.Thread(target=_force_exit, daemon=True).start()
 
     signal.signal(signal.SIGINT, _stop_handler)
@@ -563,7 +573,10 @@ def main() -> None:
 
                 # Create classifier instance based on selected type
                 if args.intent_classifier == "ollama":
-                    print(f"***Intent: using Ollama classifier (model: {args.ollama_model})")
+                    print(
+                        f"***Intent: using Ollama classifier "
+                        f"(model: {args.ollama_model})"
+                    )
                     acc._intent_classifier = OllamaClassifier(
                         ollama_url=args.ollama_url,
                         model=args.ollama_model,
@@ -573,9 +586,12 @@ def main() -> None:
                     if getattr(args, "ollama_use_cpu", False):
                         print(
                             "***Intent: CPU mode requested. "
-                            "Note: Set OLLAMA_NUM_GPU=0 before starting Ollama server for true CPU mode"
+                            "Note: Set OLLAMA_NUM_GPU=0 before starting "
+                            "Ollama server for true CPU mode"
+                        )
+                    print(
+                        f"***Intent: Ollama classifier initialized at {args.ollama_url}"
                     )
-                    print(f"***Intent: Ollama classifier initialized at {args.ollama_url}")
                 else:
                     print("***Intent: using rule-based classifier")
                     acc._intent_classifier = RuleBasedClassifier(faqs=faqs)
@@ -699,7 +715,7 @@ def main() -> None:
                                 break
                     except Exception as e:
                         print(f"***Account unregistration error: {e}")
-                    
+
                     # Stop all ASR threads from all calls FIRST
                     print("***Stopping all ASR worker threads...")
                     calls_copy = dict(getattr(acc, "calls", {}))
@@ -713,14 +729,14 @@ def main() -> None:
                                     print(f"***ASR: Error stopping thread: {e}")
                         except Exception:
                             pass
-                    
+
                     # Force stop any remaining ASR threads that didn't stop
                     for thread in threading.enumerate():
                         if thread.name == "ASRWorker" and thread.is_alive():
                             print(f"***ASR: Force stopping thread {thread.name}")
                             # Thread is daemon, but we'll wait a bit more
                             thread.join(timeout=1.0)
-                    
+
                     # Attempt to hang up all active calls
                     # Make a copy of the calls dict to avoid iteration issues
                     for _call_id, call in calls_copy.items():
@@ -765,7 +781,7 @@ def main() -> None:
                         pass
                 except Exception:
                     pass
-                
+
                 # Pump events for a short period to let teardown complete
                 end_by = time.time() + 1.0
                 # Use a local alias to avoid shadowing the global name
@@ -786,14 +802,15 @@ def main() -> None:
                         _pump_events(ep, 50)
                     except Exception:
                         break
-                
+
                 # Clean up resources (ASR, intent classifier, Elasticsearch, etc.)
                 try:
                     cleanup_resources(acc)
                 except Exception as e:
                     print(f"***Resource cleanup error: {e}")
-                
-                # Account cleanup - PJSUA2 will handle account deletion when endpoint is destroyed
+
+                # Account cleanup - PJSUA2 will handle account deletion
+                # when endpoint is destroyed
                 # Just ensure we've unregistered and cleared references
                 try:
                     print("***Account cleanup complete")
@@ -843,7 +860,7 @@ def main() -> None:
                 ep.libDestroy()
         except Exception as e:
             print(f"***Endpoint destruction error: {e}")
-        
+
         stopping["cleanup_done"] = True
         print("***Shutdown complete")
 
