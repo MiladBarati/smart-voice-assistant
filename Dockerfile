@@ -53,7 +53,9 @@ RUN ./configure \
 
 # Build Python bindings (system-wide)
 WORKDIR /tmp/pjproject-${PJSIP_VERSION}/pjsip-apps/src/swig/python
-RUN make && python3.11 setup.py install
+RUN mkdir -p /usr/local/lib/python3.11/site-packages && \
+    make && \
+    python3.11 setup.py install
 
 # Stage 2: Final runtime image
 FROM nvidia/cuda:12.1.0-cudnn8-devel-ubuntu22.04
@@ -88,11 +90,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 
 # Copy PJSIP libraries and Python bindings from builder stage
+# Note: /usr/local/lib/ copy includes python3.11/site-packages/ if it exists
 COPY --from=pjsip-builder /usr/local/lib/ /usr/local/lib/
 COPY --from=pjsip-builder /usr/local/include/ /usr/local/include/
-# Copy Python bindings - copy entire site-packages directory to ensure directory exists
-RUN mkdir -p /usr/local/lib/python3.11/site-packages
-COPY --from=pjsip-builder /usr/local/lib/python3.11/site-packages/ /usr/local/lib/python3.11/site-packages/
 
 # Update library cache
 RUN ldconfig
