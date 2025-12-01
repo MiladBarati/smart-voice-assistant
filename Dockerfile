@@ -58,12 +58,11 @@ RUN mkdir -p /usr/local/lib/python3.11/site-packages && \
     python3.11 setup.py install
 
 # Stage 2: Final runtime image
-FROM nvidia/cuda:12.1.0-cudnn8-devel-ubuntu22.04
+FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
 
 ARG PJSIP_VERSION=2.14
 
 # Set timezone and non-interactive mode
-ENV PYTORCH_JIT=0
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=UTC
 
@@ -83,7 +82,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     python3.11-dev \
     python3.11-distutils \
     python3-pip \
-    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Install gosu from official GitHub release (recommended for Docker)
@@ -91,9 +89,9 @@ RUN set -eux; \
     GOSU_VERSION=1.17; \
     arch="$(dpkg --print-architecture)"; \
     case "$arch" in \
-        amd64) GOSU_ARCH='amd64' ;; \
-        arm64) GOSU_ARCH='arm64' ;; \
-        *) echo >&2 "error: unsupported architecture: $arch"; exit 1 ;; \
+    amd64) GOSU_ARCH='amd64' ;; \
+    arm64) GOSU_ARCH='arm64' ;; \
+    *) echo >&2 "error: unsupported architecture: $arch"; exit 1 ;; \
     esac; \
     curl -L -o /usr/local/bin/gosu "https://github.com/tianon/gosu/releases/download/${GOSU_VERSION}/gosu-${GOSU_ARCH}"; \
     chmod +x /usr/local/bin/gosu; \
@@ -104,7 +102,6 @@ RUN set -eux; \
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 
 # Copy PJSIP libraries and Python bindings from builder stage
-# Note: /usr/local/lib/ copy includes python3.11/site-packages/ if it exists
 COPY --from=pjsip-builder /usr/local/lib/ /usr/local/lib/
 COPY --from=pjsip-builder /usr/local/include/ /usr/local/include/
 
@@ -118,19 +115,19 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 
-# Install PyTorch with CUDA 12.1 support first (matches container CUDA runtime)
-# This must be installed before other dependencies to ensure CUDA support
+# CRITICAL: Install PyTorch with CUDA 12.1 support BEFORE other dependencies
+# This ensures CUDA version is locked and won't be overridden
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system --python python3.11 \
+    uv pip install --system --python python3.11 --no-deps \
     --index-url https://download.pytorch.org/whl/cu121 \
-    torch>=2.1.0 torchaudio>=2.1.0
+    torch==2.5.1+cu121 \
+    torchaudio==2.5.1+cu121
 
 # Install soundfile with bundled libsndfile (with cache)
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system --python python3.11 soundfile>=0.12.1
 
-# Install other dependencies (with cache)
-# torch/torchaudio will be skipped if already installed above
+# Install all other dependencies from pyproject.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system --python python3.11 -r pyproject.toml
 
@@ -154,22 +151,22 @@ RUN mkdir -p /home/voicebot/.config/alsa && \
     echo 'pcm.!default { type plug slave.pcm "null" }' > /home/voicebot/.config/alsa/asound.conf && \
     chown -R voicebot:voicebot /home/voicebot/.config
 
-# Keep as root for entrypoint script to fix permissions
-# Entrypoint will switch to voicebot user
-
-# Environment variables
+# Environment variables for CUDA
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH \
+    LD_LIBRARY_PATH=/usr/local/lib:/usr/local/cuda/lib64:$LD_LIBRARY_PATH \
     AUDIODEV=null \
     PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512 \
     OMP_NUM_THREADS=1 \
     MKL_NUM_THREADS=1 \
-    PYTORCH_JIT=0
+    PYTORCH_JIT=0 \
+    CUDA_VISIBLE_DEVICES=0 \
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD python3.11 -c "import pjsua2; print('OK')" || exit 1
+    CMD python3.11 -c "import pjsua2; import torch; assert torch.cuda.is_available(), 'CUDA not available'; print('OK')" || exit 1
 
 # Persistent volumes
 VOLUME ["/app/recordings", "/app/assets/audio"]
@@ -181,7 +178,6 @@ EXPOSE 5060/udp 10000-20000/udp
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
 # Run the voicebot
-# SIP credentials and domain must be provided via environment variables
 CMD ["sh", "-c", "python3.11 /app/src/pjsua_bot/register_bot.py \
     --user \"${SIP_USER}\" \
     --auth-user \"${SIP_AUTH_USER:-${SIP_USER}}\" \
