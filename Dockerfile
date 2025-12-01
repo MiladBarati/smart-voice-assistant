@@ -83,11 +83,22 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     python3.11-dev \
     python3.11-distutils \
     python3-pip \
-    gosu \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Ensure gosu has proper permissions (setuid root)
-RUN chmod +s /usr/sbin/gosu || chmod +s /usr/bin/gosu || true
+# Install gosu from official GitHub release (recommended for Docker)
+RUN set -eux; \
+    GOSU_VERSION=1.17; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+        amd64) GOSU_ARCH='amd64' ;; \
+        arm64) GOSU_ARCH='arm64' ;; \
+        *) echo >&2 "error: unsupported architecture: $arch"; exit 1 ;; \
+    esac; \
+    curl -L -o /usr/local/bin/gosu "https://github.com/tianon/gosu/releases/download/${GOSU_VERSION}/gosu-${GOSU_ARCH}"; \
+    chmod +x /usr/local/bin/gosu; \
+    chown root:root /usr/local/bin/gosu; \
+    gosu --version
 
 # Set python3.11 as default python3
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
