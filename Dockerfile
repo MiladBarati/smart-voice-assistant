@@ -82,6 +82,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     python3.11-dev \
     python3.11-distutils \
     python3-pip \
+    build-essential \
+    cmake \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Install gosu from official GitHub release (recommended for Docker)
@@ -128,6 +131,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system --python python3.11 soundfile>=0.12.1
 
 # Install all other dependencies from pyproject.toml
+# torch/torchaudio should be removed from pyproject.toml dependencies
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system --python python3.11 -r pyproject.toml
 
