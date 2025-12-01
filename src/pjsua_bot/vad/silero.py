@@ -92,24 +92,107 @@ class SileroVAD:
                 f"torch/torchaudio not available: {_TORCH_ERROR or 'import failed'}"
             )
             return
-        try:
-            model_result = torch.hub.load(
-                "snakers4/silero-vad", "silero_vad", force_reload=False, onnx=False
-            )
-            # Handle both: model may be returned directly or as (model, utils)
-            if isinstance(model_result, tuple):
-                self._model = model_result[0]  # Extract model from tuple
-            else:
-                self._model = model_result
-            assert self._model is not None
-            self._model.eval()
-            self.available = True
-            self._load_error = None
-        except Exception as e:
-            # leave unavailable; caller will skip VAD
-            self._model = None
-            self.available = False
-            self._load_error = f"model loading failed: {str(e)}"
+        
+        # Try multiple loading strategies to handle PyTorch version compatibility issues
+        loading_strategies = [
+            # Strategy 1: Force reload with trust_repo (handles _construct errors)
+            {
+                "force_reload": True,
+                "trust_repo": True,
+                "onnx": False,
+                "name": "force_reload with trust_repo",
+            },
+            # Strategy 2: Normal load with trust_repo
+            {
+                "force_reload": False,
+                "trust_repo": True,
+                "onnx": False,
+                "name": "normal load with trust_repo",
+            },
+            # Strategy 3: Force reload without trust_repo (original)
+            {
+                "force_reload": True,
+                "trust_repo": False,
+                "onnx": False,
+                "name": "force_reload (original)",
+            },
+            # Strategy 4: Normal load (original fallback)
+            {
+                "force_reload": False,
+                "trust_repo": False,
+                "onnx": False,
+                "name": "normal load (original)",
+            },
+        ]
+        
+        last_error = None
+        cache_cleared = False
+        
+        for idx, strategy in enumerate(loading_strategies):
+            try:
+                # If we hit a _construct error in previous attempt, try clearing the cache once
+                if (
+                    last_error
+                    and "_construct" in str(last_error)
+                    and not cache_cleared
+                ):
+                    try:
+                        import shutil
+                        cache_dir = os.path.join(
+                            os.path.expanduser("~"), ".cache", "torch", "hub"
+                        )
+                        silero_cache = os.path.join(cache_dir, "snakers4_silero-vad_master")
+                        if os.path.exists(silero_cache):
+                            print(
+                                "***VAD: clearing cached model due to _construct error"
+                            )
+                            shutil.rmtree(silero_cache, ignore_errors=True)
+                            cache_cleared = True
+                            # After clearing cache, force reload on this attempt
+                            strategy = strategy.copy()
+                            strategy["force_reload"] = True
+                    except Exception as cache_error:
+                        # Ignore cache clearing errors
+                        pass
+                
+                # Build kwargs for torch.hub.load
+                kwargs = {
+                    "repo_or_dir": "snakers4/silero-vad",
+                    "model": "silero_vad",
+                    "force_reload": strategy["force_reload"],
+                    "onnx": strategy["onnx"],
+                }
+                # trust_repo was added in PyTorch 1.13+, use it if available
+                if strategy.get("trust_repo") and hasattr(torch.hub, "load"):
+                    # Check if trust_repo parameter is supported
+                    import inspect
+                    sig = inspect.signature(torch.hub.load)
+                    if "trust_repo" in sig.parameters:
+                        kwargs["trust_repo"] = strategy["trust_repo"]
+                
+                model_result = torch.hub.load(**kwargs)
+                
+                # Handle both: model may be returned directly or as (model, utils)
+                if isinstance(model_result, tuple):
+                    self._model = model_result[0]  # Extract model from tuple
+                else:
+                    self._model = model_result
+                assert self._model is not None
+                self._model.eval()
+                self.available = True
+                self._load_error = None
+                print(f"***VAD: model loaded successfully using {strategy['name']}")
+                return
+            except Exception as e:
+                last_error = e
+                # Continue to next strategy
+                continue
+        
+        # All strategies failed
+        self._model = None
+        self.available = False
+        error_msg = str(last_error) if last_error else "unknown error"
+        self._load_error = f"model loading failed after trying all strategies: {error_msg}"
 
     def _ensure_resampler(self, input_sr: int) -> Optional[Any]:
         if torch is None or torchaudio is None:
