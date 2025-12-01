@@ -3,7 +3,7 @@ name = "pjsua-installation"
 version = "1.0.0"
 description = "PJSUA2 SIP Bot with VAD, ASR, call recording, and Elasticsearch integration"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.9"
 dependencies = [
     "elasticsearch==7.17.9", # Pin to specific version for ES 7.x/8.x server compatibility (avoids API v9)
     "python-dotenv>=1.0.0",
@@ -69,7 +69,7 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.9"
 mypy_path = ["src"]
 explicit_package_bases = true
 plugins = []
