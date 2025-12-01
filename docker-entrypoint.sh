@@ -30,6 +30,12 @@ if [ ! -f /home/voicebot/.config/alsa/asound.conf ]; then
 fi
 chown -R 1000:1000 /home/voicebot/.config 2>/dev/null || true
 
-# Switch to voicebot user and execute the command
-exec gosu 1000:1000 "$@"
+# Verify user exists and switch to voicebot user
+if id -u voicebot >/dev/null 2>&1; then
+    # Switch to voicebot user and execute the command
+    exec gosu voicebot:voicebot "$@"
+else
+    echo "Warning: voicebot user not found, running as root" >&2
+    exec "$@"
+fi
 

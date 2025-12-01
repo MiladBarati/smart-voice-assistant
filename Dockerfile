@@ -86,6 +86,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     gosu \
     && rm -rf /var/lib/apt/lists/*
 
+# Ensure gosu has proper permissions (setuid root)
+RUN chmod +s /usr/sbin/gosu || chmod +s /usr/bin/gosu || true
+
 # Set python3.11 as default python3
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 
