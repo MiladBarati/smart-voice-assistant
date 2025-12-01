@@ -118,11 +118,19 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 
-# Install soundfile with bundled libsndfile first (with cache)
+# Install PyTorch with CUDA 12.1 support first (matches container CUDA runtime)
+# This must be installed before other dependencies to ensure CUDA support
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system --python python3.11 \
+    --index-url https://download.pytorch.org/whl/cu121 \
+    torch>=2.1.0 torchaudio>=2.1.0
+
+# Install soundfile with bundled libsndfile (with cache)
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system --python python3.11 soundfile>=0.12.1
 
 # Install other dependencies (with cache)
+# torch/torchaudio will be skipped if already installed above
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system --python python3.11 -r pyproject.toml
 
