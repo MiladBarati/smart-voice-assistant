@@ -1,5 +1,5 @@
 # Stage 1: Build PJSIP (cached separately for faster rebuilds)
-FROM nvidia/cuda:12.1.0-cudnn8-devel-ubuntu22.04 AS pjsip-builder
+FROM ubuntu:20.04 AS pjsip-builder
 
 ARG PJSIP_VERSION=2.14
 
@@ -18,13 +18,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     libspeexdsp-dev \
     libgsm1-dev \
     swig \
-    python3.11 \
-    python3.11-dev \
-    python3.11-distutils \
+    python3.9 \
+    python3.9-dev \
+    python3.9-distutils \
     && rm -rf /var/lib/apt/lists/*
 
-# Set python3.11 as default python3
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+# Set python3.9 as default python3
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 1
 
 # Download and extract PJSIP
 WORKDIR /tmp
@@ -53,12 +53,12 @@ RUN ./configure \
 
 # Build Python bindings (system-wide)
 WORKDIR /tmp/pjproject-${PJSIP_VERSION}/pjsip-apps/src/swig/python
-RUN mkdir -p /usr/local/lib/python3.11/site-packages && \
+RUN mkdir -p /usr/local/lib/python3.9/site-packages && \
     make && \
-    python3.11 setup.py install
+    python3.9 setup.py install
 
-# Stage 2: Final runtime image
-FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+# Stage 2: Final runtime image with CUDA 11.3 for Tesla K80 support
+FROM nvidia/cuda:11.3.1-cudnn8-runtime-ubuntu20.04
 
 ARG PJSIP_VERSION=2.14
 
@@ -78,16 +78,16 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     libspeexdsp-dev \
     libgsm1-dev \
     libsndfile1 \
-    python3.11 \
-    python3.11-dev \
-    python3.11-distutils \
+    python3.9 \
+    python3.9-dev \
+    python3.9-distutils \
     python3-pip \
     build-essential \
     cmake \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install gosu from official GitHub release (recommended for Docker)
+# Install gosu from official GitHub release
 RUN set -eux; \
     GOSU_VERSION=1.17; \
     arch="$(dpkg --print-architecture)"; \
@@ -101,8 +101,8 @@ RUN set -eux; \
     chown root:root /usr/local/bin/gosu; \
     gosu --version
 
-# Set python3.11 as default python3
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+# Set python3.9 as default python3
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 1
 
 # Copy PJSIP libraries and Python bindings from builder stage
 COPY --from=pjsip-builder /usr/local/lib/ /usr/local/lib/
@@ -118,22 +118,21 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 
-# CRITICAL: Install PyTorch with CUDA 12.1 support BEFORE other dependencies
-# This ensures CUDA version is locked and won't be overridden
+# Install PyTorch 1.12 with CUDA 11.3 support for Tesla K80 (sm_37)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system --python python3.11 --no-deps \
-    --index-url https://download.pytorch.org/whl/cu121 \
-    torch==2.5.1+cu121 \
-    torchaudio==2.5.1+cu121
+    uv pip install --system --python python3.9 --no-deps \
+    --index-url https://download.pytorch.org/whl/cu113 \
+    torch==1.12.1+cu113 \
+    torchaudio==0.12.1+cu113
 
 # Install soundfile with bundled libsndfile (with cache)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system --python python3.11 soundfile>=0.12.1
+    uv pip install --system --python python3.9 soundfile>=0.12.1
 
 # Install all other dependencies from pyproject.toml
 # torch/torchaudio should be removed from pyproject.toml dependencies
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system --python python3.11 -r pyproject.toml
+    uv pip install --system --python python3.9 -r pyproject.toml
 
 # Copy application code
 COPY src/ ./src/
@@ -170,7 +169,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD python3.11 -c "import pjsua2; import torch; assert torch.cuda.is_available(), 'CUDA not available'; print('OK')" || exit 1
+    CMD python3.9 -c "import pjsua2; import torch; print('PyTorch:', torch.__version__); print('CUDA:', torch.cuda.is_available()); print('OK')" || exit 1
 
 # Persistent volumes
 VOLUME ["/app/recordings", "/app/assets/audio"]
@@ -182,7 +181,7 @@ EXPOSE 5060/udp 10000-20000/udp
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
 # Run the voicebot
-CMD ["sh", "-c", "python3.11 /app/src/pjsua_bot/register_bot.py \
+CMD ["sh", "-c", "python3.9 /app/src/pjsua_bot/register_bot.py \
     --user \"${SIP_USER}\" \
     --auth-user \"${SIP_AUTH_USER:-${SIP_USER}}\" \
     --password \"${SIP_PASSWORD}\" \
