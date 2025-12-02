@@ -19,7 +19,11 @@ class TestFAQConfig:
                 continue
             assert isinstance(config, dict)
             # Check for common keys (at least one should exist)
-            assert "keywords" in config or "questions" in config or "response_text" in config
+            assert (
+                "keywords" in config
+                or "questions" in config
+                or "response_text" in config
+            )
 
     def test_get_faq_system_prompt_default(self) -> None:
         """Test getting system prompt with default FAQs."""
@@ -31,7 +35,9 @@ class TestFAQConfig:
 
     def test_get_faq_system_prompt_custom(self) -> None:
         """Test getting system prompt with custom FAQs."""
-        custom_faqs = {
+        from typing import Any, Dict
+
+        custom_faqs: Dict[str, Dict[str, Any]] = {
             "test_intent": {
                 "keywords": ["test"],
                 "questions": ["Test question?"],
@@ -84,4 +90,3 @@ class TestFAQConfig:
         # Should mention default but not list it as an available intent
         # (it's mentioned as fallback)
         assert "default" in prompt.lower()
-

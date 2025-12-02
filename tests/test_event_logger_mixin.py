@@ -1,7 +1,5 @@
 """Tests for EventLoggerMixin."""
 
-from unittest.mock import Mock
-
 from pjsua_bot.calls.mixins.event_logger import EventLoggerMixin
 
 
@@ -11,7 +9,7 @@ class MockCall(EventLoggerMixin):
     def __init__(self) -> None:
         self._init_event_logger()
 
-    def getId(self) -> int:
+    def get_id(self) -> int:
         """Mock getId method."""
         return 123
 
@@ -59,4 +57,3 @@ class TestEventLoggerMixin:
         assert len(call._collected_events) == 1
         event = call._collected_events[0]
         assert event["call_id"] == "unknown"
-

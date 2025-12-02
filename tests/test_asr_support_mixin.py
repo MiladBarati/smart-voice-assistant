@@ -1,6 +1,6 @@
 """Tests for ASRSupportMixin."""
 
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 from pjsua_bot.calls.mixins.asr_support import ASRSupportMixin
 
@@ -62,4 +62,3 @@ class TestASRSupportMixin:
         assert call._asr_enabled is True
         assert call._asr == mock_asr_service
         assert call._asr_available is False
-

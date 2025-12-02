@@ -1,5 +1,6 @@
 """Tests for IntentHandlerMixin."""
 
+from typing import Any
 from unittest.mock import Mock, patch
 
 from pjsua_bot.calls.mixins.intent_handler import IntentHandlerMixin
@@ -15,10 +16,9 @@ class MockCall(IntentHandlerMixin):
         self._asr_chunk_texts = []
         self._asr_lock = Mock()
         self._call_media = None
-        self._collect_event = Mock()
         self._init_intent_state()
 
-    def _collect_event(self, event_type: str, **kwargs) -> None:
+    def _collect_event(self, event_type: str, **kwargs: Any) -> None:
         """Mock collect event."""
         pass
 
@@ -69,4 +69,3 @@ class TestIntentHandlerMixin:
             call._setup_intent_classifier(mock_classifier)
             assert call._intent_classifier == mock_classifier
             assert call._intent_enabled is True
-

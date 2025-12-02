@@ -16,4 +16,3 @@ def teardown_torch_mock() -> None:
     """Remove mock torch module from sys.modules."""
     if "torch" in sys.modules and isinstance(sys.modules["torch"], Mock):
         del sys.modules["torch"]
-

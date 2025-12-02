@@ -2,7 +2,6 @@
 
 from unittest.mock import Mock, patch
 
-import pytest
 import requests
 
 from pjsua_bot.intent.ollama_classifier import OllamaClassifier
@@ -74,9 +73,7 @@ class TestOllamaClassifier:
                 mock_response = Mock()
                 mock_response.status_code = 200
                 mock_response.json.return_value = {
-                    "message": {
-                        "content": '{"intent": "greeting", "confidence": 0.95}'
-                    }
+                    "message": {"content": '{"intent": "greeting", "confidence": 0.95}'}
                 }
                 mock_post.return_value = mock_response
 
@@ -189,8 +186,7 @@ class TestOllamaClassifier:
                 mock_post.return_value = mock_response
 
                 with patch("builtins.print"):  # Suppress print output
-                    classifier = OllamaClassifier()
+                    OllamaClassifier()
                     # Preload should be called during init
                     # Check that post was called for preload
                     assert mock_post.called
-

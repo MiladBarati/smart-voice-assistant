@@ -383,4 +383,3 @@ class TestWaitUntil:
         wait_until(mock_ep, predicate, timeout_s=1.0)
         # Should have called libHandleEvents at least once
         assert mock_ep.libHandleEvents.called
-

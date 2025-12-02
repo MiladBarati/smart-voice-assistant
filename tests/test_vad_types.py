@@ -47,5 +47,7 @@ class TestVoiceChunk:
             duration_seconds=2.5,
             sample_rate=16000,
         )
-        assert chunk.end_time_monotonic - chunk.start_time_monotonic == chunk.duration_seconds
-
+        assert (
+            chunk.end_time_monotonic - chunk.start_time_monotonic
+            == chunk.duration_seconds
+        )

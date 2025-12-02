@@ -4,26 +4,21 @@ import os
 import sys
 import tempfile
 import wave
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
-import pytest
+from pjsua_bot.asr import ASRConfig, ASRService, TranscriptionResult
 
-from pjsua_bot.asr import (
-    ASRConfig,
-    ASRService,
-    TranscriptionResult,
-    _OMNILINGUAL_AVAILABLE,
-)
 
 # Helper to mock torch
-def _mock_torch():
+def _mock_torch() -> Mock:
     """Create and register mock torch module."""
     mock_torch = Mock()
     mock_torch.cuda.is_available.return_value = False
     sys.modules["torch"] = mock_torch
     return mock_torch
 
-def _unmock_torch():
+
+def _unmock_torch() -> None:
     """Remove mock torch from sys.modules."""
     if "torch" in sys.modules and isinstance(sys.modules["torch"], Mock):
         del sys.modules["torch"]
@@ -211,7 +206,8 @@ class TestASRService:
                     service = ASRService()
                     duration = service._get_audio_duration(tmp.name)
                     assert duration is not None
-                    # Should be approximately 1 second (32000 bytes / 2 bytes per frame / 16000 frames per second)
+                    # Should be approximately 1 second
+                    # (32000 bytes / 2 bytes per frame / 16000 frames per second)
                     assert abs(duration - 1.0) < 0.1  # Allow small tolerance
             finally:
                 os.unlink(tmp.name)
@@ -238,7 +234,9 @@ class TestASRService:
     @patch("pjsua_bot.asr.ASRInferencePipeline")
     @patch("pjsua_bot.asr._OMNILINGUAL_AVAILABLE", True)
     @patch("builtins.print")
-    def test_transcribe_success(self, mock_print: Mock, mock_pipeline_class: Mock) -> None:
+    def test_transcribe_success(
+        self, mock_print: Mock, mock_pipeline_class: Mock
+    ) -> None:
         """Test successful transcription."""
         mock_pipeline = Mock()
         mock_pipeline.transcribe.return_value = ["Hello world"]
@@ -287,7 +285,9 @@ class TestASRService:
     @patch("pjsua_bot.asr._OMNILINGUAL_AVAILABLE", True)
     @patch("builtins.print")
     @patch("time.sleep")
-    def test_transcribe_with_retry(self, mock_sleep: Mock, mock_print: Mock, mock_pipeline_class: Mock) -> None:
+    def test_transcribe_with_retry(
+        self, mock_sleep: Mock, mock_print: Mock, mock_pipeline_class: Mock
+    ) -> None:
         """Test transcription with retry logic."""
         mock_pipeline = Mock()
         # First call fails, second succeeds
@@ -358,7 +358,7 @@ class TestASRService:
 
         audio_files = []
         try:
-            for i in range(2):
+            for _i in range(2):
                 tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
                 with wave.open(tmp.name, "wb") as wf:
                     wf.setnchannels(1)
@@ -392,7 +392,7 @@ class TestASRService:
 
         audio_files = []
         try:
-            for i in range(3):
+            for _i in range(3):
                 tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
                 with wave.open(tmp.name, "wb") as wf:
                     wf.setnchannels(1)
@@ -426,7 +426,7 @@ class TestASRService:
 
         audio_files = []
         try:
-            for i in range(2):
+            for _i in range(2):
                 tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
                 with wave.open(tmp.name, "wb") as wf:
                     wf.setnchannels(1)
@@ -442,6 +442,8 @@ class TestASRService:
                 results = service.transcribe_batch(audio_files, languages=languages)
 
                 assert len(results) == 2
+                assert results[0] is not None
+                assert results[1] is not None
                 assert results[0].language == "eng_Latn"
                 assert results[1].language == "fas_Arab"
             finally:
@@ -509,4 +511,3 @@ class TestASRService:
             assert info["load_error"] is None
         finally:
             _unmock_torch()
-

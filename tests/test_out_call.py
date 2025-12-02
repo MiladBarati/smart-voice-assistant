@@ -1,8 +1,7 @@
 """Tests for OutCall class."""
 
+from typing import Any
 from unittest.mock import Mock, patch
-
-import pytest
 
 from pjsua_bot.calls.out_call import OutCall
 
@@ -66,7 +65,7 @@ class TestOutCall:
         with patch("pjsua_bot.calls.out_call.pj.Call.__init__"):
             call = OutCall(mock_account)
             call.getId = Mock(return_value=123)  # Mock getId
-            call._player = Mock()  # Set a player
+            call._player: Any = Mock()  # Set a player
 
             mock_info = Mock()
             mock_info.state = 5  # PJSIP_INV_STATE_DISCONNECTED
@@ -236,7 +235,9 @@ class TestOutCall:
             mock_info.media = [mock_media]
 
             with patch.object(call, "getInfo", return_value=mock_info):
-                with patch.object(call, "getAudioMedia", side_effect=Exception("Error")):
+                with patch.object(
+                    call, "getAudioMedia", side_effect=Exception("Error")
+                ):
                     with patch("pjsua_bot.calls.out_call.pj") as mock_pj:
                         mock_pj.PJMEDIA_TYPE_AUDIO = 0
                         mock_pj.PJSUA_CALL_MEDIA_ACTIVE = 1
@@ -250,4 +251,3 @@ class TestOutCall:
                                 e["event_type"] for e in call._collected_events
                             ]
                             assert "media_error" in event_types
-

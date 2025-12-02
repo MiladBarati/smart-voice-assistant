@@ -5,9 +5,8 @@ import sys
 import tempfile
 import time
 import wave
+from typing import Any
 from unittest.mock import Mock, patch
-
-import pytest
 
 from pjsua_bot.calls.goodbye import GoodbyePlaybackMixin
 
@@ -19,10 +18,10 @@ class MockCall(GoodbyePlaybackMixin):
         self._acc_ref = Mock()
         self._acc_ref.goodbye_file = None
         self._acc_ref.waiting_file = None
-        self._call_media = None
+        self._call_media: Any | None = None
         self._vad = None
         self._mixed_recorder = None
-        self._collected_events = []
+        self._collected_events: list[dict[str, Any]] = []
         self.init_goodbye_state()
 
 
@@ -82,7 +81,7 @@ class TestGoodbyePlaybackMixin:
             try:
                 call = MockCall()
                 call._acc_ref.goodbye_file = tmp.name
-                call._call_media = Mock()
+                call._call_media = Mock()  # type: ignore[assignment]
 
                 mock_player = Mock()
                 mock_pj_module = Mock()
@@ -97,7 +96,8 @@ class TestGoodbyePlaybackMixin:
                 # Patch pjsua2 in sys.modules before the import happens
                 sys.modules["pjsua2"] = mock_pj_module
                 try:
-                    # Patch get_wav_duration at the utils module level (where it's imported from)
+                    # Patch get_wav_duration at the utils module level
+                    # (where it's imported from)
                     with patch("pjsua_bot.utils.get_wav_duration", return_value=1.0):
                         with patch("builtins.print"):  # Suppress print output
                             call._play_goodbye_message()
@@ -109,7 +109,9 @@ class TestGoodbyePlaybackMixin:
                             mock_player.startTransmit.assert_called()
                 finally:
                     # Clean up
-                    if "pjsua2" in sys.modules and isinstance(sys.modules["pjsua2"], Mock):
+                    if "pjsua2" in sys.modules and isinstance(
+                        sys.modules["pjsua2"], Mock
+                    ):
                         del sys.modules["pjsua2"]
             finally:
                 if os.path.exists(tmp.name):
@@ -188,7 +190,7 @@ class TestGoodbyePlaybackMixin:
             try:
                 call = MockCall()
                 call._acc_ref.waiting_file = tmp.name
-                call._call_media = Mock()
+                call._call_media = Mock()  # type: ignore[assignment]
 
                 mock_player = Mock()
                 mock_pj_module = Mock()
@@ -203,7 +205,8 @@ class TestGoodbyePlaybackMixin:
                 # Patch pjsua2 in sys.modules before the import happens
                 sys.modules["pjsua2"] = mock_pj_module
                 try:
-                    # Patch get_wav_duration at the utils module level (where it's imported from)
+                    # Patch get_wav_duration at the utils module level
+                    # (where it's imported from)
                     with patch("pjsua_bot.utils.get_wav_duration", return_value=1.0):
                         with patch("builtins.print"):  # Suppress print output
                             call._play_waiting_message()
@@ -213,7 +216,9 @@ class TestGoodbyePlaybackMixin:
                             mock_player.createPlayer.assert_called_once()
                 finally:
                     # Clean up
-                    if "pjsua2" in sys.modules and isinstance(sys.modules["pjsua2"], Mock):
+                    if "pjsua2" in sys.modules and isinstance(
+                        sys.modules["pjsua2"], Mock
+                    ):
                         del sys.modules["pjsua2"]
             finally:
                 if os.path.exists(tmp.name):
@@ -261,4 +266,3 @@ class TestGoodbyePlaybackMixin:
         call.check_waiting_status()
         # Should not finish yet
         assert call._waiting_playback_finished is False
-

@@ -2,8 +2,6 @@
 
 from unittest.mock import Mock, patch
 
-import pytest
-
 from pjsua_bot.account import Account
 
 
@@ -103,7 +101,7 @@ class TestAccount:
             mock_prm.callId = 123
 
             with patch("pjsua_bot.calls.AnyCall", return_value=mock_call):
-                with patch("pjsua_bot.account.pj.CallOpParam") as mock_op_param:
+                with patch("pjsua_bot.account.pj.CallOpParam"):
                     with patch("builtins.print"):  # Suppress print output
                         account.onIncomingCall(mock_prm)
 
@@ -113,7 +111,9 @@ class TestAccount:
 
                         # Check events
                         assert len(account._collected_events) >= 1
-                        event_types = [e["event_type"] for e in account._collected_events]
+                        event_types = [
+                            e["event_type"] for e in account._collected_events
+                        ]
                         assert "incoming_call" in event_types
                         assert "call_answered" in event_types
 
@@ -133,7 +133,7 @@ class TestAccount:
             mock_prm.callId = 456
 
             with patch("pjsua_bot.calls.AnyCall", return_value=mock_call):
-                with patch("pjsua_bot.account.pj.CallOpParam") as mock_op_param:
+                with patch("pjsua_bot.account.pj.CallOpParam"):
                     with patch("builtins.print"):  # Suppress print output
                         account.onIncomingCall(mock_prm)
 
@@ -142,7 +142,9 @@ class TestAccount:
 
                         # Check events
                         assert len(account._collected_events) >= 1
-                        event_types = [e["event_type"] for e in account._collected_events]
+                        event_types = [
+                            e["event_type"] for e in account._collected_events
+                        ]
                         assert "incoming_call" in event_types
                         assert "call_ringing" in event_types
 
@@ -183,4 +185,3 @@ class TestAccount:
                     assert len(account._collected_events) >= 1
                     event_types = [e["event_type"] for e in account._collected_events]
                     assert "call_error" in event_types
-

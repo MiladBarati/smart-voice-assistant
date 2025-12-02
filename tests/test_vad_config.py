@@ -41,4 +41,3 @@ class TestVADConfig:
         assert config.min_chunk_duration_sec == 3.0
         assert config.min_silence_for_boundary_sec == 1.0
         assert config.keep_wav_for_asr is True
-

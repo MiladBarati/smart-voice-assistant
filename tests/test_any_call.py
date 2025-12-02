@@ -2,8 +2,6 @@
 
 from unittest.mock import Mock, patch
 
-import pytest
-
 from pjsua_bot.calls.any_call import AnyCall
 
 
@@ -180,4 +178,3 @@ class TestAnyCall:
 
             # Check intent-related attributes are initialized
             assert hasattr(call, "_intent_results") or call._intent_results is not None
-

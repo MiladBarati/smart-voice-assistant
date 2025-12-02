@@ -2,8 +2,6 @@
 
 from unittest.mock import Mock, patch
 
-import pytest
-
 from pjsua_bot.elasticsearch_client import ElasticsearchLogger
 
 
@@ -20,7 +18,9 @@ class TestElasticsearchLoggerExtended:
         mock_client.ping.return_value = True
         mock_client.index.return_value = {"_id": "test-id", "_index": "test-index"}
 
-        with patch("pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client):
+        with patch(
+            "pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client
+        ):
             client = ElasticsearchLogger()
             client.connected = False  # Simulate disconnected state
 
@@ -43,7 +43,9 @@ class TestElasticsearchLoggerExtended:
         mock_client.ping.return_value = True
         mock_client.index.return_value = {"_id": "test-id", "_index": "test-index"}
 
-        with patch("pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client):
+        with patch(
+            "pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client
+        ):
             client = ElasticsearchLogger()
             client.connected = True
 
@@ -74,7 +76,9 @@ class TestElasticsearchLoggerExtended:
         # ConnectionError expects (message, errors, info) tuple
         mock_client.index.side_effect = ConnectionError("Connection failed", {}, {})
 
-        with patch("pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client):
+        with patch(
+            "pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client
+        ):
             client = ElasticsearchLogger()
             client.connected = True
 
@@ -94,7 +98,9 @@ class TestElasticsearchLoggerExtended:
         mock_client.ping.return_value = True
         mock_client.index.side_effect = RequestError("Request failed", {}, {})
 
-        with patch("pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client):
+        with patch(
+            "pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client
+        ):
             client = ElasticsearchLogger()
             client.connected = True
 
@@ -111,7 +117,9 @@ class TestElasticsearchLoggerExtended:
         mock_client.ping.return_value = True
         mock_client.index.return_value = {"_id": "test-id", "_index": "test-index"}
 
-        with patch("pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client):
+        with patch(
+            "pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client
+        ):
             client = ElasticsearchLogger()
             client.connected = True
 
@@ -137,7 +145,9 @@ class TestElasticsearchLoggerExtended:
         mock_client.ping.return_value = True
         mock_client.index.side_effect = Exception("Index error")
 
-        with patch("pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client):
+        with patch(
+            "pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client
+        ):
             client = ElasticsearchLogger()
             client.connected = True
 
@@ -160,7 +170,9 @@ class TestElasticsearchLoggerExtended:
         mock_client.ping.return_value = True
         mock_client.index.return_value = {"_id": "test-id", "_index": "test-index"}
 
-        with patch("pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client):
+        with patch(
+            "pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client
+        ):
             client = ElasticsearchLogger()
             client.connected = True
 
@@ -186,7 +198,9 @@ class TestElasticsearchLoggerExtended:
         mock_client.ping.return_value = True
         mock_client.index.side_effect = Exception("Index error")
 
-        with patch("pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client):
+        with patch(
+            "pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client
+        ):
             client = ElasticsearchLogger()
             client.connected = True
 
@@ -207,7 +221,9 @@ class TestElasticsearchLoggerExtended:
         mock_client.ping.return_value = True
         mock_client.index.return_value = {"_id": "test-id", "_index": "test-index"}
 
-        with patch("pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client):
+        with patch(
+            "pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client
+        ):
             client = ElasticsearchLogger()
             client.connected = True
 
@@ -233,7 +249,9 @@ class TestElasticsearchLoggerExtended:
         mock_client.ping.return_value = True
         mock_client.index.side_effect = Exception("Index error")
 
-        with patch("pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client):
+        with patch(
+            "pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client
+        ):
             client = ElasticsearchLogger()
             client.connected = True
 
@@ -261,7 +279,9 @@ class TestElasticsearchLoggerExtended:
             ],
         }
 
-        with patch("pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client):
+        with patch(
+            "pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client
+        ):
             client = ElasticsearchLogger()
             client.connected = True
 
@@ -282,7 +302,9 @@ class TestElasticsearchLoggerExtended:
         }
         mock_client.ping.return_value = True
 
-        with patch("pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client):
+        with patch(
+            "pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client
+        ):
             client = ElasticsearchLogger()
             client.connected = True
 
@@ -300,7 +322,9 @@ class TestElasticsearchLoggerExtended:
         mock_client.ping.return_value = True
         mock_client.bulk.side_effect = Exception("Bulk error")
 
-        with patch("pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client):
+        with patch(
+            "pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client
+        ):
             client = ElasticsearchLogger()
             client.connected = True
 
@@ -317,7 +341,9 @@ class TestElasticsearchLoggerExtended:
         }
         mock_client.ping.return_value = True
 
-        with patch("pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client):
+        with patch(
+            "pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client
+        ):
             client = ElasticsearchLogger()
             client.connected = True
             client.client = None  # Simulate no client
@@ -347,11 +373,12 @@ class TestElasticsearchLoggerExtended:
         mock_client.info.side_effect = Exception("Not connected")
         mock_client.ping.return_value = False
 
-        with patch("pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client):
+        with patch(
+            "pjsua_bot.elasticsearch_client.Elasticsearch", return_value=mock_client
+        ):
             client = ElasticsearchLogger()
             client.connected = False
 
             result = client.health_check()
             assert "status" in result
             assert result["status"] == "disconnected"
-

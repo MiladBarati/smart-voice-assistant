@@ -92,7 +92,7 @@ class SileroVAD:
                 f"torch/torchaudio not available: {_TORCH_ERROR or 'import failed'}"
             )
             return
-        
+
         # Try multiple loading strategies to handle PyTorch version compatibility issues
         loading_strategies = [
             # Strategy 1: Force reload with trust_repo (handles _construct errors)
@@ -124,24 +124,24 @@ class SileroVAD:
                 "name": "normal load (original)",
             },
         ]
-        
+
         last_error = None
         cache_cleared = False
-        
-        for idx, strategy in enumerate(loading_strategies):
+
+        for _idx, strategy in enumerate(loading_strategies):
             try:
-                # If we hit a _construct error in previous attempt, try clearing the cache once
-                if (
-                    last_error
-                    and "_construct" in str(last_error)
-                    and not cache_cleared
-                ):
+                # If we hit a _construct error in previous attempt,
+                # try clearing the cache once
+                if last_error and "_construct" in str(last_error) and not cache_cleared:
                     try:
                         import shutil
+
                         cache_dir = os.path.join(
                             os.path.expanduser("~"), ".cache", "torch", "hub"
                         )
-                        silero_cache = os.path.join(cache_dir, "snakers4_silero-vad_master")
+                        silero_cache = os.path.join(
+                            cache_dir, "snakers4_silero-vad_master"
+                        )
                         if os.path.exists(silero_cache):
                             print(
                                 "***VAD: clearing cached model due to _construct error"
@@ -151,10 +151,10 @@ class SileroVAD:
                             # After clearing cache, force reload on this attempt
                             strategy = strategy.copy()
                             strategy["force_reload"] = True
-                    except Exception as cache_error:
+                    except Exception:
                         # Ignore cache clearing errors
                         pass
-                
+
                 # Build kwargs for torch.hub.load
                 kwargs = {
                     "repo_or_dir": "snakers4/silero-vad",
@@ -166,12 +166,13 @@ class SileroVAD:
                 if strategy.get("trust_repo") and hasattr(torch.hub, "load"):
                     # Check if trust_repo parameter is supported
                     import inspect
+
                     sig = inspect.signature(torch.hub.load)
                     if "trust_repo" in sig.parameters:
                         kwargs["trust_repo"] = strategy["trust_repo"]
-                
+
                 model_result = torch.hub.load(**kwargs)
-                
+
                 # Handle both: model may be returned directly or as (model, utils)
                 if isinstance(model_result, tuple):
                     self._model = model_result[0]  # Extract model from tuple
@@ -187,12 +188,14 @@ class SileroVAD:
                 last_error = e
                 # Continue to next strategy
                 continue
-        
+
         # All strategies failed
         self._model = None
         self.available = False
         error_msg = str(last_error) if last_error else "unknown error"
-        self._load_error = f"model loading failed after trying all strategies: {error_msg}"
+        self._load_error = (
+            f"model loading failed after trying all strategies: {error_msg}"
+        )
 
     def _ensure_resampler(self, input_sr: int) -> Optional[Any]:
         if torch is None or torchaudio is None:

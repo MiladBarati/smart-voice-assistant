@@ -1,14 +1,6 @@
 """Tests for intent classifier."""
 
-from unittest.mock import Mock, patch
-
-import pytest
-
-from pjsua_bot.intent.classifier import (
-    IntentClassifier,
-    RuleBasedClassifier,
-    normalize_persian_text,
-)
+from pjsua_bot.intent.classifier import RuleBasedClassifier, normalize_persian_text
 
 
 class TestNormalizePersianText:
@@ -189,4 +181,3 @@ class TestRuleBasedClassifier:
         intent2, conf2, _ = classifier.classify("hello")
         # Both should match (case-insensitive)
         assert intent1 == intent2 == "greeting"
-
