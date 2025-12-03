@@ -97,12 +97,71 @@ class SileroVAD:
 
         self._load_model_if_possible()
 
+    def _load_onnx_model_direct(self) -> bool:
+        """Load ONNX model directly from Silero VAD releases, bypassing torch.hub.load.
+        
+        Returns True if successful, False otherwise.
+        """
+        if not _ONNXRUNTIME_AVAILABLE:
+            print("***VAD: ONNX Runtime not available for direct loading")
+            return False
+        
+        try:
+            import urllib.request
+            
+            # Silero VAD ONNX model URL (v4.0 - latest stable)
+            # Using the direct download link from Silero VAD releases
+            onnx_url = "https://github.com/snakers4/silero-vad/releases/download/v4.0/silero_vad.onnx"
+            cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "torch", "hub")
+            os.makedirs(cache_dir, exist_ok=True)
+            onnx_path = os.path.join(cache_dir, "silero_vad.onnx")
+            
+            # Download if not exists
+            if not os.path.exists(onnx_path):
+                print(f"***VAD: Downloading ONNX model from {onnx_url}")
+                print("***VAD: This may take a moment (model is ~1.5MB)...")
+                try:
+                    urllib.request.urlretrieve(onnx_url, onnx_path)
+                    print(f"***VAD: ONNX model downloaded successfully to {onnx_path}")
+                except Exception as download_error:
+                    print(f"***VAD: Failed to download ONNX model: {download_error}")
+                    return False
+            else:
+                print(f"***VAD: Using cached ONNX model at {onnx_path}")
+            
+            # Verify file exists and has content
+            if not os.path.exists(onnx_path) or os.path.getsize(onnx_path) == 0:
+                print(f"***VAD: ONNX model file is missing or empty at {onnx_path}")
+                return False
+            
+            # Load with ONNX Runtime
+            providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if torch and torch.cuda.is_available() else ['CPUExecutionProvider']
+            print(f"***VAD: Loading ONNX model with providers: {providers}")
+            self._onnx_session = onnxruntime.InferenceSession(onnx_path, providers=providers)
+            self._use_onnx = True
+            self.available = True
+            self._load_error = None
+            print(f"***VAD: ONNX model loaded successfully from {onnx_path}")
+            return True
+        except Exception as e:
+            print(f"***VAD: Failed to load ONNX model directly: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
     def _load_model_if_possible(self) -> None:
         if torch is None:
             self._load_error = (
                 f"torch/torchaudio not available: {_TORCH_ERROR or 'import failed'}"
             )
             return
+
+        # Try direct ONNX loading first (avoids torch.hub.load issues with PyTorch 2.8.0)
+        if _ONNXRUNTIME_AVAILABLE:
+            print("***VAD: Attempting direct ONNX model loading (bypassing torch.hub.load)...")
+            if self._load_onnx_model_direct():
+                return
+            print("***VAD: Direct ONNX loading failed, trying torch.hub.load strategies...")
 
         # Proactively clear cache for PyTorch 2.5+ to avoid _construct errors
         # This is a known issue with PyTorch 2.5+ and TorchScript models
@@ -177,8 +236,10 @@ class SileroVAD:
         last_error = None
         cache_cleared = False
 
-        for _idx, strategy in enumerate(loading_strategies):
+        for strategy_idx, strategy in enumerate(loading_strategies):
             try:
+                print(f"***VAD: Trying strategy {strategy_idx + 1}/{len(loading_strategies)}: {strategy['name']}")
+                
                 # If we hit a _construct error in previous attempt,
                 # try clearing the cache once
                 if last_error and "_construct" in str(last_error) and not cache_cleared:
@@ -221,12 +282,16 @@ class SileroVAD:
                         kwargs["trust_repo"] = strategy["trust_repo"]
 
                 model_result = torch.hub.load(**kwargs)
+                print(f"***VAD: torch.hub.load returned type: {type(model_result)}")
 
                 # Handle ONNX models differently
                 if strategy["onnx"]:
                     if not _ONNXRUNTIME_AVAILABLE:
                         # ONNX requested but runtime not available, skip this strategy
+                        print("***VAD: ONNX Runtime not available, skipping ONNX strategy")
                         raise ImportError("ONNX Runtime not available, skipping ONNX strategy")
+                    
+                    print(f"***VAD: Processing ONNX model result: {type(model_result)}")
                     
                     # For ONNX models, torch.hub.load may return:
                     # 1. A string path to the ONNX model file
@@ -278,6 +343,7 @@ class SileroVAD:
                     return
             except Exception as e:
                 last_error = e
+                print(f"***VAD: Strategy {strategy_idx + 1} failed: {type(e).__name__}: {e}")
                 # Continue to next strategy
                 continue
 
