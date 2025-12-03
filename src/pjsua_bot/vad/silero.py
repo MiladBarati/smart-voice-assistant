@@ -675,7 +675,8 @@ class SileroVAD:
 
         monotonic_time_fn: callable returning a monotonic time base (e.g., time.time())
         """
-        if not self.available or self._model is None:
+        # Check if model is available for inference (either TorchScript model or ONNX session)
+        if not self.available or (self._model is None and self._onnx_session is None):
             return
 
         chunk, input_sr = self.reader.read_new_frames()
