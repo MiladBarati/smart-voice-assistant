@@ -1,5 +1,6 @@
 # PJSUA2 SIP Registration & Call Bot
 
+
 A comprehensive Python toolkit for SIP/VoIP functionality using PJSUA2, including registration, outbound/inbound call handling, and automated audio playback.
 
 ## 📋 Table of Contents
