@@ -1,5 +1,5 @@
 # Stage 1: Build PJSIP (cached separately for faster rebuilds)
-FROM nvidia/cuda:12.8.0-cudnn8-devel-ubuntu22.04 AS pjsip-builder
+FROM nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04 AS pjsip-builder
 
 ARG PJSIP_VERSION=2.14
 
@@ -58,7 +58,7 @@ RUN mkdir -p /usr/local/lib/python3.11/site-packages && \
     python3.11 setup.py install
 
 # Stage 2: Final runtime image
-FROM nvidia/cuda:12.8.0-cudnn8-runtime-ubuntu22.04
+FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu22.04
 
 ARG PJSIP_VERSION=2.14
 
