@@ -131,6 +131,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system --python python3.11 soundfile>=0.12.1
 
+# Install onnxruntime-gpu for ONNX model support (avoids PyTorch 2.8.0 TorchScript compatibility issues)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system --python python3.11 onnxruntime-gpu>=1.16.0
+
 # Install all other dependencies from pyproject.toml
 # torch/torchaudio should be removed from pyproject.toml dependencies
 RUN --mount=type=cache,target=/root/.cache/uv \

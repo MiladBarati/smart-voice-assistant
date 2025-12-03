@@ -43,6 +43,15 @@ else:
 _TORCH_AVAILABLE = torch is not None and torchaudio is not None
 _TORCH_ERROR = None if _TORCH_AVAILABLE else _torch_error
 
+onnxruntime: Any
+try:
+    import onnxruntime as _onnxruntime_import
+except Exception as exc:  # pragma: no cover - optional dependency at runtime
+    onnxruntime = None
+else:
+    onnxruntime = _onnxruntime_import
+_ONNXRUNTIME_AVAILABLE = onnxruntime is not None
+
 
 class SileroVAD:
     """Incremental VAD over a growing WAV file recorded by PJSUA2.
@@ -62,6 +71,8 @@ class SileroVAD:
         self.wav_path = wav_path
         self.cfg = config or VADConfig()
         self._model: Any = None
+        self._onnx_session: Any = None  # ONNX Runtime session if using ONNX model
+        self._use_onnx: bool = False  # Flag to track if using ONNX model
         self._resampler = None
         self.last_speech_time_monotonic: Optional[float] = None
         self.available: bool = False
@@ -117,34 +128,49 @@ class SileroVAD:
             pass
 
         # Try multiple loading strategies to handle PyTorch version compatibility issues
+        # Prioritize ONNX to avoid PyTorch 2.8.0 TorchScript compatibility issues
         loading_strategies = [
-            # Strategy 1: Force reload with trust_repo (handles _construct errors)
+            # Strategy 1: ONNX with force reload (avoids TorchScript _construct errors)
+            {
+                "force_reload": True,
+                "trust_repo": True,
+                "onnx": True,
+                "name": "ONNX with force_reload (recommended for PyTorch 2.8.0+)",
+            },
+            # Strategy 2: ONNX normal load
+            {
+                "force_reload": False,
+                "trust_repo": True,
+                "onnx": True,
+                "name": "ONNX normal load",
+            },
+            # Strategy 3: TorchScript with force reload and trust_repo
             {
                 "force_reload": True,
                 "trust_repo": True,
                 "onnx": False,
-                "name": "force_reload with trust_repo",
+                "name": "TorchScript force_reload with trust_repo",
             },
-            # Strategy 2: Normal load with trust_repo
+            # Strategy 4: TorchScript normal load with trust_repo
             {
                 "force_reload": False,
                 "trust_repo": True,
                 "onnx": False,
-                "name": "normal load with trust_repo",
+                "name": "TorchScript normal load with trust_repo",
             },
-            # Strategy 3: Force reload without trust_repo (original)
+            # Strategy 5: TorchScript force reload without trust_repo (original)
             {
                 "force_reload": True,
                 "trust_repo": False,
                 "onnx": False,
-                "name": "force_reload (original)",
+                "name": "TorchScript force_reload (original)",
             },
-            # Strategy 4: Normal load (original fallback)
+            # Strategy 6: TorchScript normal load (original fallback)
             {
                 "force_reload": False,
                 "trust_repo": False,
                 "onnx": False,
-                "name": "normal load (original)",
+                "name": "TorchScript normal load (original)",
             },
         ]
 
@@ -196,17 +222,60 @@ class SileroVAD:
 
                 model_result = torch.hub.load(**kwargs)
 
-                # Handle both: model may be returned directly or as (model, utils)
-                if isinstance(model_result, tuple):
-                    self._model = model_result[0]  # Extract model from tuple
+                # Handle ONNX models differently
+                if strategy["onnx"]:
+                    if not _ONNXRUNTIME_AVAILABLE:
+                        # ONNX requested but runtime not available, skip this strategy
+                        raise ImportError("ONNX Runtime not available, skipping ONNX strategy")
+                    
+                    # For ONNX models, torch.hub.load may return:
+                    # 1. A string path to the ONNX model file
+                    # 2. A tuple (model_path, utils) 
+                    # 3. A callable wrapper that uses ONNX internally
+                    if isinstance(model_result, tuple):
+                        onnx_model_path = model_result[0]
+                    else:
+                        onnx_model_path = model_result
+                    
+                    # If it's a string path, load it with ONNX Runtime
+                    if isinstance(onnx_model_path, str) and os.path.exists(onnx_model_path):
+                        # Create ONNX Runtime session
+                        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if torch and torch.cuda.is_available() else ['CPUExecutionProvider']
+                        try:
+                            self._onnx_session = onnxruntime.InferenceSession(onnx_model_path, providers=providers)
+                            self._use_onnx = True
+                            self.available = True
+                            self._load_error = None
+                            print(f"***VAD: ONNX model loaded successfully using {strategy['name']} (from path: {onnx_model_path})")
+                            return
+                        except Exception as onnx_error:
+                            raise RuntimeError(f"Failed to create ONNX Runtime session: {onnx_error}")
+                    elif hasattr(model_result, '__call__'):
+                        # If it's already a callable model (ONNX wrapper), use it directly
+                        # Test if it works by checking if it has the expected interface
+                        self._model = model_result
+                        self._use_onnx = True
+                        self.available = True
+                        self._load_error = None
+                        print(f"***VAD: ONNX model loaded successfully using {strategy['name']} (callable wrapper)")
+                        return
+                    else:
+                        # Fall through to try next strategy
+                        raise ValueError(f"ONNX model result format not recognized: {type(model_result)}")
                 else:
-                    self._model = model_result
-                assert self._model is not None
-                self._model.eval()
-                self.available = True
-                self._load_error = None
-                print(f"***VAD: model loaded successfully using {strategy['name']}")
-                return
+                    # Handle TorchScript models (original logic)
+                    # Handle both: model may be returned directly or as (model, utils)
+                    if isinstance(model_result, tuple):
+                        self._model = model_result[0]  # Extract model from tuple
+                    else:
+                        self._model = model_result
+                    assert self._model is not None
+                    self._model.eval()
+                    self._use_onnx = False
+                    self.available = True
+                    self._load_error = None
+                    print(f"***VAD: model loaded successfully using {strategy['name']}")
+                    return
             except Exception as e:
                 last_error = e
                 # Continue to next strategy
@@ -741,12 +810,42 @@ class SileroVAD:
                 # Get current monotonic time for chunk boundary detection
                 current_monotonic_time = float(monotonic_time_fn_ref())
 
-                # Silero VAD requires: model(waveform_tensor, sample_rate_int)
+                # Silero VAD inference - handle both ONNX and TorchScript models
                 has_speech = False
                 try:
                     # Use the actual sample rate of the waveform
                     sample_rate = int(actual_sr)
-                    prob = self._model(frame, sample_rate).item()
+                    
+                    if self._use_onnx:
+                        if self._onnx_session is not None:
+                            # ONNX Runtime session inference
+                            # Convert frame to numpy array if it's a torch tensor
+                            if torch is not None and isinstance(frame, torch.Tensor):
+                                frame_np = frame.cpu().numpy()
+                            else:
+                                frame_np = frame
+                            
+                            # ONNX models expect input shape (batch, samples)
+                            # Silero VAD ONNX expects input shape (1, samples) for mono audio
+                            if len(frame_np.shape) == 1:
+                                frame_np = frame_np.reshape(1, -1)
+                            elif len(frame_np.shape) == 2 and frame_np.shape[0] > 1:
+                                # If it's (batch, samples) with batch > 1, take first
+                                frame_np = frame_np[0:1, :]
+                            
+                            # Get input name from ONNX model
+                            input_name = self._onnx_session.get_inputs()[0].name
+                            # Run inference
+                            outputs = self._onnx_session.run(None, {input_name: frame_np})
+                            prob = float(outputs[0][0])
+                        elif self._model is not None and hasattr(self._model, '__call__'):
+                            # ONNX callable wrapper (uses same interface as TorchScript)
+                            prob = self._model(frame, sample_rate).item()
+                        else:
+                            raise RuntimeError("ONNX model not properly initialized")
+                    else:
+                        # TorchScript model inference (original)
+                        prob = self._model(frame, sample_rate).item()
                 except Exception as e:
                     # Report error only occasionally to avoid spam
                     if not hasattr(self, "_last_model_error_time"):
