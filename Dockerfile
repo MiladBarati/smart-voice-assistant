@@ -78,6 +78,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     libspeexdsp-dev \
     libgsm1-dev \
     libsndfile1 \
+    ffmpeg \
     python3.11 \
     python3.11-dev \
     python3.11-distutils \

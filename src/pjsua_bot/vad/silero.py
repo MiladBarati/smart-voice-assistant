@@ -93,6 +93,29 @@ class SileroVAD:
             )
             return
 
+        # Proactively clear cache for PyTorch 2.5+ to avoid _construct errors
+        # This is a known issue with PyTorch 2.5+ and TorchScript models
+        try:
+            import shutil
+            torch_version = torch.__version__
+            # Check if PyTorch version is 2.5 or higher
+            major, minor = map(int, torch_version.split(".")[:2])
+            if major > 2 or (major == 2 and minor >= 5):
+                cache_dir = os.path.join(
+                    os.path.expanduser("~"), ".cache", "torch", "hub"
+                )
+                silero_cache = os.path.join(
+                    cache_dir, "snakers4_silero-vad_master"
+                )
+                if os.path.exists(silero_cache):
+                    print(
+                        f"***VAD: proactively clearing cached model for PyTorch {torch_version} compatibility"
+                    )
+                    shutil.rmtree(silero_cache, ignore_errors=True)
+        except Exception:
+            # Ignore cache clearing errors, continue with loading
+            pass
+
         # Try multiple loading strategies to handle PyTorch version compatibility issues
         loading_strategies = [
             # Strategy 1: Force reload with trust_repo (handles _construct errors)
