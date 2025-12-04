@@ -6,7 +6,9 @@ from dataclasses import dataclass
 @dataclass
 class VADConfig:
     target_sample_rate: int = 16000
-    threshold: float = 0.5  # Silero default
+    # Lower threshold for telephony audio, which is often low-level/noisy.
+    # If you see too many false positives, consider nudging this up to 0.2–0.25.
+    threshold: float = 0.15
     min_speech_duration_ms: int = 150
     min_silence_duration_ms: int = 100
     window_size_samples: int = 16000 // 10  # 100ms

@@ -73,6 +73,9 @@ class SileroVAD:
         self._model: Any = None
         self._onnx_session: Any = None  # ONNX Runtime session if using ONNX model
         self._use_onnx: bool = False  # Flag to track if using ONNX model
+        self._onnx_state: Any = None  # Combined hidden state for older ONNX models
+        self._onnx_h: Any = None  # Separate h state for newer ONNX models (v4/v5)
+        self._onnx_c: Any = None  # Separate c state for newer ONNX models (v4/v5)
         self._resampler = None
         self.last_speech_time_monotonic: Optional[float] = None
         self.available: bool = False
@@ -138,6 +141,35 @@ class SileroVAD:
             providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if torch and torch.cuda.is_available() else ['CPUExecutionProvider']
             print(f"***VAD: Loading ONNX model with providers: {providers}")
             self._onnx_session = onnxruntime.InferenceSession(onnx_path, providers=providers)
+            
+            # Print ONNX model input/output specifications for debugging
+            print("***VAD: ONNX model inputs:")
+            for inp in self._onnx_session.get_inputs():
+                print(f"  - {inp.name}: shape={inp.shape}, type={inp.type}")
+            print("***VAD: ONNX model outputs:")
+            for out in self._onnx_session.get_outputs():
+                print(f"  - {out.name}: shape={out.shape}, type={out.type}")
+            
+            # Initialize hidden states for stateful ONNX model
+            # Silero VAD ONNX may use separate h and c states or combined state
+            # Check the model inputs to determine the correct format
+            input_names = [inp.name for inp in self._onnx_session.get_inputs()]
+            if 'h' in input_names and 'c' in input_names:
+                # Separate h and c states (newer Silero VAD v4/v5)
+                # Shape is typically (2, 1, 64) for 16kHz
+                self._onnx_h = np.zeros((2, 1, 64), dtype=np.float32)
+                self._onnx_c = np.zeros((2, 1, 64), dtype=np.float32)
+                self._onnx_state = None
+                print(f"***VAD: Initialized ONNX h/c states with shape {self._onnx_h.shape}")
+            elif 'state' in input_names:
+                # Combined state (older versions)
+                self._onnx_state = np.zeros((2, 1, 128), dtype=np.float32)
+                self._onnx_h = None
+                self._onnx_c = None
+                print(f"***VAD: Initialized ONNX state with shape {self._onnx_state.shape}")
+            else:
+                print(f"***VAD: Warning - unknown state input names: {input_names}")
+            
             self._use_onnx = True
             self.available = True
             self._load_error = None
@@ -156,12 +188,13 @@ class SileroVAD:
             )
             return
 
-        # Try direct ONNX loading first (avoids torch.hub.load issues with PyTorch 2.8.0)
-        if _ONNXRUNTIME_AVAILABLE:
-            print("***VAD: Attempting direct ONNX model loading (bypassing torch.hub.load)...")
-            if self._load_onnx_model_direct():
-                return
-            print("***VAD: Direct ONNX loading failed, trying torch.hub.load strategies...")
+        # DEBUG: force TorchScript path and skip ONNX loading to rule out ONNX issues.
+        # If you want ONNX again later, re-enable the block below.
+        # if _ONNXRUNTIME_AVAILABLE:
+        #     print("***VAD: Attempting direct ONNX model loading (bypassing torch.hub.load)...")
+        #     if self._load_onnx_model_direct():
+        #         return
+        #     print("***VAD: Direct ONNX loading failed, trying torch.hub.load strategies...")
 
         # Proactively clear cache for PyTorch 2.5+ to avoid _construct errors
         # This is a known issue with PyTorch 2.5+ and TorchScript models
@@ -187,44 +220,30 @@ class SileroVAD:
             pass
 
         # Try multiple loading strategies to handle PyTorch version compatibility issues
-        # Prioritize ONNX to avoid PyTorch 2.8.0 TorchScript compatibility issues
+        # NOTE: We now force TorchScript strategies only (onnx=False) to avoid ONNX mismatch.
         loading_strategies = [
-            # Strategy 1: ONNX with force reload (avoids TorchScript _construct errors)
-            {
-                "force_reload": True,
-                "trust_repo": True,
-                "onnx": True,
-                "name": "ONNX with force_reload (recommended for PyTorch 2.8.0+)",
-            },
-            # Strategy 2: ONNX normal load
-            {
-                "force_reload": False,
-                "trust_repo": True,
-                "onnx": True,
-                "name": "ONNX normal load",
-            },
-            # Strategy 3: TorchScript with force reload and trust_repo
+            # Strategy 1: TorchScript with force reload and trust_repo
             {
                 "force_reload": True,
                 "trust_repo": True,
                 "onnx": False,
                 "name": "TorchScript force_reload with trust_repo",
             },
-            # Strategy 4: TorchScript normal load with trust_repo
+            # Strategy 2: TorchScript normal load with trust_repo
             {
                 "force_reload": False,
                 "trust_repo": True,
                 "onnx": False,
                 "name": "TorchScript normal load with trust_repo",
             },
-            # Strategy 5: TorchScript force reload without trust_repo (original)
+            # Strategy 3: TorchScript force reload without trust_repo (original)
             {
                 "force_reload": True,
                 "trust_repo": False,
                 "onnx": False,
                 "name": "TorchScript force_reload (original)",
             },
-            # Strategy 6: TorchScript normal load (original fallback)
+            # Strategy 4: TorchScript normal load (original fallback)
             {
                 "force_reload": False,
                 "trust_repo": False,
@@ -761,6 +780,12 @@ class SileroVAD:
             return
         waveform = torch.from_numpy(chunk).unsqueeze(0)  # (1, N)
 
+        # Apply a modest gain boost for low-level telephony audio.
+        # This helps Silero VAD see speech that otherwise looks very quiet.
+        # If this causes false positives, reduce the gain (e.g., 2.0) or disable.
+        gain = 3.0
+        waveform = (waveform * gain).clamp(-1.0, 1.0)
+
         # Determine the actual sample rate to use with the model
         # Silero VAD supports 8000 and 16000 Hz
         actual_sr = input_sr
@@ -886,9 +911,9 @@ class SileroVAD:
                             # ONNX Runtime session inference
                             # Convert frame to numpy array if it's a torch tensor
                             if torch is not None and isinstance(frame, torch.Tensor):
-                                frame_np = frame.cpu().numpy()
+                                frame_np = frame.cpu().numpy().astype(np.float32)
                             else:
-                                frame_np = frame
+                                frame_np = np.asarray(frame, dtype=np.float32)
                             
                             # ONNX models expect input shape (batch, samples)
                             # Silero VAD ONNX expects input shape (1, samples) for mono audio
@@ -898,11 +923,64 @@ class SileroVAD:
                                 # If it's (batch, samples) with batch > 1, take first
                                 frame_np = frame_np[0:1, :]
                             
-                            # Get input name from ONNX model
-                            input_name = self._onnx_session.get_inputs()[0].name
+                            # Prepare sample rate as int64
+                            sr_np = np.array(sample_rate, dtype=np.int64)
+                            
+                            # Debug: print audio stats occasionally
+                            if not hasattr(self, "_last_audio_stats_time"):
+                                self._last_audio_stats_time = 0.0
+                            import time as time_module
+                            if time_module.time() - self._last_audio_stats_time > 5.0:
+                                print(f"***VAD DEBUG: frame_np shape={frame_np.shape}, "
+                                      f"min={frame_np.min():.6f}, max={frame_np.max():.6f}, "
+                                      f"mean={frame_np.mean():.6f}, std={frame_np.std():.6f}, "
+                                      f"sr={sample_rate}")
+                                self._last_audio_stats_time = time_module.time()
+                            
+                            # Build input dict based on model's expected inputs
+                            input_names = [inp.name for inp in self._onnx_session.get_inputs()]
+                            
+                            if 'h' in input_names and 'c' in input_names:
+                                # Separate h and c states (Silero VAD v4/v5)
+                                if self._onnx_h is None:
+                                    self._onnx_h = np.zeros((2, 1, 64), dtype=np.float32)
+                                if self._onnx_c is None:
+                                    self._onnx_c = np.zeros((2, 1, 64), dtype=np.float32)
+                                
+                                onnx_inputs = {
+                                    'input': frame_np,
+                                    'h': self._onnx_h,
+                                    'c': self._onnx_c,
+                                    'sr': sr_np
+                                }
+                            else:
+                                # Combined state or other format
+                                if self._onnx_state is None:
+                                    self._onnx_state = np.zeros((2, 1, 128), dtype=np.float32)
+                                
+                                onnx_inputs = {
+                                    'input': frame_np,
+                                    'state': self._onnx_state,
+                                    'sr': sr_np
+                                }
+                            
                             # Run inference
-                            outputs = self._onnx_session.run(None, {input_name: frame_np})
+                            outputs = self._onnx_session.run(None, onnx_inputs)
+                            
+                            # outputs[0] is the probability
                             prob = float(outputs[0][0])
+                            
+                            # Update states for next frame (stateful model)
+                            if 'h' in input_names and 'c' in input_names:
+                                # Separate h and c outputs
+                                if len(outputs) > 1:
+                                    self._onnx_h = outputs[1]
+                                if len(outputs) > 2:
+                                    self._onnx_c = outputs[2]
+                            else:
+                                # Combined state output
+                                if len(outputs) > 1:
+                                    self._onnx_state = outputs[1]
                         elif self._model is not None and hasattr(self._model, '__call__'):
                             # ONNX callable wrapper (uses same interface as TorchScript)
                             prob = self._model(frame, sample_rate).item()
