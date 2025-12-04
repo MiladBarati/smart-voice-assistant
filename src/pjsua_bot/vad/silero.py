@@ -188,8 +188,8 @@ class SileroVAD:
             )
             return
 
-        # DEBUG: force TorchScript path and skip ONNX loading to rule out ONNX issues.
-        # If you want ONNX again later, re-enable the block below.
+        # DEBUG: Skip direct ONNX download - it loads wrong/old model version
+        # Use torch.hub.load with onnx=True instead (in loading_strategies below)
         # if _ONNXRUNTIME_AVAILABLE:
         #     print("***VAD: Attempting direct ONNX model loading (bypassing torch.hub.load)...")
         #     if self._load_onnx_model_direct():
@@ -220,30 +220,44 @@ class SileroVAD:
             pass
 
         # Try multiple loading strategies to handle PyTorch version compatibility issues
-        # NOTE: We now force TorchScript strategies only (onnx=False) to avoid ONNX mismatch.
+        # Try ONNX first (via torch.hub.load, not direct download) for PyTorch 2.5+ compatibility
         loading_strategies = [
-            # Strategy 1: TorchScript with force reload and trust_repo
+            # Strategy 1: ONNX with torch.hub.load (best for PyTorch 2.5+)
+            {
+                "force_reload": True,
+                "trust_repo": True,
+                "onnx": True,
+                "name": "ONNX via torch.hub force_reload",
+            },
+            # Strategy 2: ONNX normal load
+            {
+                "force_reload": False,
+                "trust_repo": True,
+                "onnx": True,
+                "name": "ONNX via torch.hub normal load",
+            },
+            # Strategy 3: TorchScript with force reload and trust_repo
             {
                 "force_reload": True,
                 "trust_repo": True,
                 "onnx": False,
                 "name": "TorchScript force_reload with trust_repo",
             },
-            # Strategy 2: TorchScript normal load with trust_repo
+            # Strategy 4: TorchScript normal load with trust_repo
             {
                 "force_reload": False,
                 "trust_repo": True,
                 "onnx": False,
                 "name": "TorchScript normal load with trust_repo",
             },
-            # Strategy 3: TorchScript force reload without trust_repo (original)
+            # Strategy 5: TorchScript force reload without trust_repo (original)
             {
                 "force_reload": True,
                 "trust_repo": False,
                 "onnx": False,
                 "name": "TorchScript force_reload (original)",
             },
-            # Strategy 4: TorchScript normal load (original fallback)
+            # Strategy 6: TorchScript normal load (original fallback)
             {
                 "force_reload": False,
                 "trust_repo": False,
@@ -423,7 +437,8 @@ class SileroVAD:
                 # For streaming files being written by PJSUA2, this might be normal
                 # If file is large enough (has data), we'll try reading it anyway
                 # The actual read will handle errors gracefully
-                if size > 1000:  # File has substantial data (more than just header)
+                # Wait for ~0.5s of 16kHz audio: 16000 Hz * 2 bytes * 0.5s = 16000 bytes
+                if size > 16000:  # File has substantial data (more than just header)
                     # Cache that we've seen it ready once to avoid repeated checks
                     if not hasattr(self, "_file_was_ready"):
                         self._file_was_ready = False
@@ -925,17 +940,6 @@ class SileroVAD:
                             
                             # Prepare sample rate as int64
                             sr_np = np.array(sample_rate, dtype=np.int64)
-                            
-                            # Debug: print audio stats occasionally
-                            if not hasattr(self, "_last_audio_stats_time"):
-                                self._last_audio_stats_time = 0.0
-                            import time as time_module
-                            if time_module.time() - self._last_audio_stats_time > 5.0:
-                                print(f"***VAD DEBUG: frame_np shape={frame_np.shape}, "
-                                      f"min={frame_np.min():.6f}, max={frame_np.max():.6f}, "
-                                      f"mean={frame_np.mean():.6f}, std={frame_np.std():.6f}, "
-                                      f"sr={sample_rate}")
-                                self._last_audio_stats_time = time_module.time()
                             
                             # Build input dict based on model's expected inputs
                             input_names = [inp.name for inp in self._onnx_session.get_inputs()]
