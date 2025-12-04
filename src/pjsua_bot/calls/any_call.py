@@ -111,6 +111,7 @@ class AnyCall(
 
     def _init_vad_state(self) -> None:
         self._vad = None
+        self._vad_available = False
         self._silence_after_speech_sec = float(
             getattr(self._acc_ref, "silence_after_speech_sec", 3)
         )

@@ -9,7 +9,7 @@ class MockCall(EventLoggerMixin):
     def __init__(self) -> None:
         self._init_event_logger()
 
-    def get_id(self) -> int:
+    def getId(self) -> int:
         """Mock getId method."""
         return 123
 

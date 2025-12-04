@@ -51,6 +51,7 @@ class IntentHandlerMixin:
         self._intent_response_duration = 0.0
         self._intent_response_stop_time = None
         self._intent_response_finished = False
+        self._intent_results = []
 
         if self._intent_enabled and self._intent_classifier:
             class_name = type(self._intent_classifier).__name__
