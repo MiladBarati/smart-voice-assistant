@@ -111,7 +111,7 @@ class SileroVAD:
             
             # Silero VAD ONNX model URL (v4.0 - latest stable)
             # Using the direct download link from Silero VAD releases
-            onnx_url = "https://github.com/snakers4/silero-vad/releases/download/v4.0/silero_vad.onnx"
+            onnx_url = "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx"
             cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "torch", "hub")
             os.makedirs(cache_dir, exist_ok=True)
             onnx_path = os.path.join(cache_dir, "silero_vad.onnx")
@@ -293,40 +293,38 @@ class SileroVAD:
                     
                     print(f"***VAD: Processing ONNX model result: {type(model_result)}")
                     
-                    # For ONNX models, torch.hub.load may return:
-                    # 1. A string path to the ONNX model file
-                    # 2. A tuple (model_path, utils) 
-                    # 3. A callable wrapper that uses ONNX internally
+                    # torch.hub.load with onnx=True returns (model, utils) tuple
+                    # where model is a callable ONNX wrapper
                     if isinstance(model_result, tuple):
-                        onnx_model_path = model_result[0]
+                        onnx_model = model_result[0]
+                        print(f"***VAD: Extracted model from tuple: {type(onnx_model)}")
                     else:
-                        onnx_model_path = model_result
+                        onnx_model = model_result
                     
-                    # If it's a string path, load it with ONNX Runtime
-                    if isinstance(onnx_model_path, str) and os.path.exists(onnx_model_path):
-                        # Create ONNX Runtime session
-                        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if torch and torch.cuda.is_available() else ['CPUExecutionProvider']
-                        try:
-                            self._onnx_session = onnxruntime.InferenceSession(onnx_model_path, providers=providers)
-                            self._use_onnx = True
-                            self.available = True
-                            self._load_error = None
-                            print(f"***VAD: ONNX model loaded successfully using {strategy['name']} (from path: {onnx_model_path})")
-                            return
-                        except Exception as onnx_error:
-                            raise RuntimeError(f"Failed to create ONNX Runtime session: {onnx_error}")
-                    elif hasattr(model_result, '__call__'):
-                        # If it's already a callable model (ONNX wrapper), use it directly
-                        # Test if it works by checking if it has the expected interface
-                        self._model = model_result
+                    # Check if it's a callable ONNX wrapper FIRST (most common case)
+                    # The ONNX model from torch.hub.load is a callable wrapper
+                    if hasattr(onnx_model, '__call__'):
+                        self._model = onnx_model
                         self._use_onnx = True
                         self.available = True
                         self._load_error = None
                         print(f"***VAD: ONNX model loaded successfully using {strategy['name']} (callable wrapper)")
                         return
+                    elif isinstance(onnx_model, str) and os.path.exists(onnx_model):
+                        # If it's a string path, load it with ONNX Runtime
+                        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if torch and torch.cuda.is_available() else ['CPUExecutionProvider']
+                        try:
+                            self._onnx_session = onnxruntime.InferenceSession(onnx_model, providers=providers)
+                            self._use_onnx = True
+                            self.available = True
+                            self._load_error = None
+                            print(f"***VAD: ONNX model loaded successfully using {strategy['name']} (from path: {onnx_model})")
+                            return
+                        except Exception as onnx_error:
+                            raise RuntimeError(f"Failed to create ONNX Runtime session: {onnx_error}")
                     else:
                         # Fall through to try next strategy
-                        raise ValueError(f"ONNX model result format not recognized: {type(model_result)}")
+                        raise ValueError(f"ONNX model result format not recognized: {type(onnx_model)}")
                 else:
                     # Handle TorchScript models (original logic)
                     # Handle both: model may be returned directly or as (model, utils)
