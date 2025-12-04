@@ -1,5 +1,5 @@
 # Stage 1: Build PJSIP (cached separately for faster rebuilds)
-FROM nvidia/cuda:12.1.0-cudnn8-devel-ubuntu22.04 AS pjsip-builder
+FROM nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04 AS pjsip-builder
 
 ARG PJSIP_VERSION=2.14
 
@@ -58,7 +58,7 @@ RUN mkdir -p /usr/local/lib/python3.11/site-packages && \
     python3.11 setup.py install
 
 # Stage 2: Final runtime image
-FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu22.04
 
 ARG PJSIP_VERSION=2.14
 
@@ -78,6 +78,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     libspeexdsp-dev \
     libgsm1-dev \
     libsndfile1 \
+    ffmpeg \
     python3.11 \
     python3.11-dev \
     python3.11-distutils \
@@ -118,17 +119,21 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 
-# CRITICAL: Install PyTorch with CUDA 12.1 support BEFORE other dependencies
-# This ensures CUDA version is locked and won't be overridden
+# CRITICAL: Install PyTorch with CUDA 12.8 support BEFORE other dependencies
+# Matching local environment exactly (2.8.0+cu128)
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system --python python3.11 --no-deps \
-    --index-url https://download.pytorch.org/whl/cu121 \
-    torch==2.5.1+cu121 \
-    torchaudio==2.5.1+cu121
+    --index-url https://download.pytorch.org/whl/cu128 \
+    torch==2.8.0+cu128 \
+    torchaudio==2.8.0+cu128
 
 # Install soundfile with bundled libsndfile (with cache)
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system --python python3.11 soundfile>=0.12.1
+
+# Install onnxruntime-gpu for ONNX model support (avoids PyTorch 2.8.0 TorchScript compatibility issues)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system --python python3.11 onnxruntime-gpu>=1.16.0
 
 # Install all other dependencies from pyproject.toml
 # torch/torchaudio should be removed from pyproject.toml dependencies
