@@ -271,24 +271,28 @@ class IntentHandlerMixin:
             self._intent_response_stop_time
             and current_time >= self._intent_response_stop_time
         ):
-            print(f"***Intent: stop time reached (current={current_time:.2f}, stop={self._intent_response_stop_time:.2f}, elapsed={current_time - (self._intent_response_stop_time - self._intent_response_duration):.2f}s)")
+            print(
+                f"***Intent: stop time reached (current={current_time:.2f}, stop={self._intent_response_stop_time:.2f}, elapsed={current_time - (self._intent_response_stop_time - self._intent_response_duration):.2f}s)"
+            )
             # Stop the player
             if self._intent_response_player:
                 try:
                     import pjsua2 as pj  # local import
-                    
+
                     # Stop all transmissions first
                     self._intent_response_player.stopTransmit(self._call_media)
                     print("***Intent: stopped player transmission to call media")
-                    
+
                     mixed_recorder = getattr(self, "_mixed_recorder", None)
                     if mixed_recorder:
                         try:
                             self._intent_response_player.stopTransmit(mixed_recorder)
-                            print("***Intent: stopped player transmission to mixed recorder")
+                            print(
+                                "***Intent: stopped player transmission to mixed recorder"
+                            )
                         except Exception:
                             pass
-                    
+
                     # Also stop the call media to playback transmission
                     # to break the audio path and prevent looping
                     try:
@@ -298,16 +302,16 @@ class IntentHandlerMixin:
                         print("***Intent: stopped call media to playback transmission")
                     except Exception:
                         pass
-                    
+
                     # Try to stop the player explicitly before destroying
                     try:
                         # Some PJSUA2 players have a stop() method
-                        if hasattr(self._intent_response_player, 'stop'):
+                        if hasattr(self._intent_response_player, "stop"):
                             self._intent_response_player.stop()
                             print("***Intent: called player.stop()")
                     except Exception:
                         pass  # stop() might not be available, that's OK
-                    
+
                     # Destroy the player to ensure it's fully stopped
                     self._intent_response_player = None
                     print("***Intent: response audio finished and player destroyed")

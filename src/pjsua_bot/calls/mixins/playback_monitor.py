@@ -73,6 +73,7 @@ class PlaybackMonitorMixin:
             except Exception as e:
                 print(f"***Intent: error in check_intent_response_status: {e}")
                 import traceback
+
                 traceback.print_exc()
 
         # Check if intent response finished and we should play goodbye
@@ -86,7 +87,7 @@ class PlaybackMonitorMixin:
         time_since_finished = (
             time.time() - intent_finished_time if intent_finished_time else float("inf")
         )
-        
+
         if (
             hasattr(self, "_intent_response_played")
             and getattr(self, "_intent_response_played", False)
@@ -98,7 +99,9 @@ class PlaybackMonitorMixin:
         ):
             try:
                 # Intent response finished and player is destroyed, now play goodbye
-                print("***Intent: response finished and player stopped, triggering goodbye message")
+                print(
+                    "***Intent: response finished and player stopped, triggering goodbye message"
+                )
                 self._play_goodbye_message()
             except Exception:
                 pass  # If check fails, continue normally
@@ -190,14 +193,12 @@ class PlaybackMonitorMixin:
         # Skip VAD processing if intent response finished
         # This prevents VAD from capturing audio after FAQ response and before hangup
         # Once FAQ response finishes, we transition directly to goodbye, so VAD should stop
-        intent_finished = (
-            hasattr(self, "_intent_response_finished")
-            and getattr(self, "_intent_response_finished", False)
+        intent_finished = hasattr(self, "_intent_response_finished") and getattr(
+            self, "_intent_response_finished", False
         )
-        goodbye_requested_or_playing = (
-            getattr(self, "_goodbye_requested", False)
-            or getattr(self, "_goodbye_playback_started", False)
-        )
+        goodbye_requested_or_playing = getattr(
+            self, "_goodbye_requested", False
+        ) or getattr(self, "_goodbye_playback_started", False)
 
         # If VAD is available, process new audio and handle silence
         # But skip if intent response finished (we're transitioning to goodbye/hangup)
@@ -420,12 +421,22 @@ class PlaybackMonitorMixin:
                             return False
                         # Additional check: ensure player is actually destroyed and enough time passed
                         intent_player = getattr(self, "_intent_response_player", None)
-                        intent_finished_flag = getattr(self, "_intent_response_finished", False)
-                        intent_finished_time = getattr(self, "_intent_response_finished_time", None)
-                        time_since_finished = (
-                            time.time() - intent_finished_time if intent_finished_time else 0.0
+                        intent_finished_flag = getattr(
+                            self, "_intent_response_finished", False
                         )
-                        if intent_player is not None or not intent_finished_flag or time_since_finished < 0.1:
+                        intent_finished_time = getattr(
+                            self, "_intent_response_finished_time", None
+                        )
+                        time_since_finished = (
+                            time.time() - intent_finished_time
+                            if intent_finished_time
+                            else 0.0
+                        )
+                        if (
+                            intent_player is not None
+                            or not intent_finished_flag
+                            or time_since_finished < 0.1
+                        ):
                             # Player still exists, not finished, or not enough time passed - wait
                             return False
                     except Exception:
@@ -466,18 +477,28 @@ class PlaybackMonitorMixin:
                             return False
                         # Additional check: ensure player is actually destroyed and enough time passed
                         intent_player = getattr(self, "_intent_response_player", None)
-                        intent_finished_flag = getattr(self, "_intent_response_finished", False)
-                        intent_finished_time = getattr(self, "_intent_response_finished_time", None)
-                        time_since_finished = (
-                            time.time() - intent_finished_time if intent_finished_time else 0.0
+                        intent_finished_flag = getattr(
+                            self, "_intent_response_finished", False
                         )
-                        if intent_player is not None or not intent_finished_flag or time_since_finished < 0.1:
+                        intent_finished_time = getattr(
+                            self, "_intent_response_finished_time", None
+                        )
+                        time_since_finished = (
+                            time.time() - intent_finished_time
+                            if intent_finished_time
+                            else 0.0
+                        )
+                        if (
+                            intent_player is not None
+                            or not intent_finished_flag
+                            or time_since_finished < 0.1
+                        ):
                             # Player still exists, not finished, or not enough time passed - wait
                             return False
                     except Exception:
                         # If check fails, don't assume finished - be safe and wait
                         return False
-            
+
             # Intent response finished (or not playing), now check goodbye
             # Don't trigger goodbye here - let check_playback_status() handle it with proper timing
             goodbye_file = getattr(self._acc_ref, "goodbye_file", None)
