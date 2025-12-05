@@ -2241,8 +2241,26 @@ def get_faq_system_prompt(faqs: Dict[str, Dict[str, Any]] | None = None) -> str:
             "You are an intent classifier. Analyze user questions and "
             "classify them into one of the following intents."
         ),
-        "You must respond with ONLY a JSON object in this exact format:",
-        '{"intent": "intent_name"}',
+        (
+            "Your ONLY job is to return the *name* of the best matching intent "
+            "from the list below."
+        ),
+        "",
+        "STRICT OUTPUT FORMAT (very important):",
+        "- Respond with ONLY a single JSON object, no prose, no explanations.",
+        '- The JSON MUST have exactly one key: "intent".',
+        '- The value MUST be one of the intent names listed below '
+        '(for example: "slow_computer" or "default").',
+        "",
+        "Valid examples:",
+        '  {"intent": "slow_computer"}',
+        '  {"intent": "default"}',
+        "",
+        "Invalid examples (DO NOT produce these):",
+        '  {"options": {"platform": "pc", "softwareName": "Windows"}, "intent": "slow_computer"}',
+        '  {"answer": "...", "intent": "slow_computer"}',
+        "  any text before or after the JSON (like ```json, explanation, etc.)",
+        '  {"messages": [...]}  # DO NOT return this schema',
         "",
         "Available intents:",
         "",
@@ -2270,12 +2288,14 @@ def get_faq_system_prompt(faqs: Dict[str, Dict[str, Any]] | None = None) -> str:
     prompt_parts.extend(intent_descriptions)
     prompt_parts.append("")
     prompt_parts.append(
-        'If the question does not match any intent, return: {"intent": "default"}'
+        'If the question does not match any intent, you MUST return exactly: '
+        '{"intent": "default"}'
     )
     prompt_parts.append("")
     prompt_parts.append(
         "IMPORTANT: Respond with ONLY the JSON object. "
-        "Do not include any other text or explanation."
+        "Do not include any other text, keys, or explanation. "
+        "If you respond with anything else, you are failing the task."
     )
 
     return "\n".join(prompt_parts)

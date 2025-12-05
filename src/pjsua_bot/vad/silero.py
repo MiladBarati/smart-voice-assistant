@@ -224,7 +224,7 @@ class SileroVAD:
         loading_strategies = [
             # Strategy 1: ONNX with torch.hub.load (best for PyTorch 2.5+)
             {
-                "force_reload": True,
+                "force_reload": False,
                 "trust_repo": True,
                 "onnx": True,
                 "name": "ONNX via torch.hub force_reload",

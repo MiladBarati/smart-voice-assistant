@@ -171,7 +171,11 @@ ENV PYTHONUNBUFFERED=1 \
     PYTORCH_JIT=0 \
     CUDA_VISIBLE_DEVICES=0 \
     NVIDIA_VISIBLE_DEVICES=all \
-    NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    INTENT_CLASSIFIER=ollama \
+    OLLAMA_URL=http://host.docker.internal:11434 \
+    OLLAMA_MODEL=qwen2.5:14b \
+    OLLAMA_USE_CPU=
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
@@ -206,4 +210,9 @@ CMD ["sh", "-c", "python3.11 /app/src/pjsua_bot/register_bot.py \
     --silence-after-speech-sec \"${SIP_SILENCE_AFTER_SPEECH_SEC:-3.0}\" \
     --vad-threshold \"${SIP_VAD_THRESHOLD:-0.5}\" \
     --goodbye-file \"/app/assets/audio/goodbye_voice.wav\" \
-    --enable-asr"]
+    --enable-asr \
+    --enable-intent \
+    --intent-classifier \"${INTENT_CLASSIFIER:-ollama}\" \
+    --ollama-url \"${OLLAMA_URL:-http://host.docker.internal:11434}\" \
+    --ollama-model \"${OLLAMA_MODEL:-qwen2.5:14b}\" \
+    ${OLLAMA_USE_CPU:+--ollama-use-cpu}"]

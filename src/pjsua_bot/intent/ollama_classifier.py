@@ -51,6 +51,12 @@ class OllamaClassifier(IntentClassifier):
         self.fallback_to_rule_based = fallback_to_rule_based
         self.use_cpu = use_cpu
 
+        # Log resolved endpoint/model for easier debugging of misconfiguration
+        print(
+            f"***Ollama: using endpoint={self.api_url} model={self.model} "
+            f"fallback_to_rule_based={self.fallback_to_rule_based} use_cpu={self.use_cpu}"
+        )
+
         # Increase timeout for CPU usage (CPU is slower)
         if use_cpu and timeout < 60:
             self.timeout = 60
@@ -61,8 +67,14 @@ class OllamaClassifier(IntentClassifier):
             # Subsequent requests will be faster
             self.timeout = max(timeout, 60)  # At least 60s for GPU model loading
 
-        # Build system prompt from FAQs
-        self.system_prompt = get_faq_system_prompt(self.faqs)
+        # Build a concise, strict system prompt to improve JSON compliance.
+        intent_names = [name for name in self.faqs.keys() if name != "default"]
+        intents_csv = ", ".join(intent_names + ["default"])
+        self.system_prompt = (
+            'Return exactly one JSON object with a single key "intent". '
+            f'Value must be one of: {intents_csv}. '
+            "No other keys. No other text."
+        )
 
         # Initialize fallback classifier if enabled
         self._fallback_classifier: Optional[RuleBasedClassifier] = None
@@ -102,6 +114,8 @@ class OllamaClassifier(IntentClassifier):
             options: Dict[str, Any] = {
                 # Disable thinking mode for faster responses
                 "enable_thinking": False,
+                # Force deterministic output to improve JSON adherence
+                "temperature": 0,
             }
             # Add device hint if requested
             # (though server-side OLLAMA_NUM_GPU takes precedence)
@@ -129,7 +143,7 @@ class OllamaClassifier(IntentClassifier):
                 print("***Ollama: empty response from API")
                 return "default", 0.0, self.faqs["default"]
 
-            print(f"***Ollama: received response: {answer_text[:100]}...")
+            print(f"***Ollama: received response: {answer_text}...")
 
             # Try to extract intent name from JSON response
             intent_name = self._extract_intent_from_response(answer_text)
@@ -139,9 +153,9 @@ class OllamaClassifier(IntentClassifier):
                 print(f"***Ollama: classified as '{intent_name}'")
                 return intent_name, confidence, self.faqs[intent_name]
             else:
-                # Invalid or unknown intent, return default
-                print(f"***Ollama: invalid intent '{intent_name}', using default")
-                return "default", 0.0, self.faqs["default"]
+                # Invalid or unknown intent; try rule-based fallback before defaulting
+                print(f"***Ollama: invalid intent '{intent_name}', using fallback")
+                return self._fallback_classify(transcription)
 
         except requests.exceptions.HTTPError as e:
             # Log detailed error information for HTTP errors (500, 404, etc.)
