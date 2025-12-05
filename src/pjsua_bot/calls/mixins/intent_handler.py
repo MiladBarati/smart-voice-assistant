@@ -34,6 +34,7 @@ class IntentHandlerMixin:
     _intent_response_duration: float = 0.0
     _intent_response_stop_time: float | None = None
     _intent_response_finished: bool = False
+    _intent_response_finished_time: float | None = None
 
     def _init_intent_state(self) -> None:
         """Initialize intent classification state."""
@@ -51,6 +52,7 @@ class IntentHandlerMixin:
         self._intent_response_duration = 0.0
         self._intent_response_stop_time = None
         self._intent_response_finished = False
+        self._intent_response_finished_time = None
         self._intent_results = []
 
         if self._intent_enabled and self._intent_classifier:
@@ -264,24 +266,55 @@ class IntentHandlerMixin:
             return True  # Already finished
 
         # Check if it's time to stop the intent response player
+        current_time = time.time()
         if (
             self._intent_response_stop_time
-            and time.time() >= self._intent_response_stop_time
+            and current_time >= self._intent_response_stop_time
         ):
+            print(f"***Intent: stop time reached (current={current_time:.2f}, stop={self._intent_response_stop_time:.2f}, elapsed={current_time - (self._intent_response_stop_time - self._intent_response_duration):.2f}s)")
             # Stop the player
             if self._intent_response_player:
                 try:
+                    import pjsua2 as pj  # local import
+                    
+                    # Stop all transmissions first
                     self._intent_response_player.stopTransmit(self._call_media)
+                    print("***Intent: stopped player transmission to call media")
+                    
                     mixed_recorder = getattr(self, "_mixed_recorder", None)
                     if mixed_recorder:
                         try:
                             self._intent_response_player.stopTransmit(mixed_recorder)
+                            print("***Intent: stopped player transmission to mixed recorder")
                         except Exception:
                             pass
+                    
+                    # Also stop the call media to playback transmission
+                    # to break the audio path and prevent looping
+                    try:
+                        adm = pj.Endpoint.instance().audDevManager()
+                        playback = adm.getPlaybackDevMedia()
+                        self._call_media.stopTransmit(playback)
+                        print("***Intent: stopped call media to playback transmission")
+                    except Exception:
+                        pass
+                    
+                    # Try to stop the player explicitly before destroying
+                    try:
+                        # Some PJSUA2 players have a stop() method
+                        if hasattr(self._intent_response_player, 'stop'):
+                            self._intent_response_player.stop()
+                            print("***Intent: called player.stop()")
+                    except Exception:
+                        pass  # stop() might not be available, that's OK
+                    
+                    # Destroy the player to ensure it's fully stopped
                     self._intent_response_player = None
-                    print("***Intent: response audio finished")
+                    print("***Intent: response audio finished and player destroyed")
                 except Exception as e:
                     print(f"***Intent: error stopping response player: {e}")
+                    # Even if there's an error, clear the player reference
+                    self._intent_response_player = None
 
                 # Stop tracking bot talk duration
                 if hasattr(self, "_stop_bot_playback_tracking"):
@@ -293,7 +326,19 @@ class IntentHandlerMixin:
                             f"tracking: {e}"
                         )
 
+                # Notify VAD that bot playback finished (intent response)
+                # This helps VAD know that we're transitioning to goodbye phase
+                if hasattr(self, "_vad") and getattr(self, "_vad", None):
+                    vad = getattr(self, "_vad", None)
+                    if vad and getattr(vad, "available", False):
+                        try:
+                            vad.set_bot_playback_state(False, time.time)
+                            print("***Intent: notified VAD that response finished")
+                        except Exception as e:
+                            print(f"***Intent: error notifying VAD: {e}")
+
             self._intent_response_finished = True
+            self._intent_response_finished_time = time.time()
             return True
 
         return False  # Still playing

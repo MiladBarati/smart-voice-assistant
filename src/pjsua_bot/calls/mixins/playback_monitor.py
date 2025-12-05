@@ -66,25 +66,40 @@ class PlaybackMonitorMixin:
     def check_playback_status(self) -> None:
         """Check if playback has finished and set hangup time if needed."""
         # Check intent response status (must be checked before goodbye)
+        intent_finished = False
         if hasattr(self, "check_intent_response_status"):
             try:
-                self.check_intent_response_status()
-            except Exception:
-                pass  # Ignore errors in intent status check
+                intent_finished = self.check_intent_response_status()
+            except Exception as e:
+                print(f"***Intent: error in check_intent_response_status: {e}")
+                import traceback
+                traceback.print_exc()
 
         # Check if intent response finished and we should play goodbye
+        # Only trigger goodbye if:
+        # 1. Intent response was played
+        # 2. Intent response is actually finished (not just checked)
+        # 3. Intent response player is destroyed (None)
+        # 4. At least 0.1 seconds have passed since intent response finished (ensures player fully stopped)
+        # 5. Goodbye hasn't been requested yet
+        intent_finished_time = getattr(self, "_intent_response_finished_time", None)
+        time_since_finished = (
+            time.time() - intent_finished_time if intent_finished_time else float("inf")
+        )
+        
         if (
             hasattr(self, "_intent_response_played")
             and getattr(self, "_intent_response_played", False)
-            and hasattr(self, "check_intent_response_status")
+            and intent_finished
+            and getattr(self, "_intent_response_finished", False)
+            and getattr(self, "_intent_response_player", None) is None
+            and time_since_finished >= 0.1  # Small delay to ensure player fully stopped
             and not getattr(self, "_goodbye_requested", False)
         ):
             try:
-                intent_finished = self.check_intent_response_status()
-                if intent_finished:
-                    # Intent response finished, now play goodbye
-                    print("***Intent: response finished, triggering goodbye message")
-                    self._play_goodbye_message()
+                # Intent response finished and player is destroyed, now play goodbye
+                print("***Intent: response finished and player stopped, triggering goodbye message")
+                self._play_goodbye_message()
             except Exception:
                 pass  # If check fails, continue normally
 
@@ -172,8 +187,28 @@ class PlaybackMonitorMixin:
                 # Clear stop time to prevent re-running this block
                 self._stop_player_time = None
 
+        # Skip VAD processing if intent response finished
+        # This prevents VAD from capturing audio after FAQ response and before hangup
+        # Once FAQ response finishes, we transition directly to goodbye, so VAD should stop
+        intent_finished = (
+            hasattr(self, "_intent_response_finished")
+            and getattr(self, "_intent_response_finished", False)
+        )
+        goodbye_requested_or_playing = (
+            getattr(self, "_goodbye_requested", False)
+            or getattr(self, "_goodbye_playback_started", False)
+        )
+
         # If VAD is available, process new audio and handle silence
-        if self._vad and self._vad.available and self._recording_file:
+        # But skip if intent response finished (we're transitioning to goodbye/hangup)
+        # or if goodbye is already playing
+        if (
+            self._vad
+            and self._vad.available
+            and self._recording_file
+            and not intent_finished
+            and not goodbye_requested_or_playing
+        ):
             try:
                 # Debug: confirm VAD is being called
                 if not hasattr(self, "_vad_called"):
@@ -383,20 +418,31 @@ class PlaybackMonitorMixin:
                         if not intent_finished:
                             # Intent response is still playing, wait for it to finish
                             return False
+                        # Additional check: ensure player is actually destroyed and enough time passed
+                        intent_player = getattr(self, "_intent_response_player", None)
+                        intent_finished_flag = getattr(self, "_intent_response_finished", False)
+                        intent_finished_time = getattr(self, "_intent_response_finished_time", None)
+                        time_since_finished = (
+                            time.time() - intent_finished_time if intent_finished_time else 0.0
+                        )
+                        if intent_player is not None or not intent_finished_flag or time_since_finished < 0.1:
+                            # Player still exists, not finished, or not enough time passed - wait
+                            return False
                     except Exception:
-                        # If check fails, assume intent is finished and proceed
-                        pass
+                        # If check fails, don't assume finished - be safe and wait
+                        return False
 
             # Intent response finished (or not playing), now check goodbye
+            # Don't trigger goodbye here - let check_playback_status() handle it with proper timing
             goodbye_file = getattr(self._acc_ref, "goodbye_file", None)
             if (
                 goodbye_file
                 and not self._goodbye_playback_finished
                 and not self._goodbye_requested
             ):
-                # ASR complete and intent response finished, need to play goodbye first
-                self._play_goodbye_message()
-                return False  # Don't hang up yet, goodbye is playing
+                # Goodbye needs to be played, but check_playback_status() will handle the trigger
+                # Just return False to indicate we're not ready to hang up yet
+                return False
             if self._goodbye_playback_finished:
                 # Goodbye finished, now we can hang up
                 return True
@@ -408,21 +454,46 @@ class PlaybackMonitorMixin:
 
         # Fallback: original hangup logic for cases without ASR or waiting voice
         if self._hangup_time and time.time() >= self._hangup_time:
-            # Check if we need to play goodbye message first
+            # First check if intent response is playing - wait for it to finish
+            if hasattr(self, "_intent_response_played") and getattr(
+                self, "_intent_response_played", False
+            ):
+                if hasattr(self, "check_intent_response_status"):
+                    try:
+                        intent_finished = self.check_intent_response_status()
+                        if not intent_finished:
+                            # Intent response is still playing, wait for it to finish
+                            return False
+                        # Additional check: ensure player is actually destroyed and enough time passed
+                        intent_player = getattr(self, "_intent_response_player", None)
+                        intent_finished_flag = getattr(self, "_intent_response_finished", False)
+                        intent_finished_time = getattr(self, "_intent_response_finished_time", None)
+                        time_since_finished = (
+                            time.time() - intent_finished_time if intent_finished_time else 0.0
+                        )
+                        if intent_player is not None or not intent_finished_flag or time_since_finished < 0.1:
+                            # Player still exists, not finished, or not enough time passed - wait
+                            return False
+                    except Exception:
+                        # If check fails, don't assume finished - be safe and wait
+                        return False
+            
+            # Intent response finished (or not playing), now check goodbye
+            # Don't trigger goodbye here - let check_playback_status() handle it with proper timing
             goodbye_file = getattr(self._acc_ref, "goodbye_file", None)
             if (
                 goodbye_file
                 and not self._goodbye_playback_finished
                 and not self._goodbye_requested
             ):
-                # Time to hang up, but need to play goodbye first
-                self._play_goodbye_message()
-                return False  # Don't hang up yet, goodbye is playing
+                # Goodbye needs to be played, but check_playback_status() will handle the trigger
+                # Just return False to indicate we're not ready to hang up yet
+                return False
             if self._goodbye_playback_finished:
                 # Goodbye finished, now we can hang up
                 return True
             if not goodbye_file:
-                # No goodbye file, hang up immediately
+                # No goodbye file, hang up immediately after intent response
                 return True
             # Goodbye is playing, wait for it to finish
             return False
