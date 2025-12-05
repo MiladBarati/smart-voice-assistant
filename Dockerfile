@@ -192,8 +192,8 @@ ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
 # Run the voicebot
 CMD ["sh", "-c", "python3.11 /app/src/pjsua_bot/register_bot.py \
-    --user \"${SIP_USER}\" \
-    --auth-user \"${SIP_AUTH_USER:-${SIP_USER}}\" \
+    --user \"${SIP_USER:-1004}\" \
+    --auth-user \"${SIP_AUTH_USER:-1004}\" \
     --password \"${SIP_PASSWORD}\" \
     --domain \"${SIP_DOMAIN}\" \
     --transport \"${SIP_TRANSPORT:-udp}\" \
