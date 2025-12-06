@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import pjsua2 as pj
 
 from ..utils import generate_unique_id
@@ -61,15 +63,11 @@ class AnyCall(
 
     def _start_bot_playback_tracking(self) -> None:
         """Start tracking bot playback duration."""
-        import time
-
         if self._bot_playback_start_time is None:
             self._bot_playback_start_time = time.time()
 
     def _stop_bot_playback_tracking(self) -> None:
         """Stop tracking bot playback duration and accumulate total."""
-        import time
-
         if self._bot_playback_start_time is not None:
             current_time = time.time()
             duration = current_time - self._bot_playback_start_time
@@ -79,8 +77,6 @@ class AnyCall(
 
     def _get_total_bot_talk_duration(self) -> float:
         """Get total bot talk duration including any ongoing session."""
-        import time
-
         total = self._total_bot_talk_duration
         if self._bot_playback_start_time is not None:
             current_time = time.time()
