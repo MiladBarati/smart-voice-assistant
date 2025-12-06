@@ -6,14 +6,14 @@ import json
 import re
 from typing import Any, Dict, Optional, Tuple
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 from pjsua_bot.intent.classifier import (
     IntentClassifier,
     RuleBasedClassifier,
     normalize_persian_text,
 )
-from pjsua_bot.intent.faq_config import FAQS, get_faq_system_prompt
+from pjsua_bot.intent.faq_config import FAQS
 
 
 class OllamaClassifier(IntentClassifier):
@@ -54,7 +54,8 @@ class OllamaClassifier(IntentClassifier):
         # Log resolved endpoint/model for easier debugging of misconfiguration
         print(
             f"***Ollama: using endpoint={self.api_url} model={self.model} "
-            f"fallback_to_rule_based={self.fallback_to_rule_based} use_cpu={self.use_cpu}"
+            f"fallback_to_rule_based={self.fallback_to_rule_based} "
+            f"use_cpu={self.use_cpu}"
         )
 
         # Increase timeout for CPU usage (CPU is slower)
@@ -72,7 +73,7 @@ class OllamaClassifier(IntentClassifier):
         intents_csv = ", ".join(intent_names + ["default"])
         self.system_prompt = (
             'Return exactly one JSON object with a single key "intent". '
-            f'Value must be one of: {intents_csv}. '
+            f"Value must be one of: {intents_csv}. "
             "No other keys. No other text."
         )
 
@@ -221,10 +222,10 @@ class OllamaClassifier(IntentClassifier):
                 f'"intent": "{intent_name}"' in response_text
                 or f"\"intent\":'{intent_name}'" in response_text
             ):
-                return intent_name
+                return str(intent_name)
             # Also check for just the intent name if it's clearly mentioned
             if f'"{intent_name}"' in response_text and intent_name != "default":
-                return intent_name
+                return str(intent_name)
 
         return None
 

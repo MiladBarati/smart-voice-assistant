@@ -1,6 +1,6 @@
 """FAQ configuration for intent classification - Persian/Farsi FAQs."""
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 # FAQ structure with Persian FAQs
 FAQS: Dict[str, Dict[str, Any]] = {
@@ -2224,7 +2224,7 @@ FAQS: Dict[str, Dict[str, Any]] = {
 }
 
 
-def get_faq_system_prompt(faqs: Dict[str, Dict[str, Any]] | None = None) -> str:
+def get_faq_system_prompt(faqs: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
     """Generate system prompt for Ollama to classify intents.
 
     Args:
@@ -2249,7 +2249,7 @@ def get_faq_system_prompt(faqs: Dict[str, Dict[str, Any]] | None = None) -> str:
         "STRICT OUTPUT FORMAT (very important):",
         "- Respond with ONLY a single JSON object, no prose, no explanations.",
         '- The JSON MUST have exactly one key: "intent".',
-        '- The value MUST be one of the intent names listed below '
+        "- The value MUST be one of the intent names listed below "
         '(for example: "slow_computer" or "default").',
         "",
         "Valid examples:",
@@ -2257,7 +2257,10 @@ def get_faq_system_prompt(faqs: Dict[str, Dict[str, Any]] | None = None) -> str:
         '  {"intent": "default"}',
         "",
         "Invalid examples (DO NOT produce these):",
-        '  {"options": {"platform": "pc", "softwareName": "Windows"}, "intent": "slow_computer"}',
+        (
+            '  {"options": {"platform": "pc", "softwareName": "Windows"}, '
+            '"intent": "slow_computer"}'
+        ),
         '  {"answer": "...", "intent": "slow_computer"}',
         "  any text before or after the JSON (like ```json, explanation, etc.)",
         '  {"messages": [...]}  # DO NOT return this schema',
@@ -2288,7 +2291,7 @@ def get_faq_system_prompt(faqs: Dict[str, Dict[str, Any]] | None = None) -> str:
     prompt_parts.extend(intent_descriptions)
     prompt_parts.append("")
     prompt_parts.append(
-        'If the question does not match any intent, you MUST return exactly: '
+        "If the question does not match any intent, you MUST return exactly: "
         '{"intent": "default"}'
     )
     prompt_parts.append("")

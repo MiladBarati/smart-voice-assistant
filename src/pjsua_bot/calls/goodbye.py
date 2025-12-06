@@ -7,7 +7,7 @@ methods. Intended to be used as a mixin alongside a `pj.Call` subclass.
 
 import os
 import time
-from typing import Any
+from typing import Any, Optional
 
 
 class GoodbyePlaybackMixin:
@@ -18,18 +18,18 @@ class GoodbyePlaybackMixin:
         self._goodbye_player: Any = None
         self._goodbye_playback_started: bool = False
         self._goodbye_playback_finished: bool = False
-        self._goodbye_stop_time: float | None = None
+        self._goodbye_stop_time: Optional[float] = None
         self._goodbye_requested: bool = False
         # Waiting voice playback state
         self._waiting_player: Any = None
         self._waiting_playback_started: bool = False
         self._waiting_playback_finished: bool = False
-        self._waiting_stop_time: float | None = None
+        self._waiting_stop_time: Optional[float] = None
         self._waiting_requested: bool = False
         # ASR completion tracking
         self._asr_complete: bool = False
         # Host-provided hangup scheduling timestamp
-        self._hangup_time: float | None = None
+        self._hangup_time: Optional[float] = None
 
     # The following methods expect the host class to define:
     #   - _acc_ref, _call_media, _vad, _collect_event, _hangup_time

@@ -5,7 +5,7 @@ import sys
 import threading
 import time
 from types import FrameType
-from typing import Any
+from typing import Any, Optional
 
 import pjsua2 as pj
 
@@ -347,7 +347,7 @@ def main() -> None:
     # Graceful shutdown on SIGINT/SIGTERM
     stopping = {"flag": False, "cleanup_done": False}
 
-    def _stop_handler(signum: int, frame: FrameType | None) -> None:
+    def _stop_handler(signum: int, frame: Optional[FrameType]) -> None:
         print(f"***Signal {signum}: stopping...")
         stopping["flag"] = True
 
@@ -602,6 +602,11 @@ def main() -> None:
                 print(f"***Intent init error: {e}")
                 acc._intent_classifier = None
                 acc.enable_intent = False
+
+        # Preload VAD model before registration (if enabled)
+        # This prevents blocking during calls when VAD is first initialized
+        if args.enable_vad:
+            acc._preload_vad()
 
         # Wait for registration with active event pumping
         print(f"***Waiting for registration (up to {args.wait_seconds}s)...")

@@ -69,7 +69,7 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 mypy_path = ["src"]
 explicit_package_bases = true
 plugins = []

@@ -194,7 +194,7 @@ def convert_recording_path_to_url(
     return f"{base_url}/{normalized_path}"
 
 
-def convert_wav_to_mp3(wav_path: str, delete_source: bool = True) -> str | None:
+def convert_wav_to_mp3(wav_path: str, delete_source: bool = True) -> Optional[str]:
     """Convert a WAV file to MP3 using ffmpeg if available.
 
     Returns the path to the generated MP3 on success, or None on failure.

@@ -6,7 +6,7 @@ Provides `_cleanup_recording` implementation extracted from the monolithic
 
 import os
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 from ..utils import convert_wav_to_mp3
 
@@ -16,30 +16,30 @@ class RecordingCleanupMixin:
 
     # Host-provided attributes (declared for type-checkers)
     _cleanup_done: bool
-    _vad: Any | None
-    _asr: Any | None
+    _vad: Optional[Any]
+    _asr: Optional[Any]
     _asr_chunk_texts: list[str]
     _last_transcribed_chunk_count: int
     _collect_event: Any
 
-    _recorder: Any | None
-    _recording_call_media: Any | None
-    _recording_start_time: datetime | None
+    _recorder: Optional[Any]
+    _recording_call_media: Optional[Any]
+    _recording_start_time: Optional[datetime]
     _recording_duration: float
     _recording_file: str
 
-    _outgoing_recorder: Any | None
-    _outgoing_recording_call_media: Any | None
-    _outgoing_recording_start_time: datetime | None
+    _outgoing_recorder: Optional[Any]
+    _outgoing_recording_call_media: Optional[Any]
+    _outgoing_recording_start_time: Optional[datetime]
     _outgoing_recording_duration: float
     _outgoing_recording_file: str
 
-    _mixed_recorder: Any | None
-    _mixed_recording_start_time: datetime | None
+    _mixed_recorder: Optional[Any]
+    _mixed_recording_start_time: Optional[datetime]
     _mixed_recording_duration: float
     _mixed_recording_file: str
-    _call_media: Any | None
-    _player: Any | None
+    _call_media: Optional[Any]
+    _player: Optional[Any]
 
     def _cleanup_recording(self) -> None:
         """Clean up recording resources safely."""

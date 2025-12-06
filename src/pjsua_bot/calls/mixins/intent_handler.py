@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import time
-from typing import TYPE_CHECKING, Any, Callable, Tuple
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple
 
 if TYPE_CHECKING:
     pass
@@ -19,22 +19,22 @@ class IntentHandlerMixin:
     _asr_available: bool
     _asr_chunk_texts: list[str]
     _asr_lock: Any  # threading.Lock from ASRSupportMixin
-    _call_media: Any | None
+    _call_media: Optional[Any]
     _collect_event: Callable[..., None]
 
     # Intent classification state
-    _intent_classifier: Any | None = None
+    _intent_classifier: Optional[Any] = None
     _intent_enabled: bool = False
     _intent_classified: bool = False
-    _classified_intent: str | None = None
+    _classified_intent: Optional[str] = None
     _intent_confidence: float = 0.0
     _intent_response_played: bool = False
-    _intent_response_player: Any | None = None
-    _intent_response_start_time: float | None = None
+    _intent_response_player: Optional[Any] = None
+    _intent_response_start_time: Optional[float] = None
     _intent_response_duration: float = 0.0
-    _intent_response_stop_time: float | None = None
+    _intent_response_stop_time: Optional[float] = None
     _intent_response_finished: bool = False
-    _intent_response_finished_time: float | None = None
+    _intent_response_finished_time: Optional[float] = None
 
     def _init_intent_state(self) -> None:
         """Initialize intent classification state."""
@@ -53,7 +53,7 @@ class IntentHandlerMixin:
         self._intent_response_stop_time = None
         self._intent_response_finished = False
         self._intent_response_finished_time = None
-        self._intent_results = []
+        self._intent_results: List[Any] = []
 
         if self._intent_enabled and self._intent_classifier:
             class_name = type(self._intent_classifier).__name__
@@ -271,8 +271,14 @@ class IntentHandlerMixin:
             self._intent_response_stop_time
             and current_time >= self._intent_response_stop_time
         ):
+            elapsed = current_time - (
+                self._intent_response_stop_time - self._intent_response_duration
+            )
             print(
-                f"***Intent: stop time reached (current={current_time:.2f}, stop={self._intent_response_stop_time:.2f}, elapsed={current_time - (self._intent_response_stop_time - self._intent_response_duration):.2f}s)"
+                f"***Intent: stop time reached "
+                f"(current={current_time:.2f}, "
+                f"stop={self._intent_response_stop_time:.2f}, "
+                f"elapsed={elapsed:.2f}s)"
             )
             # Stop the player
             if self._intent_response_player:
@@ -288,20 +294,24 @@ class IntentHandlerMixin:
                         try:
                             self._intent_response_player.stopTransmit(mixed_recorder)
                             print(
-                                "***Intent: stopped player transmission to mixed recorder"
+                                "***Intent: stopped player transmission "
+                                "to mixed recorder"
                             )
                         except Exception:
                             pass
 
                     # Also stop the call media to playback transmission
                     # to break the audio path and prevent looping
-                    try:
-                        adm = pj.Endpoint.instance().audDevManager()
-                        playback = adm.getPlaybackDevMedia()
-                        self._call_media.stopTransmit(playback)
-                        print("***Intent: stopped call media to playback transmission")
-                    except Exception:
-                        pass
+                    if self._call_media is not None:
+                        try:
+                            adm = pj.Endpoint.instance().audDevManager()
+                            playback = adm.getPlaybackDevMedia()
+                            self._call_media.stopTransmit(playback)
+                            print(
+                                "***Intent: stopped call media to playback transmission"
+                            )
+                        except Exception:
+                            pass
 
                     # Try to stop the player explicitly before destroying
                     try:
