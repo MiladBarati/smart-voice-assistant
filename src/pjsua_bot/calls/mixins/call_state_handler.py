@@ -354,6 +354,62 @@ class CallStateHandlerMixin:
                 except Exception as exc:
                     print(f"***Error collecting transcription: {exc}")
 
+                # Collect intent classification data if available
+                intent_data = None
+                try:
+                    intent_classified = getattr(self, "_intent_classified", False)
+                    if intent_classified:
+                        classified_intent = getattr(self, "_classified_intent", None)
+                        intent_confidence = getattr(self, "_intent_confidence", None)
+                        intent_response_played = getattr(
+                            self, "_intent_response_played", False
+                        )
+                        intent_response_duration = getattr(
+                            self, "_intent_response_duration", None
+                        )
+                        intent_response_finished_time = getattr(
+                            self, "_intent_response_finished_time", None
+                        )
+
+                        # Convert finished time from float timestamp to ISO format
+                        finished_time_iso = None
+                        if intent_response_finished_time:
+                            try:
+                                finished_time_iso = (
+                                    datetime.utcfromtimestamp(
+                                        intent_response_finished_time
+                                    ).isoformat()
+                                    + "Z"
+                                )
+                            except Exception:
+                                pass  # If conversion fails, leave as None
+
+                        intent_data = {
+                            "classified": intent_classified,
+                            "intent_name": classified_intent,
+                            "confidence": (
+                                round(intent_confidence, 3)
+                                if intent_confidence is not None
+                                else None
+                            ),
+                            "response_played": intent_response_played,
+                            "response_duration": (
+                                round(intent_response_duration, 2)
+                                if intent_response_duration is not None
+                                else None
+                            ),
+                            "response_finished_time": finished_time_iso,
+                        }
+
+                        if classified_intent:
+                            print(
+                                f"***Intent: including intent classification "
+                                f"in call record: '{classified_intent}' "
+                                f"(confidence: {intent_confidence:.2f})"
+                            )
+                except Exception as exc:
+                    print(f"***Error collecting intent data: {exc}")
+
                 call_record = {
                     "event_type": "call_record",
                     "call_id": generate_unique_id(),
@@ -397,10 +453,36 @@ class CallStateHandlerMixin:
                         if transcription_text
                         else None
                     ),
+                    "intent": intent_data if intent_data else None,
                     "host": socket.gethostname(),
                     "ingest_ts": datetime.utcnow().isoformat() + "Z",
                 }
                 es_logger.log_call_record(call_record)
+
+                # Send collected events (including intent events) to Elasticsearch
+                try:
+                    collected_events = getattr(self, "_collected_events", [])
+                    if collected_events:
+                        # Filter for intent-related events if needed, or send all events
+                        intent_events = [
+                            event
+                            for event in collected_events
+                            if event.get("event_type")
+                            in ("intent_classified", "intent_response_played")
+                        ]
+                        if intent_events:
+                            print(
+                                f"***Elasticsearch: sending {len(intent_events)} "
+                                f"intent events in batch"
+                            )
+                        if collected_events:
+                            es_logger.log_batch_events(collected_events)
+                            print(
+                                f"***Elasticsearch: sent {len(collected_events)} "
+                                f"collected events"
+                            )
+                except Exception as exc:
+                    print(f"***Error sending collected events: {exc}")
 
             except Exception as exc:
                 print(f"***Error sending single call record: {exc}")

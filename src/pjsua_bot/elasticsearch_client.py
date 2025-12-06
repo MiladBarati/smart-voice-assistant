@@ -514,6 +514,71 @@ class ElasticsearchLogger:
             self.logger.error(f"Error logging voice capture event: {e}")
             return False
 
+    def log_intent_event(
+        self,
+        event_type: str,
+        call_id: Optional[str] = None,
+        intent: Optional[str] = None,
+        confidence: Optional[float] = None,
+        audio_file: Optional[str] = None,
+        transcription_length: Optional[int] = None,
+        additional_data: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """
+        Log an intent classification event to Elasticsearch.
+
+        Args:
+            event_type: Type of event (e.g., 'intent_classified',
+                'intent_response_played')
+            call_id: Call identifier
+            intent: Classified intent name
+            confidence: Confidence score for the classification
+            audio_file: Path to the response audio file (for response_played events)
+            transcription_length: Length of transcription used for classification
+            additional_data: Additional data to include
+
+        Returns:
+            True if successfully logged, False otherwise
+        """
+        if not self.connected:
+            if not self._connect():
+                return False
+
+        try:
+            # Prepare document
+            doc = {
+                "@timestamp": datetime.utcnow().isoformat() + "Z",
+                "event_type": event_type,
+                "call_id": call_id,
+                "intent": intent,
+                "confidence": confidence,
+                "audio_file": audio_file,
+                "transcription_length": transcription_length,
+                "host": self.host,
+                "service": "pjsua2",
+            }
+
+            # Add additional data if provided
+            if additional_data:
+                doc.update(additional_data)
+
+            # Remove None values
+            doc = {k: v for k, v in doc.items() if v is not None}
+
+            # Index the document in unified index
+            index_name = self._get_index_name()
+            client = self.client
+            if client is None:
+                return False
+            response = client.index(index=index_name, document=doc, refresh=False)
+
+            self.logger.debug(f"Logged {event_type} event: {response['_id']}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error logging intent event: {e}")
+            return False
+
     def health_check(self) -> Dict[str, Any]:
         """Check Elasticsearch cluster health."""
         if not self.connected:
