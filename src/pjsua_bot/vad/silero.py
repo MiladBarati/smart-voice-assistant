@@ -9,6 +9,7 @@ observed from the caller.
 from __future__ import annotations
 
 import os
+import time
 import wave
 from typing import Any, Callable, List, Optional, Tuple, cast
 
@@ -18,39 +19,43 @@ from .audio_reader import StreamingWavReader
 from .chunk_manager import ChunkManager
 from .config import VADConfig
 from .silence import SilenceTracker
+from .silero_diagnostics import (
+    log_audio_read,
+    log_cannot_resample,
+    log_chunk_split_due_to_max_duration,
+    log_manual_read_debug,
+    log_manual_read_error,
+    log_manual_read_waiting,
+    log_model_call_error,
+    log_no_frames_processed,
+    log_processing_stats,
+    log_speech_detected,
+    log_unsupported_sample_rate,
+    log_waiting_for_new_audio,
+    log_waiting_for_wav_file,
+    log_wav_file_opened,
+    log_wav_file_parsed_manually,
+    log_wav_read_error,
+    log_waveform_too_small,
+)
+from .silero_model_loader import SileroModelLoader
 from .types import VoiceChunk
 
-_torch_error: str | None = None
-torch: Any
+# Import torch/torchaudio for inference (model loading is in silero_model_loader)
 try:
-    import torch as _torch_import
-except Exception as exc:  # pragma: no cover - optional dependency at runtime
+    import torch
+except Exception:  # pragma: no cover - optional dependency at runtime
     torch = None
-    _torch_error = str(exc)
-else:
-    torch = _torch_import
-    _torch_error = None
 
-torchaudio: Any
 try:
-    import torchaudio as _torchaudio_import
-except Exception as exc:  # pragma: no cover - optional dependency at runtime
+    import torchaudio
+except Exception:  # pragma: no cover - optional dependency at runtime
     torchaudio = None
-    if _torch_error is None:
-        _torch_error = str(exc)
-else:
-    torchaudio = _torchaudio_import
-_TORCH_AVAILABLE = torch is not None and torchaudio is not None
-_TORCH_ERROR = None if _TORCH_AVAILABLE else _torch_error
 
-onnxruntime: Any
 try:
-    import onnxruntime as _onnxruntime_import
+    import onnxruntime
 except Exception:  # pragma: no cover - optional dependency at runtime
     onnxruntime = None
-else:
-    onnxruntime = _onnxruntime_import
-_ONNXRUNTIME_AVAILABLE = onnxruntime is not None
 
 
 class SileroVAD:
@@ -61,12 +66,6 @@ class SileroVAD:
     - Call `process_new_audio()` periodically; it will read appended frames only
     - Check `last_speech_time_monotonic` to decide on hangup timing
     """
-
-    # Class-level cache for the loaded model to share across instances
-    _shared_model: Any = None
-    _shared_onnx_session: Any = None
-    _shared_use_onnx: bool = False
-    _model_loaded: bool = False
 
     def __init__(
         self,
@@ -104,381 +103,8 @@ class SileroVAD:
             Tuple[Optional[int], Optional[int], Optional[int], Optional[int]]
         ] = None
 
-        self._load_model_if_possible()
-
-    def _load_onnx_model_direct(self) -> bool:
-        """Load ONNX model directly from Silero VAD releases, bypassing torch.hub.load.
-
-        Returns True if successful, False otherwise.
-        """
-        if not _ONNXRUNTIME_AVAILABLE:
-            print("***VAD: ONNX Runtime not available for direct loading")
-            return False
-
-        try:
-            import urllib.request
-
-            # Silero VAD ONNX model URL (v4.0 - latest stable)
-            # Using the direct download link from Silero VAD releases
-            onnx_url = "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx"
-            cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "torch", "hub")
-            os.makedirs(cache_dir, exist_ok=True)
-            onnx_path = os.path.join(cache_dir, "silero_vad.onnx")
-
-            # Download if not exists
-            if not os.path.exists(onnx_path):
-                print(f"***VAD: Downloading ONNX model from {onnx_url}")
-                print("***VAD: This may take a moment (model is ~1.5MB)...")
-                try:
-                    urllib.request.urlretrieve(onnx_url, onnx_path)
-                    print(f"***VAD: ONNX model downloaded successfully to {onnx_path}")
-                except Exception as download_error:
-                    print(f"***VAD: Failed to download ONNX model: {download_error}")
-                    return False
-            else:
-                print(f"***VAD: Using cached ONNX model at {onnx_path}")
-
-            # Verify file exists and has content
-            if not os.path.exists(onnx_path) or os.path.getsize(onnx_path) == 0:
-                print(f"***VAD: ONNX model file is missing or empty at {onnx_path}")
-                return False
-
-            # Load with ONNX Runtime
-            providers = (
-                ["CUDAExecutionProvider", "CPUExecutionProvider"]
-                if torch and torch.cuda.is_available()
-                else ["CPUExecutionProvider"]
-            )
-            print(f"***VAD: Loading ONNX model with providers: {providers}")
-            self._onnx_session = onnxruntime.InferenceSession(
-                onnx_path, providers=providers
-            )
-
-            # Print ONNX model input/output specifications for debugging
-            print("***VAD: ONNX model inputs:")
-            for inp in self._onnx_session.get_inputs():
-                print(f"  - {inp.name}: shape={inp.shape}, type={inp.type}")
-            print("***VAD: ONNX model outputs:")
-            for out in self._onnx_session.get_outputs():
-                print(f"  - {out.name}: shape={out.shape}, type={out.type}")
-
-            # Initialize hidden states for stateful ONNX model
-            # Silero VAD ONNX may use separate h and c states or combined state
-            # Check the model inputs to determine the correct format
-            input_names = [inp.name for inp in self._onnx_session.get_inputs()]
-            if "h" in input_names and "c" in input_names:
-                # Separate h and c states (newer Silero VAD v4/v5)
-                # Shape is typically (2, 1, 64) for 16kHz
-                self._onnx_h = np.zeros((2, 1, 64), dtype=np.float32)
-                self._onnx_c = np.zeros((2, 1, 64), dtype=np.float32)
-                self._onnx_state = None
-                print(
-                    f"***VAD: Initialized ONNX h/c states "
-                    f"with shape {self._onnx_h.shape}"
-                )
-            elif "state" in input_names:
-                # Combined state (older versions)
-                self._onnx_state = np.zeros((2, 1, 128), dtype=np.float32)
-                self._onnx_h = None
-                self._onnx_c = None
-                print(
-                    f"***VAD: Initialized ONNX state "
-                    f"with shape {self._onnx_state.shape}"
-                )
-            else:
-                print(f"***VAD: Warning - unknown state input names: {input_names}")
-
-            self._use_onnx = True
-            self.available = True
-            self._load_error = None
-            print(f"***VAD: ONNX model loaded successfully from {onnx_path}")
-            return True
-        except Exception as e:
-            print(f"***VAD: Failed to load ONNX model directly: {e}")
-            import traceback
-
-            traceback.print_exc()
-            return False
-
-    def _load_model_if_possible(self) -> None:
-        if torch is None:
-            self._load_error = (
-                f"torch/torchaudio not available: {_TORCH_ERROR or 'import failed'}"
-            )
-            return
-
-        # Check if model is already loaded in class-level cache
-        if SileroVAD._model_loaded:
-            if SileroVAD._shared_use_onnx:
-                if SileroVAD._shared_onnx_session is not None:
-                    self._onnx_session = SileroVAD._shared_onnx_session
-                    self._use_onnx = True
-                    self.available = True
-                    self._load_error = None
-                    print("***VAD: reusing preloaded ONNX model from cache")
-                    return
-                elif SileroVAD._shared_model is not None:
-                    self._model = SileroVAD._shared_model
-                    self._use_onnx = True
-                    self.available = True
-                    self._load_error = None
-                    print("***VAD: reusing preloaded ONNX model wrapper from cache")
-                    return
-            else:
-                if SileroVAD._shared_model is not None:
-                    self._model = SileroVAD._shared_model
-                    self._use_onnx = False
-                    self.available = True
-                    self._load_error = None
-                    print("***VAD: reusing preloaded TorchScript model from cache")
-                    return
-
-        # DEBUG: Skip direct ONNX download - it loads wrong/old model version
-        # Use torch.hub.load with onnx=True instead (in loading_strategies below)
-        # if _ONNXRUNTIME_AVAILABLE:
-        #     print(
-        #         "***VAD: Attempting direct ONNX model loading "
-        #         "(bypassing torch.hub.load)..."
-        #     )
-        #     if self._load_onnx_model_direct():
-        #         return
-        #     print(
-        #         "***VAD: Direct ONNX loading failed, "
-        #         "trying torch.hub.load strategies..."
-        #     )
-
-        # Proactively clear cache for PyTorch 2.5+ to avoid _construct errors
-        # This is a known issue with PyTorch 2.5+ and TorchScript models
-        # Only clear cache if model hasn't been loaded yet
-        if not SileroVAD._model_loaded:
-            try:
-                import shutil
-
-                torch_version = torch.__version__
-                # Check if PyTorch version is 2.5 or higher
-                major, minor = map(int, torch_version.split(".")[:2])
-                if major > 2 or (major == 2 and minor >= 5):
-                    cache_dir = os.path.join(
-                        os.path.expanduser("~"), ".cache", "torch", "hub"
-                    )
-                    silero_cache = os.path.join(cache_dir, "snakers4_silero-vad_master")
-                    if os.path.exists(silero_cache):
-                        print(
-                            f"***VAD: proactively clearing cached model "
-                            f"for PyTorch {torch_version} compatibility"
-                        )
-                        shutil.rmtree(silero_cache, ignore_errors=True)
-            except Exception:
-                # Ignore cache clearing errors, continue with loading
-                pass
-
-        # Try multiple loading strategies to handle PyTorch version compatibility issues
-        # Try ONNX first (via torch.hub.load, not direct download)
-        # for PyTorch 2.5+ compatibility
-        loading_strategies = [
-            # Strategy 1: ONNX with torch.hub.load (best for PyTorch 2.5+)
-            {
-                "force_reload": False,
-                "trust_repo": True,
-                "onnx": True,
-                "name": "ONNX via torch.hub force_reload",
-            },
-            # Strategy 2: ONNX normal load
-            {
-                "force_reload": False,
-                "trust_repo": True,
-                "onnx": True,
-                "name": "ONNX via torch.hub normal load",
-            },
-            # Strategy 3: TorchScript with force reload and trust_repo
-            {
-                "force_reload": True,
-                "trust_repo": True,
-                "onnx": False,
-                "name": "TorchScript force_reload with trust_repo",
-            },
-            # Strategy 4: TorchScript normal load with trust_repo
-            {
-                "force_reload": False,
-                "trust_repo": True,
-                "onnx": False,
-                "name": "TorchScript normal load with trust_repo",
-            },
-            # Strategy 5: TorchScript force reload without trust_repo (original)
-            {
-                "force_reload": True,
-                "trust_repo": False,
-                "onnx": False,
-                "name": "TorchScript force_reload (original)",
-            },
-            # Strategy 6: TorchScript normal load (original fallback)
-            {
-                "force_reload": False,
-                "trust_repo": False,
-                "onnx": False,
-                "name": "TorchScript normal load (original)",
-            },
-        ]
-
-        last_error = None
-        cache_cleared = False
-
-        for strategy_idx, strategy in enumerate(loading_strategies):
-            try:
-                print(
-                    f"***VAD: Trying strategy "
-                    f"{strategy_idx + 1}/{len(loading_strategies)}: "
-                    f"{strategy['name']}"
-                )
-
-                # If we hit a _construct error in previous attempt,
-                # try clearing the cache once
-                if last_error and "_construct" in str(last_error) and not cache_cleared:
-                    try:
-                        import shutil
-
-                        cache_dir = os.path.join(
-                            os.path.expanduser("~"), ".cache", "torch", "hub"
-                        )
-                        silero_cache = os.path.join(
-                            cache_dir, "snakers4_silero-vad_master"
-                        )
-                        if os.path.exists(silero_cache):
-                            print(
-                                "***VAD: clearing cached model due to _construct error"
-                            )
-                            shutil.rmtree(silero_cache, ignore_errors=True)
-                            cache_cleared = True
-                            # After clearing cache, force reload on this attempt
-                            strategy = strategy.copy()
-                            strategy["force_reload"] = True
-                    except Exception:
-                        # Ignore cache clearing errors
-                        pass
-
-                # Build kwargs for torch.hub.load
-                kwargs = {
-                    "repo_or_dir": "snakers4/silero-vad",
-                    "model": "silero_vad",
-                    "force_reload": strategy["force_reload"],
-                    "onnx": strategy["onnx"],
-                }
-                # trust_repo was added in PyTorch 1.13+, use it if available
-                if strategy.get("trust_repo") and hasattr(torch.hub, "load"):
-                    # Check if trust_repo parameter is supported
-                    import inspect
-
-                    sig = inspect.signature(torch.hub.load)
-                    if "trust_repo" in sig.parameters:
-                        kwargs["trust_repo"] = strategy["trust_repo"]
-
-                model_result = torch.hub.load(**kwargs)
-                print(f"***VAD: torch.hub.load returned type: {type(model_result)}")
-
-                # Handle ONNX models differently
-                if strategy["onnx"]:
-                    if not _ONNXRUNTIME_AVAILABLE:
-                        # ONNX requested but runtime not available, skip this strategy
-                        print(
-                            "***VAD: ONNX Runtime not available, skipping ONNX strategy"
-                        )
-                        raise ImportError(
-                            "ONNX Runtime not available, skipping ONNX strategy"
-                        )
-
-                    print(f"***VAD: Processing ONNX model result: {type(model_result)}")
-
-                    # torch.hub.load with onnx=True returns (model, utils) tuple
-                    # where model is a callable ONNX wrapper
-                    if isinstance(model_result, tuple):
-                        onnx_model = model_result[0]
-                        print(f"***VAD: Extracted model from tuple: {type(onnx_model)}")
-                    else:
-                        onnx_model = model_result
-
-                    # Check if it's a callable ONNX wrapper FIRST (most common case)
-                    # The ONNX model from torch.hub.load is a callable wrapper
-                    if callable(onnx_model):
-                        self._model = onnx_model
-                        # Store in class-level cache for reuse
-                        SileroVAD._shared_model = onnx_model
-                        self._use_onnx = True
-                        SileroVAD._shared_use_onnx = True
-                        self.available = True
-                        SileroVAD._model_loaded = True
-                        self._load_error = None
-                        print(
-                            f"***VAD: ONNX model loaded successfully using "
-                            f"{strategy['name']} (callable wrapper)"
-                        )
-                        return
-                    elif isinstance(onnx_model, str) and os.path.exists(onnx_model):
-                        # If it's a string path, load it with ONNX Runtime
-                        providers = (
-                            ["CUDAExecutionProvider", "CPUExecutionProvider"]
-                            if torch and torch.cuda.is_available()
-                            else ["CPUExecutionProvider"]
-                        )
-                        try:
-                            self._onnx_session = onnxruntime.InferenceSession(
-                                onnx_model, providers=providers
-                            )
-                            # Store in class-level cache for reuse
-                            SileroVAD._shared_onnx_session = self._onnx_session
-                            self._use_onnx = True
-                            SileroVAD._shared_use_onnx = True
-                            self.available = True
-                            SileroVAD._model_loaded = True
-                            self._load_error = None
-                            print(
-                                f"***VAD: ONNX model loaded successfully using "
-                                f"{strategy['name']} (from path: {onnx_model})"
-                            )
-                            return
-                        except Exception as onnx_error:
-                            raise RuntimeError(
-                                f"Failed to create ONNX Runtime session: {onnx_error}"
-                            ) from onnx_error
-                    else:
-                        # Fall through to try next strategy
-                        raise ValueError(
-                            f"ONNX model result format not recognized: "
-                            f"{type(onnx_model)}"
-                        )
-                else:
-                    # Handle TorchScript models (original logic)
-                    # Handle both: model may be returned directly or as (model, utils)
-                    if isinstance(model_result, tuple):
-                        self._model = model_result[0]  # Extract model from tuple
-                    else:
-                        self._model = model_result
-                    assert self._model is not None
-                    self._model.eval()
-                    # Store in class-level cache for reuse
-                    SileroVAD._shared_model = self._model
-                    self._use_onnx = False
-                    SileroVAD._shared_use_onnx = False
-                    self.available = True
-                    SileroVAD._model_loaded = True
-                    self._load_error = None
-                    print(f"***VAD: model loaded successfully using {strategy['name']}")
-                    return
-            except Exception as e:
-                last_error = e
-                print(
-                    f"***VAD: Strategy {strategy_idx + 1} failed: "
-                    f"{type(e).__name__}: {e}"
-                )
-                # Continue to next strategy
-                continue
-
-        # All strategies failed
-        self._model = None
-        self.available = False
-        error_msg = str(last_error) if last_error else "unknown error"
-        self._load_error = (
-            f"model loading failed after trying all strategies: {error_msg}"
-        )
+        # Load model using the model loader
+        SileroModelLoader.load_model(self)
 
     def _ensure_resampler(self, input_sr: int) -> Optional[Any]:
         if torch is None or torchaudio is None:
@@ -636,17 +262,14 @@ class SileroVAD:
             # Debug: report that we're waiting for file to be ready
             if not hasattr(self, "_last_wait_time"):
                 self._last_wait_time = 0.0
-            import time as time_module
 
-            if time_module.time() - self._last_wait_time > 3.0:
+            if time.time() - self._last_wait_time > 3.0:
                 try:
                     size = os.path.getsize(self.wav_path)
-                    print(
-                        f"***VAD: waiting for WAV file to be ready (size={size} bytes)"
-                    )
+                    log_waiting_for_wav_file(size)
                 except Exception:
-                    print("***VAD: waiting for WAV file to be ready")
-                self._last_wait_time = time_module.time()
+                    log_waiting_for_wav_file(None)
+                self._last_wait_time = time.time()
             return None, None
 
         # Try to use wave.open() first, but fall back to manual parsing if it fails
@@ -660,29 +283,16 @@ class SileroVAD:
                 if self._wav_sample_rate is None:
                     self._wav_sample_rate = framerate
                     # Debug: print file info on first read
-                    import time as time_module
-
-                    print(
-                        (
-                            f"***VAD: WAV file opened - {n_channels}ch, "
-                            f"{sampwidth}byte/sample, {framerate}Hz, {n_frames} frames"
-                        )
-                    )
+                    log_wav_file_opened(n_channels, sampwidth, framerate, n_frames)
 
                 if n_frames <= self._last_frame_idx:
                     # Debug: occasionally report that we're waiting for new data
                     if not hasattr(self, "_last_no_data_time"):
                         self._last_no_data_time = 0.0
-                    import time as time_module
 
-                    if time_module.time() - self._last_no_data_time > 5.0:
-                        print(
-                            (
-                                f"***VAD: waiting for new audio "
-                                f"(last_idx={self._last_frame_idx}, total={n_frames})"
-                            )
-                        )
-                    self._last_no_data_time = time_module.time()
+                    if time.time() - self._last_no_data_time > 5.0:
+                        log_waiting_for_new_audio(self._last_frame_idx, n_frames)
+                    self._last_no_data_time = time.time()
                     return None, None
 
                 wf.setpos(self._last_frame_idx)
@@ -702,16 +312,12 @@ class SileroVAD:
                 # Can't parse header - wait for file to be ready
                 if not hasattr(self, "_last_error_time"):
                     self._last_error_time = 0.0
-                import time as time_module
 
-                if time_module.time() - self._last_error_time > 10.0:
-                    print(
-                        (
-                            "***VAD: WAV read error - cannot parse WAV header "
-                            "(trying manual parsing)"
-                        )
+                if time.time() - self._last_error_time > 10.0:
+                    log_wav_read_error(
+                        "cannot parse WAV header (trying manual parsing)"
                     )
-                    self._last_error_time = time_module.time()
+                    self._last_error_time = time.time()
                 return None, None
 
             n_channels, sampwidth, framerate, data_offset = cast(
@@ -721,15 +327,8 @@ class SileroVAD:
             # Initialize on first read
             if self._wav_sample_rate is None:
                 self._wav_sample_rate = framerate
-                import time as time_module
-
                 # Fix display - sampwidth is in bytes, but output was confusing
-                print(
-                    (
-                        f"***VAD: WAV file parsed manually - {n_channels}ch, "
-                        f"{sampwidth * 8}bit/sample, {framerate}Hz"
-                    )
-                )
+                log_wav_file_parsed_manually(n_channels, sampwidth * 8, framerate)
 
             # Read new frames manually
             try:
@@ -746,30 +345,26 @@ class SileroVAD:
                     # Debug occasionally
                     if not hasattr(self, "_last_debug_time"):
                         self._last_debug_time = 0.0
-                    import time as time_module
 
-                    if time_module.time() - self._last_debug_time > 5.0:
-                        print(
-                            (
-                                f"***VAD: manual read - file_size={file_size}, "
-                                f"data_offset={data_offset}, "
-                                f"current_pos={current_data_pos}, "
-                                f"available={available_bytes}, "
-                                f"bytes_per_frame={bytes_per_frame}, "
-                                f"last_idx={self._last_frame_idx}"
-                            )
+                    if time.time() - self._last_debug_time > 5.0:
+                        log_manual_read_debug(
+                            file_size,
+                            data_offset,
+                            current_data_pos,
+                            available_bytes,
+                            bytes_per_frame,
+                            self._last_frame_idx,
                         )
-                        self._last_debug_time = time_module.time()
+                        self._last_debug_time = time.time()
 
                     if available_bytes < bytes_per_frame:
                         # No new frames available
                         if not hasattr(self, "_last_no_data_time"):
                             self._last_no_data_time = 0.0
-                        import time as time_module
 
-                        if time_module.time() - self._last_no_data_time > 5.0:
-                            print("***VAD: waiting for new audio (manual read)")
-                            self._last_no_data_time = time_module.time()
+                        if time.time() - self._last_no_data_time > 5.0:
+                            log_manual_read_waiting()
+                            self._last_no_data_time = time.time()
                         return None, None
 
                     # Seek to current position and read
@@ -778,25 +373,14 @@ class SileroVAD:
                     frames_read = len(raw) // bytes_per_frame
                     self._last_frame_idx += frames_read
 
-                    # Debug: report occasionally when we read frames (reduce spam)
-                    if frames_read > 0:
-                        if not hasattr(self, "_last_read_report_time"):
-                            self._last_read_report_time = 0.0
-                        import time as time_module
-
-                        if time_module.time() - self._last_read_report_time > 5.0:
-                            # Verbose frame reading logs removed for cleaner output
-                            self._last_read_report_time = time_module.time()
-
             except Exception as e:
                 # Error reading manually
                 if not hasattr(self, "_last_error_time"):
                     self._last_error_time = 0.0
-                import time as time_module
 
-                if time_module.time() - self._last_error_time > 10.0:
-                    print(f"***VAD: manual read error: {e}")
-                    self._last_error_time = time_module.time()
+                if time.time() - self._last_error_time > 10.0:
+                    log_manual_read_error(str(e))
+                    self._last_error_time = time.time()
                 return None, None
 
         if not raw:
@@ -838,12 +422,7 @@ class SileroVAD:
         if self.chunks.get_current_chunk() is not None:
             exceeded = self.chunks.try_finalize_on_max_duration(monotonic_time)
             if exceeded:
-                print(
-                    (
-                        "***VAD: chunk split due to max duration ("
-                        f"{self.cfg.max_chunk_duration_sec}s)"
-                    )
-                )
+                log_chunk_split_due_to_max_duration(self.cfg.max_chunk_duration_sec)
                 if has_speech:
                     self.chunks.start_new_chunk(monotonic_time, current_sample_idx)
 
@@ -859,8 +438,6 @@ class SileroVAD:
             self._speech_probabilities
         )
         return round(avg_confidence, 3)
-
-    # Removed stub for set_bot_playback_state; use delegated method below
 
     def process_new_audio(self, monotonic_time_fn: Callable[[], float]) -> None:
         """Process newly appended audio and update last speech time.
@@ -879,11 +456,10 @@ class SileroVAD:
         # Debug: check if we're getting audio
         if not hasattr(self, "_last_audio_check_time"):
             self._last_audio_check_time = 0.0
-        import time as time_module
 
-        if time_module.time() - self._last_audio_check_time > 5.0:
-            print(f"***VAD: read {len(chunk)} samples at {input_sr} Hz")
-            self._last_audio_check_time = time_module.time()
+        if time.time() - self._last_audio_check_time > 5.0:
+            log_audio_read(len(chunk), input_sr)
+            self._last_audio_check_time = time.time()
 
         # Convert to torch and resample if needed
         if torch is None:
@@ -909,16 +485,13 @@ class SileroVAD:
                     # Skip this chunk if sample rate isn't supported
                     if not hasattr(self, "_last_unsupported_sr_time"):
                         self._last_unsupported_sr_time = 0.0
-                    import time as time_module
-            if time_module.time() - self._last_unsupported_sr_time > 10.0:
-                print(
-                    (
-                        f"***VAD: cannot resample from {input_sr}Hz "
-                        "(not 8kHz/16kHz and torchaudio unavailable)"
-                    )
-                )
-                self._last_unsupported_sr_time = time_module.time()
-                return
+                    if time.time() - self._last_unsupported_sr_time > 10.0:
+                        log_cannot_resample(
+                            input_sr,
+                            "(not 8kHz/16kHz and torchaudio unavailable)",
+                        )
+                    self._last_unsupported_sr_time = time.time()
+                    return
                 # Use original sample rate if it's supported
                 actual_sr = input_sr
             else:
@@ -945,16 +518,10 @@ class SileroVAD:
             # Unsupported sample rate
             if not hasattr(self, "_last_unsupported_sr_time"):
                 self._last_unsupported_sr_time = 0.0
-            import time as time_module
 
-            if time_module.time() - self._last_unsupported_sr_time > 10.0:
-                print(
-                    (
-                        f"***VAD: unsupported sample rate {actual_sr}Hz "
-                        "(must be 8000 or 16000)"
-                    )
-                )
-                self._last_unsupported_sr_time = time_module.time()
+            if time.time() - self._last_unsupported_sr_time > 10.0:
+                log_unsupported_sample_rate(actual_sr)
+            self._last_unsupported_sr_time = time.time()
             return
 
         # Debug: check waveform size
@@ -962,16 +529,10 @@ class SileroVAD:
             # Debug: report if waveform is too small
             if not hasattr(self, "_last_small_waveform_time"):
                 self._last_small_waveform_time = 0.0
-            import time as time_module
 
-            if time_module.time() - self._last_small_waveform_time > 5.0:
-                print(
-                    (
-                        f"***VAD: waveform too small ({waveform.shape[1]} samples, "
-                        f"need {window} for {actual_sr}Hz)"
-                    )
-                )
-                self._last_small_waveform_time = time_module.time()
+            if time.time() - self._last_small_waveform_time > 5.0:
+                log_waveform_too_small(waveform.shape[1], window, actual_sr)
+            self._last_small_waveform_time = time.time()
             return
 
         # Debug: track processing stats
@@ -1101,11 +662,10 @@ class SileroVAD:
                     # Report error only occasionally to avoid spam
                     if not hasattr(self, "_last_model_error_time"):
                         self._last_model_error_time = 0.0
-                    import time as time_module
 
-                    if time_module.time() - self._last_model_error_time > 10.0:
-                        print(f"***VAD: model call error: {e}")
-                        self._last_model_error_time = time_module.time()
+                    if time.time() - self._last_model_error_time > 10.0:
+                        log_model_call_error(str(e))
+                        self._last_model_error_time = time.time()
                     # Continue processing other frames even if one fails
                     # For chunk detection, treat error frames as non-speech
                     prob = 0.0
@@ -1139,12 +699,8 @@ class SileroVAD:
                         prev_time is None
                         or (self.last_speech_time_monotonic - prev_time) > 0.5
                     ):
-                        print(
-                            (
-                                f"***VAD: speech detected (prob={prob:.3f}, "
-                                f"time={self.last_speech_time_monotonic:.3f}, "
-                                f"sample={original_sample_pos})"
-                            )
+                        log_speech_detected(
+                            prob, self.last_speech_time_monotonic, original_sample_pos
                         )
                 else:
                     # Possibly a silence period depending on bot playback state
@@ -1153,35 +709,24 @@ class SileroVAD:
         # Debug output: print max probability occasionally to diagnose issues
         if frames_processed > 0:
             # Only print debug every few seconds to avoid spam
-            import time as time_module
-
             if (
                 not hasattr(self, "_last_debug_time")
-                or time_module.time() - getattr(self, "_last_debug_time", 0) > 5.0
+                or time.time() - getattr(self, "_last_debug_time", 0) > 5.0
             ):
-                print(
-                    (
-                        f"***VAD: processed {frames_processed}/"
-                        f"{total_frames_available} "
-                        f"frames, max_prob={max_prob:.3f} "
-                        f"(threshold={self.cfg.threshold:.3f})"
-                    )
+                log_processing_stats(
+                    frames_processed,
+                    total_frames_available,
+                    max_prob,
+                    self.cfg.threshold,
                 )
-                self._last_debug_time = time_module.time()
+                self._last_debug_time = time.time()
         elif total_frames_available > 0:
             # No frames processed but frames available - something went wrong
-            import time as time_module
-
             if not hasattr(self, "_last_no_proc_time"):
                 self._last_no_proc_time = 0.0
-            if time_module.time() - self._last_no_proc_time > 5.0:
-                print(
-                    (
-                        f"***VAD: {total_frames_available} frames available but none "
-                        "processed (check model errors)"
-                    )
-                )
-                self._last_no_proc_time = time_module.time()
+            if time.time() - self._last_no_proc_time > 5.0:
+                log_no_frames_processed(total_frames_available)
+                self._last_no_proc_time = time.time()
 
     # ---- Delegating public helpers to smaller modules ----
     def get_chunks(self) -> List[VoiceChunk]:
