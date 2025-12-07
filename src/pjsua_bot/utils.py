@@ -186,9 +186,16 @@ def convert_recording_path_to_url(
     # Remove base URL trailing slash if present
     base_url = base_url.rstrip("/")
 
-    # Remove a single leading 'recordings/' from the path if present,
-    # since base_url typically already points to the recordings root.
-    if normalized_path.startswith("recordings/"):
+    # Remove extra path segments that shouldn't be in the URL:
+    # - Remove 'recordings/app/recordings/' if present (common issue)
+    # - Remove 'app/recordings/' if present
+    # - Remove a single leading 'recordings/' from the path if present,
+    #   since base_url typically already points to the recordings root.
+    if normalized_path.startswith("recordings/app/recordings/"):
+        normalized_path = normalized_path[len("recordings/app/recordings/") :]
+    elif normalized_path.startswith("app/recordings/"):
+        normalized_path = normalized_path[len("app/recordings/") :]
+    elif normalized_path.startswith("recordings/"):
         normalized_path = normalized_path[len("recordings/") :]
 
     return f"{base_url}/{normalized_path}"
