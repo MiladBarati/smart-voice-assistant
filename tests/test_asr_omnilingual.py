@@ -3,6 +3,7 @@
 import os
 import tempfile
 import wave
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -214,7 +215,7 @@ class TestASRService:
         # Mock pipeline to fail first time, succeed second time
         call_count = 0
 
-        def mock_transcribe(*args, **kwargs):
+        def mock_transcribe(*args: Any, **kwargs: Any) -> list[str]:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -264,4 +265,3 @@ class TestASRService:
         finally:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
-

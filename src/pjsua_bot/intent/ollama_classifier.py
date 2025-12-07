@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any, Dict, Optional, Tuple
 
@@ -13,7 +14,9 @@ from pjsua_bot.intent.classifier import (
     RuleBasedClassifier,
     normalize_persian_text,
 )
-from pjsua_bot.intent.faq_config import FAQS
+from pjsua_bot.intent.faq_config import FAQS, get_faq_system_prompt
+
+logger = logging.getLogger(__name__)
 
 
 class OllamaClassifier(IntentClassifier):
@@ -51,31 +54,38 @@ class OllamaClassifier(IntentClassifier):
         self.fallback_to_rule_based = fallback_to_rule_based
         self.use_cpu = use_cpu
 
+        # Create a persistent session for connection pooling
+        # This reuses TCP/TLS connections, significantly speeding up subsequent requests
+        self.session = requests.Session()
+
         # Log resolved endpoint/model for easier debugging of misconfiguration
-        print(
-            f"***Ollama: using endpoint={self.api_url} model={self.model} "
-            f"fallback_to_rule_based={self.fallback_to_rule_based} "
-            f"use_cpu={self.use_cpu}"
+        logger.info(
+            "Ollama: using endpoint=%s model=%s fallback_to_rule_based=%s use_cpu=%s",
+            self.api_url,
+            self.model,
+            self.fallback_to_rule_based,
+            self.use_cpu,
         )
 
         # Increase timeout for CPU usage (CPU is slower)
         if use_cpu and timeout < 60:
             self.timeout = 60
-            print(f"***Ollama: CPU mode enabled, timeout increased to {self.timeout}s")
+            logger.info(
+                "Ollama: CPU mode enabled, timeout increased to %ds", self.timeout
+            )
         elif not use_cpu:
             # For GPU, use longer timeout for first request
             # (model loading can take time)
             # Subsequent requests will be faster
-            self.timeout = max(timeout, 60)  # At least 60s for GPU model loading
+            # Increased to 90s to handle long system prompts
+            # At least 90s for GPU with long prompts
+            self.timeout = max(timeout, 90)
 
-        # Build a concise, strict system prompt to improve JSON compliance.
-        intent_names = [name for name in self.faqs.keys() if name != "default"]
-        intents_csv = ", ".join(intent_names + ["default"])
-        self.system_prompt = (
-            'Return exactly one JSON object with a single key "intent". '
-            f"Value must be one of: {intents_csv}. "
-            "No other keys. No other text."
-        )
+        # Use the detailed system prompt with examples and keywords for better
+        # classification. This provides context about what each intent means,
+        # preventing misclassifications like weather questions being classified
+        # as "no_sound".
+        self.system_prompt = get_faq_system_prompt(faqs=self.faqs)
 
         # Initialize fallback classifier if enabled
         self._fallback_classifier: Optional[RuleBasedClassifier] = None
@@ -106,6 +116,8 @@ class OllamaClassifier(IntentClassifier):
 
         try:
             # Prepare messages for Ollama API
+            # Removed few-shot example to reduce tokens and improve latency
+            # The system prompt with examples should be sufficient
             messages = [
                 {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": transcription},
@@ -117,6 +129,9 @@ class OllamaClassifier(IntentClassifier):
                 "enable_thinking": False,
                 # Force deterministic output to improve JSON adherence
                 "temperature": 0,
+                # Limit output tokens - JSON response is short (max ~50 tokens)
+                # This significantly speeds up generation by stopping early
+                "num_predict": 50,
             }
             # Add device hint if requested
             # (though server-side OLLAMA_NUM_GPU takes precedence)
@@ -133,7 +148,11 @@ class OllamaClassifier(IntentClassifier):
             }
             # By default, Ollama will use GPU if available (no options needed)
 
-            response = requests.post(self.api_url, json=payload, timeout=self.timeout)
+            # Use persistent session for connection reuse
+            # (faster than creating new connections)
+            response = self.session.post(
+                self.api_url, json=payload, timeout=self.timeout
+            )
             response.raise_for_status()
 
             # Parse response
@@ -141,21 +160,23 @@ class OllamaClassifier(IntentClassifier):
             answer_text = response_data.get("message", {}).get("content", "").strip()
 
             if not answer_text:
-                print("***Ollama: empty response from API")
+                logger.warning("Ollama: empty response from API")
                 return "default", 0.0, self.faqs["default"]
 
-            print(f"***Ollama: received response: {answer_text}...")
+            logger.debug("Ollama: received response: %s...", answer_text)
 
             # Try to extract intent name from JSON response
             intent_name = self._extract_intent_from_response(answer_text)
 
             if intent_name and intent_name in self.faqs:
                 confidence = 0.9  # High confidence for LLM matches
-                print(f"***Ollama: classified as '{intent_name}'")
+                logger.debug("Ollama: classified as '%s'", intent_name)
                 return intent_name, confidence, self.faqs[intent_name]
             else:
                 # Invalid or unknown intent; try rule-based fallback before defaulting
-                print(f"***Ollama: invalid intent '{intent_name}', using fallback")
+                logger.warning(
+                    "Ollama: invalid intent '%s', using fallback", intent_name
+                )
                 return self._fallback_classify(transcription)
 
         except requests.exceptions.HTTPError as e:
@@ -171,21 +192,22 @@ class OllamaClassifier(IntentClassifier):
                     error_msg += f": {e.response.text[:200]}"
                 except Exception:
                     error_msg += f": {str(e)}"
-            print(f"***Ollama: {error_msg}")
+            logger.error("Ollama: %s", error_msg)
             return self._fallback_classify(transcription)
         except requests.exceptions.Timeout:
-            print(f"***Ollama: request timeout after {self.timeout}s")
+            logger.warning("Ollama: request timeout after %ds", self.timeout)
             return self._fallback_classify(transcription)
         except requests.exceptions.ConnectionError:
-            print(
-                f"***Ollama: connection error - is Ollama running on {self.ollama_url}?"
+            logger.warning(
+                "Ollama: connection error - is Ollama running on %s?",
+                self.ollama_url,
             )
             return self._fallback_classify(transcription)
         except requests.exceptions.RequestException as e:
-            print(f"***Ollama: request error: {e}")
+            logger.error("Ollama: request error: %s", e)
             return self._fallback_classify(transcription)
         except Exception as e:
-            print(f"***Ollama: unexpected error: {e}")
+            logger.error("Ollama: unexpected error: %s", e, exc_info=True)
             return self._fallback_classify(transcription)
 
     def _extract_intent_from_response(self, response_text: str) -> Optional[str]:
@@ -210,7 +232,7 @@ class OllamaClassifier(IntentClassifier):
                 if intent_name:
                     return str(intent_name)
         except (json.JSONDecodeError, AttributeError, KeyError) as e:
-            print(f"***Ollama: failed to parse JSON response: {e}")
+            logger.warning("Ollama: failed to parse JSON response: %s", e)
 
         # Fallback: try to find intent name as plain text
         # (in case JSON parsing fails)
@@ -290,7 +312,8 @@ class OllamaClassifier(IntentClassifier):
         try:
             # Check if Ollama is running
             health_url = f"{self.ollama_url}/api/tags"
-            response = requests.get(health_url, timeout=5)
+            # Use persistent session for connection reuse
+            response = self.session.get(health_url, timeout=5)
             response.raise_for_status()
 
             # Check if model is available
@@ -299,23 +322,25 @@ class OllamaClassifier(IntentClassifier):
                 model.get("name", "") for model in models_data.get("models", [])
             ]
             if self.model not in available_models:
-                print(
-                    f"***Ollama: warning - model '{self.model}' not found. "
-                    f"Available models: {', '.join(available_models[:5])}"
+                logger.warning(
+                    "Ollama: model '%s' not found. Available models: %s",
+                    self.model,
+                    ", ".join(available_models[:5]),
                 )
-                print(
-                    "***Ollama: will attempt to use model anyway "
+                logger.info(
+                    "Ollama: will attempt to use model anyway "
                     "(it may be pulled automatically)"
                 )
             else:
-                print(f"***Ollama: model '{self.model}' is available")
+                logger.info("Ollama: model '%s' is available", self.model)
         except requests.exceptions.ConnectionError:
-            print(
-                f"***Ollama: warning - cannot connect to {self.ollama_url}. "
-                f"Will fallback to rule-based classifier on errors."
+            logger.warning(
+                "Ollama: cannot connect to %s. "
+                "Will fallback to rule-based classifier on errors.",
+                self.ollama_url,
             )
         except Exception as e:
-            print(f"***Ollama: warning - error checking availability: {e}")
+            logger.warning("Ollama: error checking availability: %s", e)
 
     def _preload_model(self) -> None:
         """Preload the Ollama model to avoid first-request timeout.
@@ -324,7 +349,7 @@ class OllamaClassifier(IntentClassifier):
         This is similar to how ASR models are preloaded.
         """
         try:
-            print(f"***Ollama: preloading model '{self.model}'...")
+            logger.info("Ollama: preloading model '%s'...", self.model)
 
             # Make a minimal request to trigger model loading
             # Use a very simple prompt to minimize processing time
@@ -351,21 +376,23 @@ class OllamaClassifier(IntentClassifier):
                 self.timeout, 120
             )  # At least 2 minutes for first load
 
-            response = requests.post(
+            # Use persistent session for connection reuse
+            response = self.session.post(
                 self.api_url, json=payload, timeout=preload_timeout
             )
             response.raise_for_status()
 
-            print(f"***Ollama: model '{self.model}' preloaded successfully")
+            logger.info("Ollama: model '%s' preloaded successfully", self.model)
 
         except requests.exceptions.Timeout:
-            print(
-                f"***Ollama: preload timeout after {preload_timeout}s - "
-                f"model may still be loading. First request may be slow."
+            logger.warning(
+                "Ollama: preload timeout after %ds - "
+                "model may still be loading. First request may be slow.",
+                preload_timeout,
             )
         except requests.exceptions.ConnectionError:
-            print(
-                "***Ollama: cannot preload - connection error. "
+            logger.warning(
+                "Ollama: cannot preload - connection error. "
                 "Will attempt to load on first request."
             )
         except requests.exceptions.HTTPError as e:
@@ -379,12 +406,14 @@ class OllamaClassifier(IntentClassifier):
                     error_msg += f": {e.response.text[:200]}"
                 except Exception:
                     error_msg += f": {str(e)}"
-            print(
-                f"***Ollama: preload failed ({error_msg}) - "
-                "will attempt on first request"
+            logger.warning(
+                "Ollama: preload failed (%s) - will attempt on first request",
+                error_msg,
             )
         except Exception as e:
-            print(f"***Ollama: preload error: {e} - will attempt on first request")
+            logger.warning(
+                "Ollama: preload error: %s - will attempt on first request", e
+            )
 
     def _fallback_classify(
         self, transcription: str
@@ -398,12 +427,26 @@ class OllamaClassifier(IntentClassifier):
             Tuple of (intent_name, confidence_score, faq_config)
         """
         if self._fallback_classifier:
-            print("***Ollama: falling back to rule-based classifier")
+            logger.info("Ollama: falling back to rule-based classifier")
             try:
                 return self._fallback_classifier.classify(transcription)
             except Exception as e:
-                print(f"***Ollama: fallback classifier error: {e}")
+                logger.error("Ollama: fallback classifier error: %s", e, exc_info=True)
                 return "default", 0.0, self.faqs["default"]
         else:
-            print("***Ollama: no fallback classifier available")
+            logger.warning("Ollama: no fallback classifier available")
             return "default", 0.0, self.faqs["default"]
+
+    def close(self) -> None:
+        """Close the persistent HTTP session and release resources."""
+        if hasattr(self, "session"):
+            self.session.close()
+            logger.debug("Ollama: HTTP session closed")
+
+    def __del__(self) -> None:
+        """Cleanup: close session when object is destroyed."""
+        if hasattr(self, "session"):
+            try:
+                self.session.close()
+            except Exception:
+                pass  # Ignore errors during cleanup

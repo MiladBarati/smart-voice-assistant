@@ -2218,7 +2218,7 @@ FAQS: Dict[str, Dict[str, Any]] = {
             "متشکرم از تماس شما. لطفاً برای اطلاعات بیشتر به وب‌سایت ما مراجعه کنید "
             "یا با نماینده ما صحبت کنید."
         ),
-        "response_audio": None,
+        "response_audio": "assets/audio/faq_default.wav",
         "priority": 0,
     },
 }
@@ -2238,13 +2238,15 @@ def get_faq_system_prompt(faqs: Optional[Dict[str, Dict[str, Any]]] = None) -> s
 
     prompt_parts = [
         (
-            "You are an intent classifier. Analyze user questions and "
-            "classify them into one of the following intents."
+            "You are an intent classifier. Your task is to classify user questions "
+            "into one of the predefined intent categories."
         ),
-        (
-            "Your ONLY job is to return the *name* of the best matching intent "
-            "from the list below."
-        ),
+        "",
+        "CRITICAL: This is a CLASSIFICATION task, NOT a translation task.",
+        "- DO NOT translate the user's question.",
+        "- DO NOT provide translations in other languages.",
+        "- DO NOT explain or interpret the question.",
+        "- ONLY return the intent name that best matches the question.",
         "",
         "STRICT OUTPUT FORMAT (very important):",
         "- Respond with ONLY a single JSON object, no prose, no explanations.",
@@ -2253,40 +2255,36 @@ def get_faq_system_prompt(faqs: Optional[Dict[str, Dict[str, Any]]] = None) -> s
         '(for example: "slow_computer" or "default").',
         "",
         "Valid examples:",
-        '  {"intent": "slow_computer"}',
-        '  {"intent": "default"}',
+        '  Input: "کامپیوترم کند است" → Output: {"intent": "slow_computer"}',
+        '  Input: "هوا چطور" → Output: {"intent": "default"}',
+        '  Input: "صدا نمی‌آید" → Output: {"intent": "no_sound"}',
         "",
         "Invalid examples (DO NOT produce these):",
-        (
-            '  {"options": {"platform": "pc", "softwareName": "Windows"}, '
-            '"intent": "slow_computer"}'
-        ),
-        '  {"answer": "...", "intent": "slow_computer"}',
+        '  {"简体中文": "...", "Uyghur": "..."}  # WRONG: Do not translate',
+        '  {"options": {"platform": "pc"}, "intent": "slow_computer"}  # WRONG: Extra',
+        '  {"answer": "...", "intent": "slow_computer"}  # WRONG: Extra keys',
         "  any text before or after the JSON (like ```json, explanation, etc.)",
-        '  {"messages": [...]}  # DO NOT return this schema',
+        '  {"messages": [...]}  # WRONG: Do not return this schema',
         "",
         "Available intents:",
         "",
     ]
 
-    # List all available intents with their keywords/questions
+    # List all available intents (concise format for faster processing)
+    # Only include intent names and 1-2 example questions to reduce prompt size
     intent_descriptions = []
     for intent_name, faq_config in faqs.items():
         if intent_name == "default":
             continue
 
         questions = faq_config.get("questions", [])
-        keywords = faq_config.get("keywords", [])
+        # Use only 1 example question instead of 3 to reduce tokens
+        example = questions[0] if questions else ""
 
-        description_parts = [f"  - {intent_name}:"]
-        if questions:
-            description_parts.append(
-                f"    Example questions: {', '.join(questions[:3])}"
-            )
-        if keywords:
-            description_parts.append(f"    Keywords: {', '.join(keywords[:5])}")
-
-        intent_descriptions.append("\n".join(description_parts))
+        if example:
+            intent_descriptions.append(f"  - {intent_name}: {example}")
+        else:
+            intent_descriptions.append(f"  - {intent_name}")
 
     prompt_parts.extend(intent_descriptions)
     prompt_parts.append("")
