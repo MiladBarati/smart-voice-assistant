@@ -14,6 +14,16 @@ import pjsua2 as pj
 
 logger = logging.getLogger(__name__)
 
+# Constants
+DEFAULT_WAV_DURATION = 5.0
+DEFAULT_EVENT_PUMP_MS = 50
+DIRECTORY_MODE = 0o755
+
+# Path patterns for recording URL normalization
+RECORDINGS_APP_RECORDINGS_PREFIX = "recordings/app/recordings/"
+APP_RECORDINGS_PREFIX = "app/recordings/"
+RECORDINGS_PREFIX = "recordings/"
+
 
 def generate_unique_id() -> str:
     """Generate a unique call ID."""
@@ -39,14 +49,14 @@ def parse_sip_user(uri: str) -> str:
             s = s.split("@", 1)[0]
         # strip quotes and whitespace
         return s.strip().strip('"')
-    except Exception:
+    except (ValueError, AttributeError, IndexError):
         return uri
 
 
 def setup_logging(log_level: int = 3) -> None:
     """Setup logging configuration."""
     logging.basicConfig(
-        level=logging.INFO,
+        level=log_level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[
             logging.StreamHandler(),
@@ -55,7 +65,7 @@ def setup_logging(log_level: int = 3) -> None:
 
     # Set PJSUA2 log level
     pj_logger = logging.getLogger("pjsua2")
-    pj_logger.setLevel(logging.INFO)
+    pj_logger.setLevel(log_level)
 
 
 def get_wav_duration(file_path: str) -> float:
@@ -63,7 +73,7 @@ def get_wav_duration(file_path: str) -> float:
     try:
         if not os.path.exists(file_path):
             logger.warning(f"File {file_path} not found, using default duration")
-            return 5.0  # Default fallback
+            return DEFAULT_WAV_DURATION
 
         with wave.open(file_path, "rb") as wav_file:
             frames = wav_file.getnframes()
@@ -71,9 +81,9 @@ def get_wav_duration(file_path: str) -> float:
             duration = frames / float(sample_rate)
             logger.debug(f"WAV file duration: {duration:.2f} seconds")
             return duration
-    except Exception as e:
+    except (OSError, wave.Error, ValueError) as e:
         logger.error(f"Error reading WAV file duration: {e}, using default duration")
-        return 5.0  # Default fallback
+        return DEFAULT_WAV_DURATION
 
 
 def ensure_recording_directory(base_path: str, call_id: Optional[str] = None) -> str:
@@ -119,7 +129,7 @@ def ensure_recording_directory(base_path: str, call_id: Optional[str] = None) ->
         if call_id:
             call_dir = os.path.join(date_dir, call_id)
             try:
-                os.makedirs(call_dir, exist_ok=True, mode=0o755)
+                os.makedirs(call_dir, exist_ok=True, mode=DIRECTORY_MODE)
                 logger.debug(f"Recording directory: {call_dir}")
                 return call_dir
             except PermissionError as e:
@@ -130,7 +140,7 @@ def ensure_recording_directory(base_path: str, call_id: Optional[str] = None) ->
                 raise
         else:
             try:
-                os.makedirs(date_dir, exist_ok=True, mode=0o755)
+                os.makedirs(date_dir, exist_ok=True, mode=DIRECTORY_MODE)
                 logger.debug(f"Recording directory: {date_dir}")
                 return date_dir
             except PermissionError as e:
@@ -142,7 +152,7 @@ def ensure_recording_directory(base_path: str, call_id: Optional[str] = None) ->
     except PermissionError:
         # Re-raise permission errors as-is
         raise
-    except Exception as e:
+    except OSError as e:
         logger.error(f"Error creating recording directory: {e}")
         # Fallback to base path if date directory creation fails
         # (but only if it's not a permission error)
@@ -155,8 +165,8 @@ def convert_recording_path_to_url(
 ) -> str:
     """Convert a local recording file path to a URL.
 
-    Normalizes common Windows/relative paths and avoids duplicating the
-    'recordings' path segment when the base_url already contains it.
+    Extracts the relative path from the recordings base directory and constructs
+    a URL. Handles both absolute and relative paths.
 
     Args:
         local_path: Local file path (can include backslashes, ./ prefix, etc.)
@@ -174,32 +184,56 @@ def convert_recording_path_to_url(
             "RECORDING_BASE_URL", "https://recordings.aminraay.ir/recordings"
         )
 
-    # Normalize the local path
-    # Remove ./ prefix if present
-    normalized_path = local_path.replace("./", "").lstrip("/")
-
-    # Replace backslashes with forward slashes (for Windows paths)
-    normalized_path = normalized_path.replace("\\", "/")
-
-    # Remove leading slashes
-    normalized_path = normalized_path.lstrip("/")
-
     # Remove base URL trailing slash if present
     base_url = base_url.rstrip("/")
+
+    # Normalize the local path to absolute path
+    normalized_path = os.path.abspath(local_path)
+    normalized_path = normalized_path.replace("\\", "/")
+
+    # Get the recording base directory from environment or use default
+    recording_base_dir = os.getenv("RECORDING_PATH", "./recordings")
+    recording_base_dir = os.path.abspath(recording_base_dir)
+    recording_base_dir = recording_base_dir.replace("\\", "/")
+
+    # Try to extract relative path from the recordings base directory
+    if normalized_path.startswith(recording_base_dir):
+        # Extract the relative path from the base directory
+        relative_path = normalized_path[len(recording_base_dir) :].lstrip("/")
+        # Replace backslashes with forward slashes (for Windows paths)
+        relative_path = relative_path.replace("\\", "/")
+        return f"{base_url}/{relative_path}"
+
+    # Fallback: If the path doesn't start with the base directory,
+    # try to find "recordings" in the path and extract from there
+    recordings_index = normalized_path.find("/recordings/")
+    if recordings_index != -1:
+        # Extract everything after "/recordings/"
+        relative_path = normalized_path[recordings_index + len("/recordings/") :]
+        relative_path = relative_path.replace("\\", "/")
+        return f"{base_url}/{relative_path}"
+
+    # Fallback: Remove common prefixes and use the path as-is
+    # Remove ./ prefix if present
+    fallback_path = local_path.replace("./", "").lstrip("/")
+    # Replace backslashes with forward slashes (for Windows paths)
+    fallback_path = fallback_path.replace("\\", "/")
+    # Remove leading slashes
+    fallback_path = fallback_path.lstrip("/")
 
     # Remove extra path segments that shouldn't be in the URL:
     # - Remove 'recordings/app/recordings/' if present (common issue)
     # - Remove 'app/recordings/' if present
     # - Remove a single leading 'recordings/' from the path if present,
     #   since base_url typically already points to the recordings root.
-    if normalized_path.startswith("recordings/app/recordings/"):
-        normalized_path = normalized_path[len("recordings/app/recordings/") :]
-    elif normalized_path.startswith("app/recordings/"):
-        normalized_path = normalized_path[len("app/recordings/") :]
-    elif normalized_path.startswith("recordings/"):
-        normalized_path = normalized_path[len("recordings/") :]
+    if fallback_path.startswith(RECORDINGS_APP_RECORDINGS_PREFIX):
+        fallback_path = fallback_path[len(RECORDINGS_APP_RECORDINGS_PREFIX) :]
+    elif fallback_path.startswith(APP_RECORDINGS_PREFIX):
+        fallback_path = fallback_path[len(APP_RECORDINGS_PREFIX) :]
+    elif fallback_path.startswith(RECORDINGS_PREFIX):
+        fallback_path = fallback_path[len(RECORDINGS_PREFIX) :]
 
-    return f"{base_url}/{normalized_path}"
+    return f"{base_url}/{fallback_path}"
 
 
 def convert_wav_to_mp3(wav_path: str, delete_source: bool = True) -> Optional[str]:
@@ -254,16 +288,16 @@ def convert_wav_to_mp3(wav_path: str, delete_source: bool = True) -> Optional[st
     except subprocess.CalledProcessError as e:
         logger.error(f"Audio convert: ffmpeg failed with code {e.returncode}")
         return None
-    except Exception as e:
+    except OSError as e:
         logger.error(f"Audio convert: unexpected error: {e}")
         return None
 
 
-def pump_events(ep: pj.Endpoint, ms_per_iter: int = 50) -> None:
+def pump_events(ep: pj.Endpoint, ms_per_iter: int = DEFAULT_EVENT_PUMP_MS) -> None:
     """Pump the PJSUA2 event loop once."""
     try:
         ep.libHandleEvents(ms_per_iter)
-    except Exception as e:
+    except (RuntimeError, AttributeError) as e:
         logger.error(f"EventLoop error: {e}")
 
 
@@ -275,7 +309,7 @@ def wait_until(
     """Pump events until predicate() is True or timeout (in seconds) elapses."""
     deadline = time.time() + timeout_s
     while time.time() < deadline:
-        pump_events(ep, 50)
+        pump_events(ep, DEFAULT_EVENT_PUMP_MS)
         if predicate():
             return True
     return False
