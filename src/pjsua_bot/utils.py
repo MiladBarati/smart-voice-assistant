@@ -5,17 +5,18 @@ import os
 import shutil
 import subprocess
 import time
+import uuid
 import wave
 from datetime import datetime
 from typing import Callable, Optional
 
 import pjsua2 as pj
 
+logger = logging.getLogger(__name__)
+
 
 def generate_unique_id() -> str:
     """Generate a unique call ID."""
-    import uuid
-
     return str(uuid.uuid4())
 
 
@@ -61,17 +62,17 @@ def get_wav_duration(file_path: str) -> float:
     """Get the duration of a WAV file in seconds."""
     try:
         if not os.path.exists(file_path):
-            print(f"***Warning: File {file_path} not found, using default duration")
+            logger.warning(f"File {file_path} not found, using default duration")
             return 5.0  # Default fallback
 
         with wave.open(file_path, "rb") as wav_file:
             frames = wav_file.getnframes()
             sample_rate = wav_file.getframerate()
             duration = frames / float(sample_rate)
-            print(f"***WAV file duration: {duration:.2f} seconds")
+            logger.debug(f"WAV file duration: {duration:.2f} seconds")
             return duration
     except Exception as e:
-        print(f"***Error reading WAV file duration: {e}, using default duration")
+        logger.error(f"Error reading WAV file duration: {e}, using default duration")
         return 5.0  # Default fallback
 
 
@@ -97,17 +98,17 @@ def ensure_recording_directory(base_path: str, call_id: Optional[str] = None) ->
         try:
             os.makedirs(base_path, exist_ok=True)
         except PermissionError as e:
-            print(
-                f"***Error: Permission denied creating base recording directory "
+            logger.error(
+                f"Permission denied creating base recording directory "
                 f"{base_path}: {e}"
             )
-            print(
-                f"***Hint: Ensure the directory exists and is writable by the "
+            logger.info(
+                f"Hint: Ensure the directory exists and is writable by the "
                 f"current user (UID {os.getuid()})"
             )
             raise
         except OSError as e:
-            print(f"***Error creating base recording directory {base_path}: {e}")
+            logger.error(f"Error creating base recording directory {base_path}: {e}")
             raise
 
         # Create date-specific subdirectory directly under base_path
@@ -119,22 +120,22 @@ def ensure_recording_directory(base_path: str, call_id: Optional[str] = None) ->
             call_dir = os.path.join(date_dir, call_id)
             try:
                 os.makedirs(call_dir, exist_ok=True, mode=0o755)
-                print(f"***Recording directory: {call_dir}")
+                logger.debug(f"Recording directory: {call_dir}")
                 return call_dir
             except PermissionError as e:
-                print(
-                    f"***Error: Permission denied creating call recording directory "
+                logger.error(
+                    f"Permission denied creating call recording directory "
                     f"{call_dir}: {e}"
                 )
                 raise
         else:
             try:
                 os.makedirs(date_dir, exist_ok=True, mode=0o755)
-                print(f"***Recording directory: {date_dir}")
+                logger.debug(f"Recording directory: {date_dir}")
                 return date_dir
             except PermissionError as e:
-                print(
-                    f"***Error: Permission denied creating date recording directory "
+                logger.error(
+                    f"Permission denied creating date recording directory "
                     f"{date_dir}: {e}"
                 )
                 raise
@@ -142,7 +143,7 @@ def ensure_recording_directory(base_path: str, call_id: Optional[str] = None) ->
         # Re-raise permission errors as-is
         raise
     except Exception as e:
-        print(f"***Error creating recording directory: {e}")
+        logger.error(f"Error creating recording directory: {e}")
         # Fallback to base path if date directory creation fails
         # (but only if it's not a permission error)
         return base_path
@@ -212,7 +213,7 @@ def convert_wav_to_mp3(wav_path: str, delete_source: bool = True) -> Optional[st
 
     ffmpeg_bin = shutil.which("ffmpeg")
     if not ffmpeg_bin:
-        print("***Audio convert: ffmpeg not found in PATH; keeping WAV file")
+        logger.warning("Audio convert: ffmpeg not found in PATH; keeping WAV file")
         return None
 
     base, _ = os.path.splitext(wav_path)
@@ -239,22 +240,22 @@ def convert_wav_to_mp3(wav_path: str, delete_source: bool = True) -> Optional[st
         )
 
         if os.path.exists(mp3_path):
-            print(f"***Audio convert: created {mp3_path}")
+            logger.info(f"Audio convert: created {mp3_path}")
             if delete_source:
                 try:
                     os.remove(wav_path)
-                    print(f"***Audio convert: removed source WAV {wav_path}")
+                    logger.debug(f"Audio convert: removed source WAV {wav_path}")
                 except Exception as e:
-                    print(f"***Audio convert: failed to remove source WAV: {e}")
+                    logger.warning(f"Audio convert: failed to remove source WAV: {e}")
             return mp3_path
         else:
-            print("***Audio convert: ffmpeg reported success but MP3 not found")
+            logger.warning("Audio convert: ffmpeg reported success but MP3 not found")
             return None
     except subprocess.CalledProcessError as e:
-        print(f"***Audio convert: ffmpeg failed with code {e.returncode}")
+        logger.error(f"Audio convert: ffmpeg failed with code {e.returncode}")
         return None
     except Exception as e:
-        print(f"***Audio convert: unexpected error: {e}")
+        logger.error(f"Audio convert: unexpected error: {e}")
         return None
 
 
@@ -263,7 +264,7 @@ def pump_events(ep: pj.Endpoint, ms_per_iter: int = 50) -> None:
     try:
         ep.libHandleEvents(ms_per_iter)
     except Exception as e:
-        print(f"***EventLoop error: {e}")
+        logger.error(f"EventLoop error: {e}")
 
 
 def wait_until(
