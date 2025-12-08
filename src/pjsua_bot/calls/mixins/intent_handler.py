@@ -6,7 +6,7 @@ import logging
 import os
 import threading
 import time
-from typing import TYPE_CHECKING, Callable, Dict, Optional, Protocol, Tuple, cast
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Protocol, Tuple, cast
 
 from pjsua_bot.intent.faq_config import FAQS
 
@@ -45,6 +45,7 @@ class IntentHandlerMixin:
     _asr_lock: threading.Lock
     _call_media: Optional["pj.AudioMedia"]
     _collect_event: Callable[..., None]
+    _vad: Any | None
 
     # Intent classification state
     _intent_classifier: Optional["IntentClassifier"] = None
