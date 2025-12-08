@@ -282,6 +282,12 @@ class IntentHandlerMixin:
                 except (RuntimeError, AttributeError):
                     pass  # Recorder might not be available
 
+            if self._vad and getattr(self._vad, "available", False):
+                try:
+                    self._vad.set_bot_playback_state(True, time.time)
+                except Exception as exc:
+                    logger.error("Intent: VAD start error: %s", exc, exc_info=True)
+
             self._intent_response_played = True
             self._intent_response_start_time = time.time()
             self._intent_response_duration = response_duration
