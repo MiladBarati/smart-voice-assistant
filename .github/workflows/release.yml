@@ -1,8 +1,7 @@
 name: Build
 
 on:
-  push:
-    branches: ["main"]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -61,3 +60,4 @@ jobs:
             docker compose down
             docker compose pull
             docker compose up -d
+            docker image prune -af --filter
