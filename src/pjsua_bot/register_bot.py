@@ -687,19 +687,25 @@ def main() -> None:
 
                 # Check for calls that should be hung up
                 for call in list(acc.calls.values()):
-                    if hasattr(call, "check_playback_status"):
-                        call.check_playback_status()
+                    try:
+                        if hasattr(call, "check_playback_status"):
+                            call.check_playback_status()
 
-                    if hasattr(call, "should_hangup") and call.should_hangup():
-                        try:
-                            if call.isActive():
-                                print("***Auto-hanging up after welcome message")
-                                # Hangup will trigger onCallState(DISCONNECTED)
-                                # which handles cleanup
-                                op = pj.CallOpParam()
-                                call.hangup(op)
-                        except Exception as e:
-                            print(f"***Hangup error: {e}")
+                        if hasattr(call, "should_hangup") and call.should_hangup():
+                            try:
+                                if call.isActive():
+                                    print("***Auto-hanging up after welcome message")
+                                    # Hangup will trigger onCallState(DISCONNECTED)
+                                    # which handles cleanup
+                                    op = pj.CallOpParam()
+                                    call.hangup(op)
+                            except Exception as e:
+                                print(f"***Hangup error: {e}")
+                    except Exception as e:
+                        print(f"***Error in main loop for call {call}: {e}")
+                        import traceback
+
+                        traceback.print_exc()
 
     finally:
         stopping["cleanup_done"] = False

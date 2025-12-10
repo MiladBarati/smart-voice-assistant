@@ -114,7 +114,7 @@ def ensure_recording_directory(base_path: str, call_id: Optional[str] = None) ->
             )
             logger.info(
                 f"Hint: Ensure the directory exists and is writable by the "
-                f"current user (UID {os.getuid()})"
+                f"current user (UID {os.getuid() if hasattr(os, 'getuid') else 'unknown'})"
             )
             raise
         except OSError as e:
@@ -297,7 +297,8 @@ def pump_events(ep: pj.Endpoint, ms_per_iter: int = DEFAULT_EVENT_PUMP_MS) -> No
     """Pump the PJSUA2 event loop once."""
     try:
         ep.libHandleEvents(ms_per_iter)
-    except (RuntimeError, AttributeError) as e:
+    except (RuntimeError, AttributeError, Exception) as e:
+        # Catch generic Exception to prevent main loop crash from pjsua2 errors
         logger.error(f"EventLoop error: {e}")
 
 
