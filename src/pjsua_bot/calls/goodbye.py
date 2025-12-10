@@ -217,7 +217,15 @@ class GoodbyePlaybackMixin:
     def _play_waiting_message(self: Any) -> None:
         """Play the waiting message when VAD detects silence."""
         waiting_file = getattr(self._acc_ref, "waiting_file", None)
-        if not waiting_file or self._waiting_requested:
+        if not waiting_file:
+            # Only print once to avoid spam
+            if not getattr(self, "_waiting_missing_logged", False):
+                print("***Waiting: no waiting_file configured")
+                self._waiting_missing_logged = True
+            return
+
+        if self._waiting_requested:
+            # Already requested, skip
             return
 
         if not os.path.exists(waiting_file):
@@ -231,6 +239,8 @@ class GoodbyePlaybackMixin:
             self._waiting_requested = True  # Prevent repeated attempts
             self._waiting_playback_finished = True
             return
+
+        print(f"***Waiting: attempting to play {waiting_file}")
 
         try:
             self._waiting_requested = True
