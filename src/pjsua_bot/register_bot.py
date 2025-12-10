@@ -511,12 +511,10 @@ def main() -> None:
             acfg.natConfig.contactRewriteUse = 0
             acfg.natConfig.viaRewriteUse = 0
 
-        # Do NOT force using the local source port in Contact
         try:
             acfg.natConfig.contactUseSrcPort = False
         except AttributeError:
             pass
-        acc.create(acfg)
 
         # Initialize ASR service before registration (if enabled)
         # This loads the model once, before any calls come in
@@ -607,6 +605,11 @@ def main() -> None:
         # This prevents blocking during calls when VAD is first initialized
         if args.enable_vad:
             acc._preload_vad()
+
+        # Create the account and register
+        # Do this LAST so we don't get calls while initializing
+        print(f"***Creating account and registering {acfg.idUri}...")
+        acc.create(acfg)
 
         # Wait for registration with active event pumping
         print(f"***Waiting for registration (up to {args.wait_seconds}s)...")
