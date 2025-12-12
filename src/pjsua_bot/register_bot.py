@@ -208,14 +208,7 @@ def main() -> None:
             "Path to WAV file to play before hanging up (default: goodbye_voice.wav)"
         ),
     )
-    parser.add_argument(
-        "--waiting-file",
-        default="waiting_voice.wav",
-        help=(
-            "Path to WAV file to play when VAD detects silence "
-            "(default: assets/audio/waiting_voice.wav)"
-        ),
-    )
+
     parser.add_argument(
         "--hangup-delay",
         type=int,
@@ -261,10 +254,7 @@ def main() -> None:
     parser.add_argument(
         "--enable-asr",
         action="store_true",
-        help=(
-            "Enable Whisper-based ASR for live and final transcription "
-            "(default: disabled)"
-        ),
+        help=("Enable ASR for live and final transcription " "(default: disabled)"),
     )
     parser.add_argument(
         "--enable-intent",
@@ -289,11 +279,10 @@ def main() -> None:
     parser.add_argument(
         "--ollama-model",
         type=str,
-        default="qwen2.5:7b",
+        default="qwen2.5:3b",
         help=(
-            "Ollama model name (default: qwen2.5:7b). "
-            "For CPU usage, use smaller models: qwen2.5:0.5b, "
-            "qwen2.5:1.5b, qwen2.5:3b, or qwen2.5:7b"
+            "Ollama model name (default: qwen2.5:3b). "
+            "Using 1.5b/3b is recommended for GPUs with <8GB VRAM to coexist with ASR."
         ),
     )
     parser.add_argument(
@@ -474,7 +463,6 @@ def main() -> None:
         acc.auto_answer = args.auto_answer or not args.no_auto_answer
         acc.play_file = args.play_file
         acc.goodbye_file = args.goodbye_file
-        acc.waiting_file = args.waiting_file
         acc.hangup_delay = args.hangup_delay
         acc.enable_recording = args.enable_recording
         acc.recording_path = args.recording_path
