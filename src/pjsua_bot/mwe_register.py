@@ -1,4 +1,5 @@
 import argparse
+import sys
 import time
 from typing import Any
 
@@ -90,12 +91,20 @@ def main() -> None:
 
     # Wait for registration with event pumping
     deadline = time.time() + args.wait
+    registration_succeeded = False
     while time.time() < deadline:
         pump(ep)
         info = acc.getInfo()
-        if info.regIsActive and info.regStatus == 200:
+        # Accept any 2xx status code as success (200, 201, 202, etc.)
+        if info.regIsActive and 200 <= info.regStatus < 300:
             print("***Registered successfully")
+            registration_succeeded = True
             break
+
+    # Capture final info before destroying endpoint (account becomes invalid after libDestroy)
+    final_info = acc.getInfo()
+    final_reg_status = final_info.regStatus
+    final_reg_active = final_info.regIsActive
 
     # stay a bit to let Asterisk create/qualify contact
     end = time.time() + 5
@@ -103,6 +112,9 @@ def main() -> None:
         pump(ep)
 
     ep.libDestroy()
+    if not registration_succeeded:
+        print(f"***Registration failed: status={final_reg_status}, active={final_reg_active}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
