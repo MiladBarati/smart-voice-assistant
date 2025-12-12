@@ -252,6 +252,8 @@ class ASRService:
 
         except Exception as e:
             error_msg = str(e)
+            if "map function has failed" in error_msg:
+                error_msg += " (Possible VRAM exhaustion or multiprocessing error. Try using a smaller ASR model/batch size, or check if another process is holding GPU memory.)"
 
             # Retry logic
             if retry_count < self.cfg.max_retries:

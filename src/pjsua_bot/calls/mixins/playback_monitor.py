@@ -31,8 +31,7 @@ class PlaybackMonitorMixin:
 
     _goodbye_playback_finished: bool
     _goodbye_requested: bool
-    _waiting_playback_finished: bool
-    _waiting_requested: bool
+
     _asr_complete: bool
     _stop_player_time: float | None
 
@@ -41,10 +40,6 @@ class PlaybackMonitorMixin:
         def check_goodbye_status(self) -> None: ...
 
         def _play_goodbye_message(self) -> None: ...
-
-        def check_waiting_status(self) -> None: ...
-
-        def _play_waiting_message(self) -> None: ...
 
     def _init_playback_state(self) -> None:
         """Initialise playback-related attributes."""
@@ -110,8 +105,6 @@ class PlaybackMonitorMixin:
 
         # Check goodbye message status
         self.check_goodbye_status()
-        # Check waiting message status
-        self.check_waiting_status()
 
         if not self._playback_started:
             return
@@ -157,40 +150,44 @@ class PlaybackMonitorMixin:
                     print(f"***Error stopping player transmission: {exc}")
 
             # Mark playback finished; hangup will be controlled by VAD
+            # NOTE: _playback_finished and _stop_player_time are set regardless
+            # of whether _hangup_time is already set (e.g., by VAD detecting
+            # speech before welcome finished). Only the log message and optional
+            # cleanup are conditional.
             if not self._hangup_time:
                 print(
                     "***Welcome message finished. Monitoring caller speech for hangup"
                 )
 
-                # Stop tracking bot talk duration
-                if hasattr(self, "_stop_bot_playback_tracking"):
-                    try:
-                        self._stop_bot_playback_tracking()
-                    except Exception as exc:  # pragma: no cover - defensive
-                        print(
-                            (
-                                "***Bot tracking: error stopping "
-                                f"playback tracking: {exc}"
-                            )
-                        )
+            # Stop tracking bot talk duration (always do this when welcome ends)
+            if hasattr(self, "_stop_bot_playback_tracking"):
+                try:
+                    self._stop_bot_playback_tracking()
+                except Exception as exc:  # pragma: no cover - defensive
+                    print(
+                        ("***Bot tracking: error stopping " f"playback tracking: {exc}")
+                    )
 
-                # Notify VAD that bot playback finished
-                if self._vad and self._vad.available:
-                    try:
-                        self._vad.set_bot_playback_state(False, time.time)
-                    except Exception as exc:  # pragma: no cover - defensive
-                        print(f"***VAD: error notifying bot playback stop: {exc}")
+            # Notify VAD that bot playback finished (always do this)
+            if self._vad and self._vad.available:
+                try:
+                    self._vad.set_bot_playback_state(False, time.time)
+                except Exception as exc:  # pragma: no cover - defensive
+                    print(f"***VAD: error notifying bot playback stop: {exc}")
 
-                # Collect playback finished event
-                self._collect_event(
-                    event_type="playback_finished",
-                    media_type="audio",
-                    file_played=getattr(self._acc_ref, "play_file", None),
-                )
+            # Collect playback finished event
+            self._collect_event(
+                event_type="playback_finished",
+                media_type="audio",
+                file_played=getattr(self._acc_ref, "play_file", None),
+            )
 
-                self._playback_finished = True
-                # Clear stop time to prevent re-running this block
-                self._stop_player_time = None
+            # CRITICAL: Always mark playback as finished when the player stops
+            # This is needed for ASR completion checks to work correctly
+            self._playback_finished = True
+            print("***Welcome message playback finished")
+            # Clear stop time to prevent re-running this block
+            self._stop_player_time = None
 
         # Skip VAD processing if intent response finished
         # This prevents VAD from capturing audio after FAQ response and before hangup
@@ -226,51 +223,32 @@ class PlaybackMonitorMixin:
                         + self._silence_after_speech_sec
                     )
                     current_time = time.time()
-                    # If silence detected and waiting voice not yet played, play it
-                    if (
-                        current_time >= target
-                        and not self._waiting_requested
-                        and not self._waiting_playback_finished
-                        and not self._asr_complete
-                    ):
-                        # Finalize any current chunk before playing waiting voice
-                        if self._asr_enabled and self._asr_available:
+
+                    if not self._hangup_time or self._hangup_time < target:
+                        # Update hangup time if needed
+                        self._hangup_time = target
+                        print(
+                            "***VAD: last speech at "
+                            f"{self._vad.last_speech_time_monotonic:.3f}; "
+                            f"hangup at {target:.3f}"
+                        )
+                        # Finalize current chunk immediately when silence is confirmed
+                        # to ensure we capture the end of speech quickly for ASR
+                        if (
+                            current_time >= target
+                            and self._asr_enabled
+                            and self._asr_available
+                            and not self._asr_complete
+                        ):
                             try:
-                                # Finalize current chunk if it exists
                                 current_chunk = self._vad.get_current_chunk()
                                 if current_chunk is not None:
-                                    # Force finalize the current chunk
                                     self._vad.finalize_all_chunks(time.time)
                                     print(
                                         "***VAD: finalized current chunk due to silence"
                                     )
-                                    # Immediately submit the newly finalized chunk
-                                    # for transcription
-                                    chunks = self._vad.get_chunks()
-                                    if (
-                                        chunks
-                                        and len(chunks)
-                                        > self._last_transcribed_chunk_count
-                                    ):
-                                        last_chunk = chunks[-1]
-                                        if last_chunk.file_path and os.path.exists(
-                                            last_chunk.file_path
-                                        ):
-                                            self._submit_transcription_task(
-                                                last_chunk.file_path, len(chunks) - 1
-                                            )
-                                            self._last_transcribed_chunk_count = len(
-                                                chunks
-                                            )
                             except Exception as e:
                                 print(f"***VAD: error finalizing chunk: {e}")
-
-                        # Play waiting voice instead of setting hangup time
-                        self._play_waiting_message()
-                        print(
-                            "***VAD: silence detected, playing waiting voice. "
-                            f"Last speech at {self._vad.last_speech_time_monotonic:.3f}"
-                        )
                     elif not self._hangup_time or self._hangup_time < target:
                         # Update hangup time if needed (for cases without waiting voice)
                         self._hangup_time = target
@@ -312,18 +290,69 @@ class PlaybackMonitorMixin:
 
                     # Check if ASR transcription is complete
                     # (all chunks submitted and queue is empty)
-                    # Allow intent classification even if waiting message wasn't played
-                    # as long as speech was detected and ASR is complete
-                    waiting_finished_or_not_needed = (
-                        self._waiting_playback_finished
-                        or not getattr(self._acc_ref, "waiting_file", None)
+                    #
+                    # IMPORTANT: We need to ensure chunks have actually been
+                    # finalized before marking ASR complete. The issue is that
+                    # VAD might detect brief speech, set hangup_time 3s later,
+                    # but not finalize chunks until later.
+                    #
+                    # Logic:
+                    # 1. If we have chunks, wait for them to be processed
+                    # 2. If no chunks but hangup_time passed, wait a bit more
+                    #    (give VAD time to finalize any pending chunks)
+                    # 3. If no chunks and a long time has passed since welcome
+                    #    ended (10+ seconds), assume caller won't speak
+
+                    # Check if we're in a valid state to consider ASR complete
+                    welcome_finished = getattr(self, "_playback_finished", False)
+                    has_chunks = len(chunks) > 0
+
+                    # Track when welcome finished (for timeout calculation)
+                    if welcome_finished and not hasattr(self, "_welcome_finished_time"):
+                        self._welcome_finished_time = current_time
+
+                    welcome_finished_time = getattr(
+                        self, "_welcome_finished_time", None
+                    )
+                    time_since_welcome = (
+                        current_time - welcome_finished_time
+                        if welcome_finished_time
+                        else 0.0
+                    )
+
+                    # Check if the silence timeout has actually elapsed
+                    hangup_time_reached = (
+                        self._hangup_time is not None
+                        and current_time >= self._hangup_time
+                    )
+
+                    # Extra grace period after hangup_time for chunk finalization
+                    # If hangup_time passed but no chunks, wait 2 more seconds
+                    hangup_grace_passed = (
+                        self._hangup_time is not None
+                        and current_time >= self._hangup_time + 2.0
+                    )
+
+                    # Fallback timeout: if 10+ seconds since welcome and no speech
+                    # detected at all (no hangup_time set), proceed anyway
+                    no_speech_timeout = (
+                        self._hangup_time is None and time_since_welcome > 10.0
+                    )
+
+                    # We can only consider ASR complete if:
+                    # - Welcome message finished playing, AND one of:
+                    #   - We have chunks (speech was finalized), OR
+                    #   - Hangup time + grace period passed (chunks should be ready), OR
+                    #   - Long timeout with no speech at all
+                    asr_ready_to_check = welcome_finished and (
+                        has_chunks or hangup_grace_passed or no_speech_timeout
                     )
 
                     if (
                         self._asr_enabled
                         and self._asr_available
                         and not self._asr_complete
-                        and waiting_finished_or_not_needed
+                        and asr_ready_to_check
                     ):
                         asr_queue = getattr(self, "_asr_queue", None)
                         if asr_queue is not None:
@@ -398,24 +427,6 @@ class PlaybackMonitorMixin:
         Returns True only when it's actually time to hang up
         (after goodbye if applicable).
         """
-        # If ASR is enabled and we're waiting for it, check completion
-        if (
-            self._asr_enabled
-            and self._asr_available
-            and self._waiting_playback_finished
-            and not self._asr_complete
-        ):
-            # Still waiting for ASR to complete, don't hang up yet
-            return False
-
-        # If waiting voice finished but ASR is not enabled, skip to goodbye
-        if (
-            self._waiting_playback_finished
-            and not self._asr_enabled
-            and not self._asr_complete
-        ):
-            # ASR not enabled, mark as complete to proceed to goodbye
-            self._asr_complete = True
 
         # If ASR is complete (or not enabled) and goodbye needs to be played
         if self._asr_complete:

@@ -20,8 +20,7 @@ class Account(pj.Account):
         self.play_file: Optional[str] = None  # WAV file to play on connect
         # WAV file to play before hanging up
         self.goodbye_file: Optional[str] = None
-        # WAV file to play when VAD detects silence (waiting for ASR)
-        self.waiting_file: Optional[str] = None
+
         # Batch logging - collect events during account lifetime
         self._collected_events: list[dict[str, Any]] = []
         # ASR service (shared across all calls for this account)
