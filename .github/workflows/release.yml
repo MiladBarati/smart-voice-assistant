@@ -54,10 +54,44 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SERVER_PORT }}
-          command_timeout: 60m
+          command_timeout: 120m
           script: |
+            set -e
             cd /home/aminry/app
-            docker compose down
-            docker compose pull
+            echo "=== Stopping existing containers ==="
+            docker compose down || true
+            
+            echo "=== Pulling Docker images (this may take 10-20 minutes for large images) ==="
+            echo "Start time: $(date)"
+            
+            # Set Docker client timeout to 2 hours (7200 seconds)
+            export DOCKER_CLIENT_TIMEOUT=7200
+            export COMPOSE_HTTP_TIMEOUT=7200
+            
+            # Retry logic for docker compose pull (up to 3 attempts)
+            MAX_RETRIES=3
+            RETRY_COUNT=0
+            PULL_SUCCESS=false
+            
+            while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$PULL_SUCCESS" = false ]; do
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              echo "=== Pull attempt $RETRY_COUNT of $MAX_RETRIES ==="
+              
+              if docker compose pull --progress=plain; then
+                PULL_SUCCESS=true
+                echo "=== Pull completed successfully ==="
+              else
+                if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                  echo "=== Pull failed, waiting 30 seconds before retry ==="
+                  sleep 30
+                else
+                  echo "=== Pull failed after $MAX_RETRIES attempts ==="
+                  exit 1
+                fi
+              fi
+            done
+            
+            echo "End time: $(date)"
+            echo "=== Starting containers ==="
             docker compose up -d
             docker image prune -af --filter

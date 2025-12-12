@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import signal
 import sys
@@ -343,7 +344,8 @@ def main() -> None:
         # Set a timeout to force exit if cleanup takes too long (WSL-specific issue)
         def _force_exit() -> None:
             time.sleep(15)  # Wait 15 seconds for cleanup
-            if not stopping.get("cleanup_done", False):
+            cleanup_done = stopping.get("cleanup_done", False)
+            if not cleanup_done:
                 print("***Force exit: cleanup taking too long, forcing exit...")
                 os._exit(1)  # Force exit, bypassing cleanup
 
@@ -605,9 +607,12 @@ def main() -> None:
         def _is_registered() -> bool:
             info: Any = acc.getInfo()
             try:
+                reg_is_active = getattr(info, "regIsActive", False)
+                reg_status = getattr(info, "regStatus", 0)
+                # Accept any 2xx status code as success (200, 201, 202, etc.)
                 return bool(
-                    getattr(info, "regIsActive", False)
-                    and getattr(info, "regStatus", 0) == 200
+                    reg_is_active
+                    and 200 <= reg_status < 300
                 )
             except Exception:
                 return False
@@ -701,6 +706,7 @@ def main() -> None:
     finally:
         stopping["cleanup_done"] = False
         # Graceful shutdown: hang up active calls and pump events briefly
+        # Wrap ALL cleanup in try-finally to ensure cleanup_done is always set to True
         try:
             if "acc" in locals() and isinstance(acc, Account):
                 try:
@@ -835,9 +841,9 @@ def main() -> None:
                 # Get all transports and destroy them
                 try:
                     transports = ep.transportEnum()
-                    for tp in transports:
+                    for tp_id in transports:
                         try:
-                            ep.transportClose(tp.id)
+                            ep.transportClose(tp_id)
                         except Exception:
                             pass
                     # Pump events to allow transport cleanup
@@ -849,11 +855,13 @@ def main() -> None:
                             break
                 except Exception as e:
                     print(f"***Transport destruction error: {e}")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"***Transport destruction error: {e}")
 
         # Destroy endpoint - MUST be called from main thread (PJSUA2 requirement)
-        # If it hangs, the force exit mechanism will kill the process after 15 seconds
+        # If libDestroy() hangs, the force exit timeout will kill the process.
+        # We do NOT set cleanup_done = True until AFTER libDestroy() completes,
+        # so the force exit thread can kill the process if libDestroy() hangs.
         try:
             if "ep" in locals():
                 print("***Destroying endpoint...")
@@ -862,9 +870,23 @@ def main() -> None:
                 ep.libDestroy()
         except Exception as e:
             print(f"***Endpoint destruction error: {e}")
-
-        stopping["cleanup_done"] = True
-        print("***Shutdown complete")
+        finally:
+            # CRITICAL: Set cleanup_done to True in finally block AFTER libDestroy() completes
+            # This ensures the force exit thread won't kill the process if cleanup completed successfully.
+            # If libDestroy() hangs, cleanup_done stays False and the force exit thread will kill it.
+            stopping["cleanup_done"] = True
+            print("***Shutdown complete")
+            # Flush all output before exiting to ensure messages are printed
+            try:
+                sys.stdout.flush()
+                sys.stderr.flush()
+            except Exception:
+                pass
+            # Explicitly exit after cleanup completes
+            # Use os._exit() instead of sys.exit() to force immediate termination
+            # This bypasses Python's cleanup (atexit handlers, finally blocks, etc.)
+            # and ensures the process exits immediately even if there are daemon threads
+            os._exit(0)  # Force immediate exit, bypassing Python cleanup
 
 
 if __name__ == "__main__":
