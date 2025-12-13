@@ -229,8 +229,9 @@ class SileroModelLoader:
         if cls.try_reuse_cached_model(instance):
             return
 
-        # Clear cache proactively for PyTorch 2.5+ compatibility
-        cls.clear_cache_if_needed()
+        # NOTE: Removed proactive cache clearing - cache should only be cleared
+        # reactively when encountering actual errors (e.g., _construct errors).
+        # The cache will be reused if it exists, avoiding unnecessary downloads.
 
         # Try multiple loading strategies
         strategies = cls.get_loading_strategies()

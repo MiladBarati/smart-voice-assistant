@@ -63,7 +63,8 @@ class GoodbyePlaybackMixin:
             import pjsua2 as pj  # local import to avoid module-level dependency
 
             self._goodbye_player = pj.AudioMediaPlayer()
-            self._goodbye_player.createPlayer(goodbye_file, False)  # No loop
+            # PJMEDIA_FILE_NO_LOOP = 1 prevents looping (False=0 would allow looping)
+            self._goodbye_player.createPlayer(goodbye_file, pj.PJMEDIA_FILE_NO_LOOP)
             self._goodbye_player.startTransmit(self._call_media)  # goodbye -> remote
 
             # Also transmit goodbye message to mixed recorder if it exists
@@ -145,23 +146,54 @@ class GoodbyePlaybackMixin:
                 try:
                     import pjsua2 as pj  # local import
 
-                    # Stop the transmission from goodbye player to call media
-                    self._goodbye_player.stopTransmit(self._call_media)
-                    print("***Goodbye: stopped player transmission")
+                    # Check if call is still active before attempting port disconnection
+                    # If call is disconnected, PJSUA2 has already disconnected ports
+                    call_active = False
+                    try:
+                        if hasattr(self, "isActive"):
+                            call_active = self.isActive()
+                    except Exception:
+                        # Call might be destroyed, assume inactive
+                        call_active = False
 
-                    # Stop the transmission from goodbye player to mixed recorder
-                    if getattr(self, "_mixed_recorder", None):
+                    if call_active:
+                        # Stop the transmission from goodbye player to call media
                         try:
-                            self._goodbye_player.stopTransmit(self._mixed_recorder)
-                            print("***Goodbye: stopped transmission to mixed recorder")
+                            self._goodbye_player.stopTransmit(self._call_media)
+                            print("***Goodbye: stopped player transmission")
                         except Exception:
-                            # Mixed recorder might already be stopped, ignore
+                            # Ports already disconnected, ignore silently
                             pass
 
+                        # Stop the transmission from goodbye player to mixed recorder
+                        if getattr(self, "_mixed_recorder", None):
+                            try:
+                                self._goodbye_player.stopTransmit(self._mixed_recorder)
+                                print("***Goodbye: stopped transmission to mixed recorder")
+                            except Exception:
+                                # Mixed recorder might already be stopped, ignore
+                                pass
+
+                    # Check if call is still active before attempting port disconnection
+                    # If call is disconnected, PJSUA2 has already disconnected ports
+                    call_active = False
+                    try:
+                        if hasattr(self, "isActive"):
+                            call_active = self.isActive()
+                    except Exception:
+                        # Call might be destroyed, assume inactive
+                        call_active = False
+
+                    # FIX: Skip stopping call_media->playback transmission to avoid PJSUA2
+                    # internal "Remove port failed" error (same fix as in playback_monitor.py)
                     # Also stop the call media to playback transmission
-                    adm = pj.Endpoint.instance().audDevManager()
-                    playback = adm.getPlaybackDevMedia()
-                    self._call_media.stopTransmit(playback)
+                    # if call_active:
+                    #     adm = pj.Endpoint.instance().audDevManager()
+                    #     playback = adm.getPlaybackDevMedia()
+                    #     try:
+                    #         self._call_media.stopTransmit(playback)
+                    #     except Exception:
+                    #         pass
 
                     # Destroy the goodbye player
                     self._goodbye_player = None

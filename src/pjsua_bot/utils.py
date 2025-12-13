@@ -297,8 +297,10 @@ def pump_events(ep: pj.Endpoint, ms_per_iter: int = DEFAULT_EVENT_PUMP_MS) -> No
     """Pump the PJSUA2 event loop once."""
     try:
         ep.libHandleEvents(ms_per_iter)
-    except (RuntimeError, AttributeError, Exception) as e:
-        # Catch generic Exception to prevent main loop crash from pjsua2 errors
+    except (RuntimeError, AttributeError) as e:
+        # Catch specific PJSUA2 exceptions to prevent main loop crash
+        # RuntimeError: common PJSUA2 error (e.g., endpoint not initialized)
+        # AttributeError: missing attributes in PJSUA2 bindings
         logger.error(f"EventLoop error: {e}")
 
 

@@ -118,9 +118,6 @@ class Account(pj.Account):
         # Collect registration event
         # Accept any 2xx status code as success (200, 201, 202, etc.)
         is_success_2xx = (info.regIsActive and 200 <= info.regStatus < 300)
-        # #region agent log
-        import json; f=open('/home/milad/projects/pjsua-installation/.cursor/debug.log','a'); f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"account.py:120","message":"First is_success_2xx check","data":{"is_success_2xx":is_success_2xx,"regIsActive":info.regIsActive,"regStatus":info.regStatus},"timestamp":int(__import__('time').time()*1000)})+'\n'); f.close()
-        # #endregion
         event_type = (
             "registration_success"
             if is_success_2xx
@@ -138,9 +135,6 @@ class Account(pj.Account):
 
         # Accept any 2xx status code as success (200, 201, 202, etc.)
         is_success_2xx = info.regIsActive and 200 <= info.regStatus < 300
-        # #region agent log
-        import json; f=open('/home/milad/projects/pjsua-installation/.cursor/debug.log','a'); f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"account.py:137","message":"Second is_success_2xx check (duplicate)","data":{"is_success_2xx":is_success_2xx,"regIsActive":info.regIsActive,"regStatus":info.regStatus},"timestamp":int(__import__('time').time()*1000)})+'\n'); f.close()
-        # #endregion
         if is_success_2xx:
             print("***Registered successfully")
 

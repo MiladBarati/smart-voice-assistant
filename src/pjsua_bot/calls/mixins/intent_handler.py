@@ -53,6 +53,7 @@ class IntentHandlerMixin:
     _intent_classified: bool = False
     _classified_intent: Optional[str] = None
     _intent_confidence: float = 0.0
+    _classified_faq_config: Optional[Dict[str, Any]] = None
     _intent_response_played: bool = False
     _intent_response_player: Optional["pj.AudioMediaPlayer"] = None
     _intent_response_start_time: Optional[float] = None
@@ -112,6 +113,7 @@ class IntentHandlerMixin:
         self._intent_classified = False
         self._classified_intent = None
         self._intent_confidence = 0.0
+        self._classified_faq_config = None
         self._intent_response_played = False
         self._intent_response_player = None
         self._intent_response_start_time = None
@@ -173,7 +175,7 @@ class IntentHandlerMixin:
             logger.warning("Intent: no transcription available for classification")
             return None
 
-        # Classify intent
+            # Classify intent
         try:
             intent_name, confidence, faq_config = self._intent_classifier.classify(
                 transcription_text
@@ -182,6 +184,7 @@ class IntentHandlerMixin:
             self._intent_classified = True
             self._classified_intent = intent_name
             self._intent_confidence = confidence
+            self._classified_faq_config = faq_config  # Store FAQ config from classifier
 
             logger.info(
                 "Intent: classified as '%s' (confidence: %.2f)",
@@ -217,16 +220,15 @@ class IntentHandlerMixin:
 
         intent_name, confidence = classification
 
-        # Get FAQ config from classifier
-        if not self._intent_classifier:
-            return
-
-        try:
-            # Get actual config for this intent
-            faq_config = FAQS.get(intent_name, FAQS["default"])
-        except (ImportError, KeyError, AttributeError, TypeError) as exc:
-            logger.error("Intent: error getting FAQ config: %s", exc, exc_info=True)
-            return
+        # Use FAQ config from classifier (stored during classification)
+        # Fallback to FAQS dict if not available (backward compatibility)
+        faq_config = self._classified_faq_config
+        if not faq_config:
+            try:
+                faq_config = FAQS.get(intent_name, FAQS["default"])
+            except (ImportError, KeyError, AttributeError, TypeError) as exc:
+                logger.error("Intent: error getting FAQ config: %s", exc, exc_info=True)
+                return
 
         # Determine response method (audio file or TTS)
         response_audio = faq_config.get("response_audio")
@@ -269,7 +271,8 @@ class IntentHandlerMixin:
 
             # Create player for intent response
             self._intent_response_player = pj.AudioMediaPlayer()
-            self._intent_response_player.createPlayer(audio_path, False)  # No loop
+            # PJMEDIA_FILE_NO_LOOP = 1 prevents looping (False=0 would allow looping)
+            self._intent_response_player.createPlayer(audio_path, pj.PJMEDIA_FILE_NO_LOOP)
 
             # Connect player to call media
             self._intent_response_player.startTransmit(self._call_media)
@@ -351,21 +354,30 @@ class IntentHandlerMixin:
         """Check if response stop time has been reached.
 
         Returns:
-            True if stop time reached, False otherwise
+            True if stop time reached and buffer delay has passed, False otherwise
         """
         if not self._intent_response_stop_time:
             return False
 
         current_time = time.time()
-        if current_time >= self._intent_response_stop_time:
+        # Add a buffer delay after the calculated stop time to account for:
+        # 1. Audio pipeline latency (jitter buffer, RTP buffering)
+        # 2. Time for buffered audio to drain from the pipeline
+        # This prevents the goodbye message from starting before the intent response
+        # audio has actually finished playing on the remote side.
+        AUDIO_DRAIN_BUFFER = 0.5  # seconds - small buffer for pipeline latency
+        effective_stop_time = self._intent_response_stop_time + AUDIO_DRAIN_BUFFER
+        
+        if current_time >= effective_stop_time:
             elapsed = current_time - (
                 self._intent_response_stop_time - self._intent_response_duration
             )
             logger.debug(
-                "Intent: stop time reached (current=%.2f, stop=%.2f, elapsed=%.2fs)",
+                "Intent: stop time reached (current=%.2f, stop=%.2f, elapsed=%.2fs, buffer=%.2fs)",
                 current_time,
                 self._intent_response_stop_time,
                 elapsed,
+                AUDIO_DRAIN_BUFFER,
             )
             return True
         return False
@@ -373,6 +385,19 @@ class IntentHandlerMixin:
     def _stop_player_transmissions(self) -> None:
         """Stop all transmissions from the intent response player."""
         if not self._intent_response_player:
+            return
+
+        # Check if call is still active before attempting port disconnection
+        # If call is disconnected, PJSUA2 has already disconnected ports
+        call_active = False
+        try:
+            if hasattr(self, "isActive"):
+                call_active = self.isActive()
+        except Exception:
+            # Call might be destroyed, assume inactive
+            call_active = False
+
+        if not call_active:
             return
 
         try:
@@ -388,9 +413,9 @@ class IntentHandlerMixin:
                     logger.debug(
                         "Intent: stopped player transmission to mixed recorder"
                     )
-                except (RuntimeError, AttributeError):
+                except Exception:
                     pass
-        except (RuntimeError, AttributeError) as e:
+        except Exception as e:
             logger.warning("Intent: error stopping player transmissions: %s", e)
 
     def _stop_call_media_to_playback(self) -> None:
@@ -401,15 +426,29 @@ class IntentHandlerMixin:
         if self._call_media is None:
             return
 
+        # Check if call is still active before attempting port disconnection
+        # If call is disconnected, PJSUA2 has already disconnected ports
+        call_active = False
         try:
-            import pjsua2 as pj
+            if hasattr(self, "isActive"):
+                call_active = self.isActive()
+        except Exception:
+            # Call might be destroyed, assume inactive
+            call_active = False
 
-            adm = pj.Endpoint.instance().audDevManager()
-            playback = adm.getPlaybackDevMedia()
-            self._call_media.stopTransmit(playback)
-            logger.debug("Intent: stopped call media to playback transmission")
-        except (RuntimeError, AttributeError) as e:
-            logger.debug("Intent: could not stop call media to playback: %s", e)
+        if not call_active:
+            return
+
+        # FIX: Skip stopping call_media->playback transmission to avoid PJSUA2
+        # internal "Remove port failed" error (same fix as in playback_monitor.py)
+        # try:
+        #     import pjsua2 as pj
+        #     adm = pj.Endpoint.instance().audDevManager()
+        #     playback = adm.getPlaybackDevMedia()
+        #     self._call_media.stopTransmit(playback)
+        #     logger.debug("Intent: stopped call media to playback transmission")
+        # except (RuntimeError, AttributeError) as e:
+        #     logger.debug("Intent: could not stop call media to playback: %s", e)
 
     def _stop_and_destroy_player(self) -> None:
         """Stop the player explicitly and destroy it."""

@@ -168,11 +168,21 @@ class RecordingCleanupMixin:
         # Clean up incoming recording
         if getattr(self, "_recorder", None):
             try:
+                # Check if call is still active before attempting port disconnection
+                # If call is disconnected, PJSUA2 has already disconnected ports
+                call_active = False
+                try:
+                    if hasattr(self, "isActive"):
+                        call_active = self.isActive()
+                except Exception:
+                    # Call might be destroyed, assume inactive
+                    call_active = False
+
                 # Try to stop transmission, but don't worry if it fails
                 # (ports may already be disconnected)
                 recording_call_media = getattr(self, "_recording_call_media", None)
                 recorder = getattr(self, "_recorder", None)
-                if recording_call_media is not None and recorder is not None:
+                if recording_call_media is not None and recorder is not None and call_active:
                     try:
                         recording_call_media.stopTransmit(recorder)
                     except Exception:
@@ -291,13 +301,23 @@ class RecordingCleanupMixin:
         # Clean up outgoing recording
         if getattr(self, "_outgoing_recorder", None):
             try:
+                # Check if call is still active before attempting port disconnection
+                # If call is disconnected, PJSUA2 has already disconnected ports
+                call_active = False
+                try:
+                    if hasattr(self, "isActive"):
+                        call_active = self.isActive()
+                except Exception:
+                    # Call might be destroyed, assume inactive
+                    call_active = False
+
                 # Try to stop transmission, but don't worry if it fails
                 # (ports may already be disconnected)
                 outgoing_call_media = getattr(
                     self, "_outgoing_recording_call_media", None
                 )
                 outgoing_recorder = getattr(self, "_outgoing_recorder", None)
-                if outgoing_call_media is not None and outgoing_recorder is not None:
+                if outgoing_call_media is not None and outgoing_recorder is not None and call_active:
                     try:
                         outgoing_call_media.stopTransmit(outgoing_recorder)
                     except Exception:
@@ -418,21 +438,30 @@ class RecordingCleanupMixin:
         # Clean up mixed recording (incoming + outgoing combined)
         if getattr(self, "_mixed_recorder", None):
             try:
+                # Check if call is still active before attempting port disconnection
+                # If call is disconnected, PJSUA2 has already disconnected ports
+                call_active = False
+                try:
+                    if hasattr(self, "isActive"):
+                        call_active = self.isActive()
+                except Exception:
+                    # Call might be destroyed, assume inactive
+                    call_active = False
+
                 # Try to stop transmission from both sources, but don't worry
-                # if it fails
-                # (ports may already be disconnected)
+                # if it fails (ports may already be disconnected)
                 call_media = getattr(self, "_call_media", None)
                 player = getattr(self, "_player", None)
                 mixed_recorder = getattr(self, "_mixed_recorder", None)
 
-                if call_media is not None and mixed_recorder is not None:
+                if call_media is not None and mixed_recorder is not None and call_active:
                     try:
                         call_media.stopTransmit(mixed_recorder)
                     except Exception:
                         # Ports already disconnected, ignore silently
                         pass
 
-                if player is not None and mixed_recorder is not None:
+                if player is not None and mixed_recorder is not None and call_active:
                     try:
                         player.stopTransmit(mixed_recorder)
                     except Exception:

@@ -73,8 +73,8 @@ class OutCall(pj.Call):
                     if getattr(self._acc_ref, "play_file", None):
                         try:
                             player = pj.AudioMediaPlayer()
-                            # Create player with loop=False to play only once
-                            player.createPlayer(self._acc_ref.play_file, False)
+                            # Create player with PJMEDIA_FILE_NO_LOOP to play only once
+                            player.createPlayer(self._acc_ref.play_file, pj.PJMEDIA_FILE_NO_LOOP)
                             player.startTransmit(call_media)  # file -> remote
                             call_media.startTransmit(
                                 playback

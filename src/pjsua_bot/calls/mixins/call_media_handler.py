@@ -312,9 +312,9 @@ class CallMediaHandlerMixin:
                                 )
                             else:
                                 player = pj.AudioMediaPlayer()
-                                # Create player with loop=False to play only once
+                                # Create player with PJMEDIA_FILE_NO_LOOP to play only once
                                 try:
-                                    player.createPlayer(play_file, False)
+                                    player.createPlayer(play_file, pj.PJMEDIA_FILE_NO_LOOP)
                                     print(
                                         "***Media: player created successfully for:",
                                         play_file,

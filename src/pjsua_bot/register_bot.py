@@ -882,11 +882,9 @@ def main() -> None:
                 sys.stderr.flush()
             except Exception:
                 pass
-            # Explicitly exit after cleanup completes
-            # Use os._exit() instead of sys.exit() to force immediate termination
-            # This bypasses Python's cleanup (atexit handlers, finally blocks, etc.)
-            # and ensures the process exits immediately even if there are daemon threads
-            os._exit(0)  # Force immediate exit, bypassing Python cleanup
+            # Note: Do not force-exit here. Let normal exit flow proceed.
+            # The force-exit timeout mechanism (in _stop_handler) will handle hung processes.
+            # This allows KeyboardInterrupt and other normal exit flows to work properly.
 
 
 if __name__ == "__main__":

@@ -538,7 +538,9 @@ class SileroVAD:
         # Debug: track processing stats
         frames_processed = 0
         max_prob = 0.0
-        total_frames_available = (waveform.shape[1] - window + 1) // window
+        # Calculate number of frames to match actual range() iterations
+        # range(0, waveform.shape[1] - window + 1, window) produces exactly waveform.shape[1] // window iterations
+        total_frames_available = waveform.shape[1] // window
 
         # Calculate sample rate ratio to map resampled indices back to original WAV
         sample_rate_ratio = input_sr / actual_sr if actual_sr > 0 else 1.0
@@ -689,19 +691,23 @@ class SileroVAD:
 
                 # Track silence periods (when neither caller nor bot are speaking)
                 if has_speech:
-                    # Speech detected - end any current silence period
-                    self.silence.note_non_silence(current_monotonic_time)
-                    prev_time = self.last_speech_time_monotonic
-                    self.last_speech_time_monotonic = current_monotonic_time
-                    # Print when speech is first detected or after a gap
-                    # (avoid spam on continuous speech)
-                    if (
-                        prev_time is None
-                        or (self.last_speech_time_monotonic - prev_time) > 0.5
-                    ):
-                        log_speech_detected(
-                            prob, self.last_speech_time_monotonic, original_sample_pos
-                        )
+                    # CRITICAL: Ignore speech detection when bot is playing audio
+                    # The bot's own playback should not be treated as caller speech
+                    bot_playback_active = getattr(self.silence, '_bot_playback_active', False)
+                    if not bot_playback_active:
+                        # Speech detected from caller - end any current silence period
+                        self.silence.note_non_silence(current_monotonic_time)
+                        prev_time = self.last_speech_time_monotonic
+                        self.last_speech_time_monotonic = current_monotonic_time
+                        # Print when speech is first detected or after a gap
+                        # (avoid spam on continuous speech)
+                        if (
+                            prev_time is None
+                            or (self.last_speech_time_monotonic - prev_time) > 0.5
+                        ):
+                            log_speech_detected(
+                                prob, self.last_speech_time_monotonic, original_sample_pos
+                            )
                 else:
                     # Possibly a silence period depending on bot playback state
                     self.silence.note_possible_silence(current_monotonic_time)
