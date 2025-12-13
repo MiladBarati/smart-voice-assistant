@@ -7,12 +7,15 @@ improved multilingual support and translation capabilities.
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 import warnings
 import wave
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 # Suppress warnings
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -261,10 +264,12 @@ class ASRService:
                     self.cfg.retry_backoff**retry_count
                 )
                 if self.cfg.log_errors:
-                    print(f"***ASR: Error transcribing {audio_path}: {error_msg}")
-                    print(
-                        f"***ASR: Retrying in {retry_delay:.2f}s "
-                        f"(attempt {retry_count + 1}/{self.cfg.max_retries})..."
+                    logger.error("ASR: Error transcribing %s: %s", audio_path, error_msg)
+                    logger.info(
+                        "ASR: Retrying in %.2fs (attempt %d/%d)...",
+                        retry_delay,
+                        retry_count + 1,
+                        self.cfg.max_retries,
                     )
 
                 time.sleep(retry_delay)
@@ -272,9 +277,11 @@ class ASRService:
 
             # All retries exhausted
             if self.cfg.log_errors:
-                print(
-                    f"***ASR: Failed to transcribe {audio_path} after "
-                    f"{self.cfg.max_retries} attempts: {error_msg}"
+                logger.error(
+                    "ASR: Failed to transcribe %s after %d attempts: %s",
+                    audio_path,
+                    self.cfg.max_retries,
+                    error_msg,
                 )
 
             if self.cfg.skip_on_error:

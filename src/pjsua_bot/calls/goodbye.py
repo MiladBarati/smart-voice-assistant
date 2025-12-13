@@ -5,9 +5,12 @@ initializer `init_goodbye_state` to set up internal state used by these
 methods. Intended to be used as a mixin alongside a `pj.Call` subclass.
 """
 
+import logging
 import os
 import time
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class GoodbyePlaybackMixin:
@@ -47,24 +50,24 @@ class GoodbyePlaybackMixin:
         # If call is inactive, mark goodbye as finished and return
         # This handles the case where user hung up before goodbye could play
         if not call_active:
-            print("***Goodbye: call inactive, skipping goodbye message")
+            logger.debug("Goodbye: call inactive, skipping goodbye message")
             self._goodbye_playback_finished = True
             return
 
         if not os.path.exists(goodbye_file):
-            print(f"***Goodbye: file not found: {goodbye_file}")
+            logger.warning("Goodbye: file not found: %s", goodbye_file)
             # Mark goodbye as finished so we can hang up
             self._goodbye_playback_finished = True
             return
 
         if not self._call_media:
-            print("***Goodbye: no call media available")
+            logger.warning("Goodbye: no call media available")
             self._goodbye_playback_finished = True
             return
 
         try:
             self._goodbye_requested = True
-            print(f"***Goodbye: playing goodbye message: {goodbye_file}")
+            logger.info("Goodbye: playing goodbye message: %s", goodbye_file)
 
             # Get WAV file duration
             from ..utils import get_wav_duration
@@ -72,7 +75,7 @@ class GoodbyePlaybackMixin:
             goodbye_duration = get_wav_duration(goodbye_file)
             if goodbye_duration is None:
                 goodbye_duration = getattr(self._acc_ref, "message_duration", 3)
-                print(f"***Goodbye: using fallback duration {goodbye_duration}s")
+                logger.debug("Goodbye: using fallback duration %ds", goodbye_duration)
 
             # Create player for goodbye message
             import pjsua2 as pj  # local import to avoid module-level dependency
@@ -86,9 +89,9 @@ class GoodbyePlaybackMixin:
             if getattr(self, "_mixed_recorder", None):
                 try:
                     self._goodbye_player.startTransmit(self._mixed_recorder)
-                    print("***Goodbye: transmitting to mixed recorder")
+                    logger.debug("Goodbye: transmitting to mixed recorder")
                 except Exception as e:
-                    print(f"***Goodbye: error transmitting to mixed recorder: {e}")
+                    logger.warning("Goodbye: error transmitting to mixed recorder: %s", e)
 
             # Monitor on local speakers
             adm = pj.Endpoint.instance().audDevManager()
@@ -104,9 +107,8 @@ class GoodbyePlaybackMixin:
                 try:
                     self._start_bot_playback_tracking()
                 except Exception as e:  # pragma: no cover - defensive
-                    print(
-                        "***Bot tracking: error starting goodbye "
-                        f"playback tracking: {e}"
+                    logger.warning(
+                        "Bot tracking: error starting goodbye playback tracking: %s", e
                     )
 
             # Notify VAD that bot playback started (goodbye message)
@@ -114,7 +116,7 @@ class GoodbyePlaybackMixin:
                 try:
                     self._vad.set_bot_playback_state(True, time.time)
                 except Exception as e:  # pragma: no cover - defensive
-                    print(f"***VAD: error notifying goodbye playback start: {e}")
+                    logger.warning("VAD: error notifying goodbye playback start: %s", e)
 
             # Collect goodbye playback started event
             try:
@@ -126,13 +128,12 @@ class GoodbyePlaybackMixin:
             except Exception:
                 pass
 
-            print(
-                "***Goodbye: started playing, will stop after "
-                f"{goodbye_duration:.2f} seconds"
+            logger.info(
+                "Goodbye: started playing, will stop after %.2f seconds", goodbye_duration
             )
 
         except Exception as e:
-            print(f"***Goodbye: error playing goodbye message: {e}")
+            logger.error("Goodbye: error playing goodbye message: %s", e, exc_info=True)
             self._goodbye_playback_finished = True
             # Collect error event
             try:
@@ -174,7 +175,7 @@ class GoodbyePlaybackMixin:
                         # Stop the transmission from goodbye player to call media
                         try:
                             self._goodbye_player.stopTransmit(self._call_media)
-                            print("***Goodbye: stopped player transmission")
+                            logger.debug("Goodbye: stopped player transmission")
                         except Exception:
                             # Ports already disconnected, ignore silently
                             pass
@@ -183,9 +184,7 @@ class GoodbyePlaybackMixin:
                         if getattr(self, "_mixed_recorder", None):
                             try:
                                 self._goodbye_player.stopTransmit(self._mixed_recorder)
-                                print(
-                                    "***Goodbye: stopped transmission to mixed recorder"
-                                )
+                                logger.debug("Goodbye: stopped transmission to mixed recorder")
                             except Exception:
                                 # Mixed recorder might already be stopped, ignore
                                 pass
@@ -213,23 +212,22 @@ class GoodbyePlaybackMixin:
 
                     # Destroy the goodbye player
                     self._goodbye_player = None
-                    print("***Goodbye: destroyed player")
+                    logger.debug("Goodbye: destroyed player")
 
                 except Exception as e:
-                    print(f"***Goodbye: error stopping player transmission: {e}")
+                    logger.warning("Goodbye: error stopping player transmission: %s", e)
 
             # Mark goodbye playback finished
             if not self._goodbye_playback_finished:
-                print("***Goodbye: finished. Will hang up now.")
+                logger.info("Goodbye: finished. Will hang up now.")
 
                 # Stop tracking bot talk duration
                 if hasattr(self, "_stop_bot_playback_tracking"):
                     try:
                         self._stop_bot_playback_tracking()
                     except Exception as e:  # pragma: no cover - defensive
-                        print(
-                            "***Bot tracking: error stopping goodbye "
-                            f"playback tracking: {e}"
+                        logger.warning(
+                            "Bot tracking: error stopping goodbye playback tracking: %s", e
                         )
 
                 # Notify VAD that bot playback finished (goodbye message)
@@ -239,7 +237,7 @@ class GoodbyePlaybackMixin:
                     try:
                         self._vad.set_bot_playback_state(False, time.time)
                     except Exception as e:  # pragma: no cover - defensive
-                        print(f"***VAD: error notifying goodbye playback stop: {e}")
+                        logger.warning("VAD: error notifying goodbye playback stop: %s", e)
 
                 # Collect goodbye playback finished event
                 try:

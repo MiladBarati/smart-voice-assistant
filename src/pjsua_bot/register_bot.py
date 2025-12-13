@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 import signal
 import sys
@@ -8,6 +9,8 @@ from types import FrameType
 from typing import Any, Optional
 
 import pjsua2 as pj
+
+logger = logging.getLogger(__name__)
 
 # Support running both as a module and as a script
 if __package__ in (None, ""):
@@ -36,7 +39,7 @@ def cleanup_resources(acc: Any) -> None:
     Args:
         acc: Account instance that may contain resources to clean up
     """
-    print("***Cleaning up resources...")
+    logger.info("Cleaning up resources...")
 
     # Stop all ASR threads from all calls
     try:
@@ -48,18 +51,18 @@ def cleanup_resources(acc: Any) -> None:
             except Exception:
                 pass
     except Exception as e:
-        print(f"***ASR thread cleanup error: {e}")
+        logger.error("ASR thread cleanup error: %s", e, exc_info=True)
 
     # Cleanup ASR Service
     try:
         if hasattr(acc, "_asr_service") and acc._asr_service is not None:
-            print("***Cleaning up ASR service...")
+            logger.info("Cleaning up ASR service...")
             asr_service = acc._asr_service
 
             # Release the pipeline/model
             if hasattr(asr_service, "_pipeline") and asr_service._pipeline is not None:
                 asr_service._pipeline = None
-                print("***ASR: Pipeline released")
+                logger.debug("ASR: Pipeline released")
 
             # Clear CUDA cache if GPU was used
             if hasattr(asr_service, "_device") and asr_service._device == "cuda":
@@ -70,22 +73,22 @@ def cleanup_resources(acc: Any) -> None:
                         torch.cuda.empty_cache()
                         # Wait for all CUDA operations to complete
                         torch.cuda.synchronize()
-                        print("***ASR: CUDA cache cleared")
+                        logger.debug("ASR: CUDA cache cleared")
                 except ImportError:
                     pass  # torch not available
                 except Exception as e:
-                    print(f"***ASR: Error clearing CUDA cache: {e}")
+                    logger.warning("ASR: Error clearing CUDA cache: %s", e)
 
             # Clear the service reference
             acc._asr_service = None
-            print("***ASR: Service cleaned up")
+            logger.info("ASR: Service cleaned up")
     except Exception as e:
-        print(f"***ASR cleanup error: {e}")
+        logger.error("ASR cleanup error: %s", e, exc_info=True)
 
     # Cleanup Intent Classifier
     try:
         if hasattr(acc, "_intent_classifier") and acc._intent_classifier is not None:
-            print("***Cleaning up intent classifier...")
+            logger.info("Cleaning up intent classifier...")
             classifier = acc._intent_classifier
 
             # For OllamaClassifier, clear fallback classifier if it exists
@@ -95,30 +98,30 @@ def cleanup_resources(acc: Any) -> None:
             # Clear the classifier reference
             acc._intent_classifier = None
             acc.enable_intent = False
-            print("***Intent: Classifier cleaned up")
+            logger.info("Intent: Classifier cleaned up")
     except Exception as e:
-        print(f"***Intent classifier cleanup error: {e}")
+        logger.error("Intent classifier cleanup error: %s", e, exc_info=True)
 
     # Cleanup Elasticsearch client
     try:
         if es_logger.client is not None:
-            print("***Cleaning up Elasticsearch connection...")
+            logger.info("Cleaning up Elasticsearch connection...")
             # Try to close the connection if the client has a close method
             if hasattr(es_logger.client, "close"):
                 try:
                     es_logger.client.close()
-                    print("***Elasticsearch: Connection closed")
+                    logger.debug("Elasticsearch: Connection closed")
                 except Exception as e:
-                    print(f"***Elasticsearch: Error closing connection: {e}")
+                    logger.warning("Elasticsearch: Error closing connection: %s", e)
 
             # Clear the client reference
             es_logger.client = None
             es_logger.connected = False
-            print("***Elasticsearch: Client cleaned up")
+            logger.info("Elasticsearch: Client cleaned up")
     except Exception as e:
-        print(f"***Elasticsearch cleanup error: {e}")
+        logger.error("Elasticsearch cleanup error: %s", e, exc_info=True)
 
-    print("***Resource cleanup complete")
+    logger.info("Resource cleanup complete")
 
 
 # ---------- Main ----------
@@ -303,13 +306,13 @@ def main() -> None:
     setup_logging(args.log_level)
 
     # Test Elasticsearch connection
-    print("***Testing Elasticsearch connection...")
+    logger.info("Testing Elasticsearch connection...")
     health = es_logger.health_check()
     if health.get("status") == "connected":
-        print(f"***Elasticsearch connected: {health.get('cluster_name', 'unknown')}")
+        logger.info("Elasticsearch connected: %s", health.get("cluster_name", "unknown"))
     else:
         err = health.get("error", "unknown error")
-        print(f"***Elasticsearch connection failed: {err}")
+        logger.warning("Elasticsearch connection failed: %s", err)
 
     # Create and initialize the library
     ep_cfg = pj.EpConfig()
@@ -337,7 +340,7 @@ def main() -> None:
     stopping = {"flag": False, "cleanup_done": False}
 
     def _stop_handler(signum: int, frame: Optional[FrameType]) -> None:
-        print(f"***Signal {signum}: stopping...")
+        logger.info("Signal %d: stopping...", signum)
         stopping["flag"] = True
 
         # Set a timeout to force exit if cleanup takes too long (WSL-specific issue)
@@ -345,7 +348,7 @@ def main() -> None:
             time.sleep(15)  # Wait 15 seconds for cleanup
             cleanup_done = stopping.get("cleanup_done", False)
             if not cleanup_done:
-                print("***Force exit: cleanup taking too long, forcing exit...")
+                logger.warning("Force exit: cleanup taking too long, forcing exit...")
                 os._exit(1)  # Force exit, bypassing cleanup
 
         threading.Thread(target=_force_exit, daemon=True).start()
@@ -357,8 +360,8 @@ def main() -> None:
         # Codec configuration: PCMU (G.711) is used by default for good quality
         # PJSUA2 by default uses PCMU/PCMA which provides 64kbps @ 8kHz
         # Good quality for VoIP
-        print(
-            "***Codec: configured for wideband audio (16kHz), "
+        logger.info(
+            "Codec: configured for wideband audio (16kHz), "
             "preferring Opus/G.722 over G.711"
         )
 
@@ -367,17 +370,17 @@ def main() -> None:
         sip_tp_config.port = args.local_port
         if args.transport == "udp":
             ep.transportCreate(pj.PJSIP_TRANSPORT_UDP, sip_tp_config)
-            print(f"***Transport: UDP {args.local_port}")
+            logger.info("Transport: UDP %d", args.local_port)
         elif args.transport == "tcp":
             ep.transportCreate(pj.PJSIP_TRANSPORT_TCP, sip_tp_config)
-            print(f"***Transport: TCP {args.local_port}")
+            logger.info("Transport: TCP %d", args.local_port)
         else:
             # TLS
             tls_cfg = pj.TlsConfig()
             tls_cfg.verifyServer = args.tls_verify
             sip_tp_config.tlsConfig = tls_cfg
             ep.transportCreate(pj.PJSIP_TRANSPORT_TLS, sip_tp_config)
-            print(f"***Transport: TLS {args.local_port} verify={args.tls_verify}")
+            logger.info("Transport: TLS %d verify=%s", args.local_port, args.tls_verify)
 
         # Configure codec priorities BEFORE starting the library
         try:
@@ -404,7 +407,7 @@ def main() -> None:
             for codec_id, priority in codec_priorities:
                 try:
                     ep.codecSetPriority(codec_id, priority)
-                    print(f"***Codec priority set: {codec_id} to {priority}")
+                    logger.debug("Codec priority set: %s to %d", codec_id, priority)
                 except Exception:
                     pass  # Ignore if not available
 
@@ -418,12 +421,12 @@ def main() -> None:
             for codec_id, _ in unwanted_codecs:
                 try:
                     ep.codecSetPriority(codec_id, 0)  # 0 = disabled
-                    print(f"***Codec disabled: {codec_id}")
+                    logger.debug("Codec disabled: %s", codec_id)
                 except Exception:
                     pass  # Ignore if not available
 
         except Exception as e:
-            print(f"***Codec priority config warning: {e}")
+            logger.warning("Codec priority config warning: %s", e)
 
         # Start the library after codec preferences are applied
         ep.libStart()
@@ -480,7 +483,7 @@ def main() -> None:
         if args.play_file:
             actual_duration = get_wav_duration(args.play_file)
             acc.message_duration = actual_duration
-            print(f"***Using actual WAV duration: {actual_duration:.2f} seconds")
+            logger.info("Using actual WAV duration: %.2f seconds", actual_duration)
         else:
             acc.message_duration = args.message_duration
         # Disable SIP Outbound & ICE temporarily
@@ -508,7 +511,7 @@ def main() -> None:
         # Initialize ASR service before registration (if enabled)
         # This loads the model once, before any calls come in
         if args.enable_asr:
-            print("***ASR: initializing service before registration...")
+            logger.info("ASR: initializing service before registration...")
             try:
                 # Support both module and script execution
                 if __package__ in (None, ""):
@@ -521,17 +524,17 @@ def main() -> None:
                     acc._asr_service and acc._asr_service.available
                 )
                 if acc._asr_available:
-                    print("***ASR: service initialized and ready")
+                    logger.info("ASR: service initialized and ready")
                 else:
                     load_err = getattr(acc._asr_service, "_load_error", "unknown error")
-                    print(f"***ASR: unavailable - {load_err}")
+                    logger.warning("ASR: unavailable - %s", load_err)
             except Exception as e:
-                print(f"***ASR init error: {e}")
+                logger.error("ASR init error: %s", e, exc_info=True)
                 acc._asr_available = False
 
         # Initialize intent classifier before registration (if enabled)
         if args.enable_intent:
-            print("***Intent: initializing classifier before registration...")
+            logger.info("Intent: initializing classifier before registration...")
             try:
                 # Support both module and script execution
                 if __package__ in (None, ""):
@@ -550,19 +553,18 @@ def main() -> None:
 
                     with open(args.faq_config, "r", encoding="utf-8") as f:
                         faqs = json.load(f)
-                    print(f"***Intent: loaded custom FAQ config from {args.faq_config}")
+                    logger.info("Intent: loaded custom FAQ config from %s", args.faq_config)
                 else:
                     if args.faq_config:
-                        print(
-                            f"***Intent: warning: FAQ config file not found: "
-                            f"{args.faq_config}, using default"
+                        logger.warning(
+                            "Intent: warning: FAQ config file not found: %s, using default",
+                            args.faq_config,
                         )
 
                 # Create classifier instance based on selected type
                 if args.intent_classifier == "ollama":
-                    print(
-                        f"***Intent: using Ollama classifier "
-                        f"(model: {args.ollama_model})"
+                    logger.info(
+                        "Intent: using Ollama classifier (model: %s)", args.ollama_model
                     )
                     acc._intent_classifier = OllamaClassifier(
                         ollama_url=args.ollama_url,
@@ -571,22 +573,22 @@ def main() -> None:
                         use_cpu=getattr(args, "ollama_use_cpu", False),
                     )
                     if getattr(args, "ollama_use_cpu", False):
-                        print(
-                            "***Intent: CPU mode requested. "
+                        logger.info(
+                            "Intent: CPU mode requested. "
                             "Note: Set OLLAMA_NUM_GPU=0 before starting "
                             "Ollama server for true CPU mode"
                         )
-                    print(
-                        f"***Intent: Ollama classifier initialized at {args.ollama_url}"
+                    logger.info(
+                        "Intent: Ollama classifier initialized at %s", args.ollama_url
                     )
                 else:
-                    print("***Intent: using rule-based classifier")
+                    logger.info("Intent: using rule-based classifier")
                     acc._intent_classifier = RuleBasedClassifier(faqs=faqs)
 
                 acc.enable_intent = True
-                print("***Intent: classifier initialized and ready")
+                logger.info("Intent: classifier initialized and ready")
             except Exception as e:
-                print(f"***Intent init error: {e}")
+                logger.error("Intent init error: %s", e, exc_info=True)
                 acc._intent_classifier = None
                 acc.enable_intent = False
 
@@ -597,11 +599,11 @@ def main() -> None:
 
         # Create the account and register
         # Do this LAST so we don't get calls while initializing
-        print(f"***Creating account and registering {acfg.idUri}...")
+        logger.info("Creating account and registering %s...", acfg.idUri)
         acc.create(acfg)
 
         # Wait for registration with active event pumping
-        print(f"***Waiting for registration (up to {args.wait_seconds}s)...")
+        logger.info("Waiting for registration (up to %ds)...", args.wait_seconds)
 
         def _is_registered() -> bool:
             info: Any = acc.getInfo()
@@ -618,9 +620,8 @@ def main() -> None:
             info: Any = acc.getInfo()
             active = getattr(info, "regIsActive", False)
             status = getattr(info, "regStatus", "unknown")
-            print(
-                f"***Warning: not registered (active={active} code={status}). "
-                "Continuing..."
+            logger.warning(
+                "Warning: not registered (active=%s code=%s). Continuing...", active, status
             )
 
         # Do not send registration events individually; only send one record at call end
@@ -634,7 +635,7 @@ def main() -> None:
             )
             call = OutCall(acc)
             prm = pj.CallOpParam(True)
-            print(f"***Dialing: {dest_uri}")
+            logger.info("Dialing: %s", dest_uri)
 
             # Collect outbound call attempt
             call._collect_event(
@@ -653,11 +654,11 @@ def main() -> None:
                 max(args.wait_seconds, 10),
             )
             if not connected:
-                print("***Warning: call not connected within timeout")
+                logger.warning("Warning: call not connected within timeout")
 
             # Optional auto-hangup after connected
             if call.connected and args.hangup_seconds > 0:
-                print(f"***Connected. Auto-hangup in {args.hangup_seconds}s")
+                logger.info("Connected. Auto-hangup in %ds", args.hangup_seconds)
                 deadline = time.time() + args.hangup_seconds
                 while time.time() < deadline and not stopping["flag"]:
                     pump_events(ep, 50)
@@ -673,7 +674,7 @@ def main() -> None:
 
         # Stay online to receive calls (proper loop; no dead sleep)
         if args.stay_online and not stopping["flag"]:
-            print("***Online: waiting for incoming calls (Ctrl+C to exit)")
+            logger.info("Online: waiting for incoming calls (Ctrl+C to exit)")
             while not stopping["flag"]:
                 pump_events(ep, 50)
 
@@ -686,18 +687,15 @@ def main() -> None:
                         if hasattr(call, "should_hangup") and call.should_hangup():
                             try:
                                 if call.isActive():
-                                    print("***Auto-hanging up after welcome message")
+                                    logger.info("Auto-hanging up after welcome message")
                                     # Hangup will trigger onCallState(DISCONNECTED)
                                     # which handles cleanup
                                     op = pj.CallOpParam()
                                     call.hangup(op)
                             except Exception as e:
-                                print(f"***Hangup error: {e}")
+                                logger.error("Hangup error: %s", e, exc_info=True)
                     except Exception as e:
-                        print(f"***Error in main loop for call {call}: {e}")
-                        import traceback
-
-                        traceback.print_exc()
+                        logger.error("Error in main loop for call %s: %s", call, e, exc_info=True)
 
     finally:
         stopping["cleanup_done"] = False
@@ -708,7 +706,7 @@ def main() -> None:
                 try:
                     # Unregister account FIRST before any other cleanup
                     try:
-                        print("***Unregistering account...")
+                        logger.info("Unregistering account...")
                         acc.setRegistration(False)  # Unregister
                         # Pump events to allow unregistration to complete
                         end_by = time.time() + 2.0
@@ -718,10 +716,10 @@ def main() -> None:
                             except Exception:
                                 break
                     except Exception as e:
-                        print(f"***Account unregistration error: {e}")
+                        logger.error("Account unregistration error: %s", e, exc_info=True)
 
                     # Stop all ASR threads from all calls FIRST
-                    print("***Stopping all ASR worker threads...")
+                    logger.info("Stopping all ASR worker threads...")
                     calls_copy = dict(getattr(acc, "calls", {}))
                     for _call_id, call in calls_copy.items():
                         try:
@@ -730,14 +728,14 @@ def main() -> None:
                                 try:
                                     call._stop_asr_thread()
                                 except Exception as e:
-                                    print(f"***ASR: Error stopping thread: {e}")
+                                    logger.error("ASR: Error stopping thread: %s", e, exc_info=True)
                         except Exception:
                             pass
 
                     # Force stop any remaining ASR threads that didn't stop
                     for thread in threading.enumerate():
                         if thread.name == "ASRWorker" and thread.is_alive():
-                            print(f"***ASR: Force stopping thread {thread.name}")
+                            logger.warning("ASR: Force stopping thread %s", thread.name)
                             # Thread is daemon, but we'll wait a bit more
                             thread.join(timeout=1.0)
 
@@ -811,13 +809,13 @@ def main() -> None:
                 try:
                     cleanup_resources(acc)
                 except Exception as e:
-                    print(f"***Resource cleanup error: {e}")
+                    logger.error("Resource cleanup error: %s", e, exc_info=True)
 
                 # Account cleanup - PJSUA2 will handle account deletion
                 # when endpoint is destroyed
                 # Just ensure we've unregistered and cleared references
                 try:
-                    print("***Account cleanup complete")
+                    logger.info("Account cleanup complete")
                     # Pump events to allow any pending operations to complete
                     end_by = time.time() + 0.5
                     while time.time() < end_by and "ep" in locals():
@@ -826,14 +824,14 @@ def main() -> None:
                         except Exception:
                             break
                 except Exception as e:
-                    print(f"***Account cleanup error: {e}")
+                    logger.error("Account cleanup error: %s", e, exc_info=True)
         except Exception:
             pass
 
         # Destroy transports explicitly before destroying the endpoint
         try:
             if "ep" in locals():
-                print("***Destroying transports...")
+                logger.info("Destroying transports...")
                 # Get all transports and destroy them
                 try:
                     transports = ep.transportEnum()
@@ -850,9 +848,9 @@ def main() -> None:
                         except Exception:
                             break
                 except Exception as e:
-                    print(f"***Transport destruction error: {e}")
+                    logger.error("Transport destruction error: %s", e, exc_info=True)
         except Exception as e:
-            print(f"***Transport destruction error: {e}")
+            logger.error("Transport destruction error: %s", e, exc_info=True)
 
         # Destroy endpoint - MUST be called from main thread (PJSUA2 requirement)
         # If libDestroy() hangs, the force exit timeout will kill the process.
@@ -860,18 +858,18 @@ def main() -> None:
         # so the force exit thread can kill the process if libDestroy() hangs.
         try:
             if "ep" in locals():
-                print("***Destroying endpoint...")
+                logger.info("Destroying endpoint...")
                 # Call directly from main thread - PJSUA2 requires this
                 # If it blocks, the force exit timeout will handle it
                 ep.libDestroy()
         except Exception as e:
-            print(f"***Endpoint destruction error: {e}")
+            logger.error("Endpoint destruction error: %s", e, exc_info=True)
         finally:
             # CRITICAL: Set cleanup_done to True in finally block AFTER libDestroy() completes
             # This ensures the force exit thread won't kill the process if cleanup completed successfully.
             # If libDestroy() hangs, cleanup_done stays False and the force exit thread will kill it.
             stopping["cleanup_done"] = True
-            print("***Shutdown complete")
+            logger.info("Shutdown complete")
             # Flush all output before exiting to ensure messages are printed
             try:
                 sys.stdout.flush()
@@ -888,5 +886,5 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n***Interrupted")
+        logger.info("Interrupted")
         sys.exit(130)

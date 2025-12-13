@@ -1,5 +1,6 @@
 """Account class for PJSUA2 SIP registration and call handling."""
 
+import logging
 import os
 import tempfile
 from datetime import datetime
@@ -8,6 +9,8 @@ from typing import Any, Dict, Optional
 import pjsua2 as pj
 
 from .utils import generate_unique_id, parse_sip_user
+
+logger = logging.getLogger(__name__)
 
 
 class Account(pj.Account):
@@ -42,7 +45,7 @@ class Account(pj.Account):
         if not getattr(self, "enable_vad", False):
             return
 
-        print("***VAD: preloading model before registration...")
+        logger.info("VAD: preloading model before registration...")
         try:
             from .vad import SileroVAD, VADConfig
 
@@ -80,12 +83,12 @@ class Account(pj.Account):
                     chunks_output_dir=None,  # No chunks needed for preloader
                 )
                 if self._vad_preloader.available:
-                    print("***VAD: model preloaded successfully")
+                    logger.info("VAD: model preloaded successfully")
                 else:
                     error_msg = getattr(
                         self._vad_preloader, "_load_error", "unknown error"
                     )
-                    print(f"***VAD: preload failed - {error_msg}")
+                    logger.warning("VAD: preload failed - %s", error_msg)
             finally:
                 # Clean up temporary file
                 try:
@@ -94,10 +97,7 @@ class Account(pj.Account):
                 except Exception:
                     pass
         except Exception as e:
-            print(f"***VAD preload error: {e}")
-            import traceback
-
-            traceback.print_exc()
+            logger.error("VAD preload error: %s", e, exc_info=True)
 
     def _collect_event(self, event_type: str, **kwargs: Any) -> None:
         """Collect an event for batch logging."""
@@ -111,9 +111,9 @@ class Account(pj.Account):
 
     def onRegState(self, prm: Any) -> None:  # noqa: N802 - pjsua2 callback name
         """Handle registration state changes."""
-        print(f"***OnRegState: {prm.reason}")
+        logger.debug("OnRegState: %s", prm.reason)
         info = self.getInfo()
-        print(f"***RegStatus: active={info.regIsActive} code={info.regStatus}")
+        logger.info("RegStatus: active=%s code=%s", info.regIsActive, info.regStatus)
 
         # Collect registration event
         # Accept any 2xx status code as success (200, 201, 202, etc.)
@@ -132,11 +132,11 @@ class Account(pj.Account):
         # Accept any 2xx status code as success (200, 201, 202, etc.)
         is_success_2xx = info.regIsActive and 200 <= info.regStatus < 300
         if is_success_2xx:
-            print("***Registered successfully")
+            logger.info("Registered successfully")
 
     def onIncomingCall(self, prm: Any) -> None:  # noqa: N802 - pjsua2 callback name
         """Handle incoming call."""
-        print("***IncomingCall: ringing")
+        logger.info("IncomingCall: ringing")
         try:
             # Import here to avoid circular dependency
             from .calls import AnyCall
@@ -149,9 +149,9 @@ class Account(pj.Account):
                 call_info = call.getInfo()
                 remote_uri = call_info.remoteUri
                 call._caller_number = parse_sip_user(remote_uri)
-                print(f"***IncomingCall: caller identified as {call._caller_number}")
+                logger.info("IncomingCall: caller identified as %s", call._caller_number)
             except Exception as e:
-                print(f"***IncomingCall: could not parse caller info: {e}")
+                logger.warning("IncomingCall: could not parse caller info: %s", e)
                 call._caller_number = "unknown"
 
             # Collect incoming call event
@@ -166,7 +166,7 @@ class Account(pj.Account):
             if self.auto_answer:
                 op.statusCode = 200
                 call.answer(op)
-                print("***IncomingCall: auto-answered 200 OK")
+                logger.info("IncomingCall: auto-answered 200 OK")
 
                 # Collect call answered event
                 self._collect_event(
@@ -178,7 +178,7 @@ class Account(pj.Account):
             else:
                 op.statusCode = 180
                 call.answer(op)
-                print("***IncomingCall: sent 180 Ringing")
+                logger.info("IncomingCall: sent 180 Ringing")
 
                 # Collect call ringing event
                 self._collect_event(
@@ -188,7 +188,7 @@ class Account(pj.Account):
                     call_code=180,
                 )
         except Exception as e:
-            print(f"***IncomingCall error: {e}")
+            logger.error("IncomingCall error: %s", e, exc_info=True)
             # Collect error event
             self._collect_event(
                 event_type="call_error",

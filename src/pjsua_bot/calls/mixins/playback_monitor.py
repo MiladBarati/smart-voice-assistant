@@ -334,12 +334,12 @@ class PlaybackMonitorMixin:
     def _is_asr_ready_to_complete(self, chunks: list, current_time: float) -> bool:
         """Check if ASR is in a valid state to be marked as complete.
 
-        Ensures chunks have actually been finalized before marking ASR complete.
-        The issue is that VAD might detect brief speech, set hangup_time 3s later,
-        but not finalize chunks until later.
+        Ensures chunks have actually been finalized AND submitted for transcription
+        before marking ASR complete. The issue is that VAD might detect brief speech,
+        set hangup_time 3s later, but chunks need to be submitted before ASR can complete.
 
         Logic:
-        1. If we have chunks, wait for them to be processed
+        1. If we have chunks, wait for them to be submitted (last_transcribed_count == len(chunks))
         2. If no chunks but hangup_time passed, wait a bit more
            (give VAD time to finalize any pending chunks)
         3. If no chunks and a long time has passed since welcome
@@ -350,6 +350,7 @@ class PlaybackMonitorMixin:
         """
         welcome_finished = getattr(self, "_playback_finished", False)
         has_chunks = len(chunks) > 0
+        chunks_submitted = self._last_transcribed_chunk_count == len(chunks)
 
         # Track when welcome finished (for timeout calculation)
         if welcome_finished and not hasattr(self, "_welcome_finished_time"):
@@ -372,12 +373,13 @@ class PlaybackMonitorMixin:
 
         # We can only consider ASR complete if:
         # - Welcome message finished playing, AND one of:
-        #   - We have chunks (speech was finalized), OR
+        #   - We have chunks AND they've been submitted for transcription, OR
         #   - Hangup time + grace period passed (chunks should be ready), OR
         #   - Long timeout with no speech at all
-        return welcome_finished and (
-            has_chunks or hangup_grace_passed or no_speech_timeout
+        result = welcome_finished and (
+            (has_chunks and chunks_submitted) or hangup_grace_passed or no_speech_timeout
         )
+        return result
 
     def _handle_asr_completion(self, chunks: list, current_time: float) -> None:
         """Handle ASR completion: classify intent and trigger goodbye."""
@@ -386,11 +388,12 @@ class PlaybackMonitorMixin:
             return
 
         # Check if all chunks have been submitted and queue is empty
-        if not (
+        queue_ready = (
             self._last_transcribed_chunk_count == len(chunks)
             and asr_queue.empty()
             and asr_queue.unfinished_tasks == 0
-        ):
+        )
+        if not queue_ready:
             return
 
         # ASR transcription is complete
@@ -680,6 +683,7 @@ class PlaybackMonitorMixin:
         Returns True only when it's actually time to hang up
         (after goodbye if applicable).
         """
+        current_time = time.time()
 
         # If ASR is complete (or not enabled) and goodbye needs to be played
         if self._asr_complete:
@@ -689,7 +693,7 @@ class PlaybackMonitorMixin:
             return result
 
         # Fallback: original hangup logic for cases without ASR or waiting voice
-        if self._hangup_time and time.time() >= self._hangup_time:
+        if self._hangup_time and current_time >= self._hangup_time:
             result = self._check_intent_and_goodbye_for_hangup()
             if result is None:
                 return False  # Intent still playing, wait
