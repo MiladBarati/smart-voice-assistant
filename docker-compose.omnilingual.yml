@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  # PJSUA Bot with omnilingual-asr support
+  pjsua-bot-omnilingual:
+    build:
+      context: .
+      dockerfile: Dockerfile.omnilingual
+    container_name: pjsua-bot-omnilingual
+    restart: unless-stopped
+    
+    environment:
+      # Elasticsearch configuration
+      - ES_HOST=${ES_HOST:-elasticsearch}
+      - ES_PORT=${ES_PORT:-9200}
+      - ES_USERNAME=${ES_USERNAME:-elastic}
+      - ES_PASSWORD=${ES_PASSWORD}
+      - ES_USE_SSL=${ES_USE_SSL:-false}
+      - ES_VERIFY_CERTS=${ES_VERIFY_CERTS:-false}
+      - ELASTIC_INDEX_PREFIX=${ELASTIC_INDEX_PREFIX:-pjsua-calls}
+      
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-3}
+      
+      # Python/ML settings
+      - PYTHONUNBUFFERED=1
+      - TRANSFORMERS_CACHE=/app/.cache/huggingface
+      - HF_HOME=/app/.cache/huggingface
+      
+      # GPU support (uncomment if you have NVIDIA GPU)
+      # - NVIDIA_VISIBLE_DEVICES=all
+    
+    ports:
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+      - "10000-10100:10000-10100/udp"  # RTP ports
+    
+    volumes:
+      # Mount recordings directory
+      - ./recordings:/app/recordings
+      
+      # Mount logs directory
+      - ./logs:/app/logs
+      
+      # Mount source code for development (comment out for production)
+      - ./src:/app/src:ro
+      
+      # Mount examples
+      - ./examples:/app/examples:ro
+      
+      # Mount environment file
+      - ./.env:/app/.env:ro
+      
+      # Cache for Hugging Face models (persistent on host)
+      - ./.cache:/app/.cache
+    
+    networks:
+      - pjsua-network
+    
+    # GPU support (uncomment if you have NVIDIA GPU)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    
+    # Optional: Connect to Elasticsearch
+    # depends_on:
+    #   - elasticsearch
+
+  # Optional: Elasticsearch service for call logging
+  # Uncomment if you want to run Elasticsearch in Docker
+  # elasticsearch:
+  #   image: docker.elastic.co/elasticsearch/elasticsearch:7.17.10
+  #   container_name: elasticsearch
+  #   environment:
+  #     - discovery.type=single-node
+  #     - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+  #     - xpack.security.enabled=false
+  #   ports:
+  #     - "9200:9200"
+  #   volumes:
+  #     - elasticsearch-data:/usr/share/elasticsearch/data
+  #   networks:
+  #     - pjsua-network
+
+networks:
+  pjsua-network:
+    driver: bridge
+
+# volumes:
+  # Not needed - using host directory mounts instead
+  # elasticsearch-data:
+  #   driver: local
+
