@@ -175,7 +175,13 @@ ENV PYTHONUNBUFFERED=1 \
     INTENT_CLASSIFIER=ollama \
     OLLAMA_URL=http://host.docker.internal:11434 \
     OLLAMA_MODEL=qwen2.5:14b \
-    OLLAMA_USE_CPU=
+    OLLAMA_USE_CPU= \
+    HF_HOME=/app/.cache/huggingface \
+    HUGGINGFACE_HUB_CACHE=/app/.cache/huggingface/hub \
+    TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers \
+    TORCH_HOME=/app/.cache/torch \
+    FAIRSEQ2_CACHE=/app/.cache/fairseq2 \
+    XDG_CACHE_HOME=/app/.cache
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
