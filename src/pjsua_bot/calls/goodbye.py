@@ -36,6 +36,21 @@ class GoodbyePlaybackMixin:
         if not goodbye_file or self._goodbye_requested:
             return
 
+        # Check if call is still active
+        call_active = False
+        try:
+            if hasattr(self, "isActive"):
+                call_active = self.isActive()
+        except Exception:
+            call_active = False
+
+        # If call is inactive, mark goodbye as finished and return
+        # This handles the case where user hung up before goodbye could play
+        if not call_active:
+            print("***Goodbye: call inactive, skipping goodbye message")
+            self._goodbye_playback_finished = True
+            return
+
         if not os.path.exists(goodbye_file):
             print(f"***Goodbye: file not found: {goodbye_file}")
             # Mark goodbye as finished so we can hang up
@@ -144,7 +159,6 @@ class GoodbyePlaybackMixin:
         ):
             if self._goodbye_player and self._call_media:
                 try:
-                    import pjsua2 as pj  # local import
 
                     # Check if call is still active before attempting port disconnection
                     # If call is disconnected, PJSUA2 has already disconnected ports
@@ -169,7 +183,9 @@ class GoodbyePlaybackMixin:
                         if getattr(self, "_mixed_recorder", None):
                             try:
                                 self._goodbye_player.stopTransmit(self._mixed_recorder)
-                                print("***Goodbye: stopped transmission to mixed recorder")
+                                print(
+                                    "***Goodbye: stopped transmission to mixed recorder"
+                                )
                             except Exception:
                                 # Mixed recorder might already be stopped, ignore
                                 pass

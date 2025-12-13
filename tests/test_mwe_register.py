@@ -1,9 +1,6 @@
 """Tests for mwe_register module."""
 
-import argparse
 from unittest.mock import Mock, patch
-
-import pytest
 
 from pjsua_bot import mwe_register
 
@@ -68,4 +65,3 @@ class TestMweRegister:
         mock_ep.libInit.assert_called_once()
         mock_ep.transportCreate.assert_called_once()
         mock_ep.libStart.assert_called_once()
-

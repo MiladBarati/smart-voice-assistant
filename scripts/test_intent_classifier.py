@@ -14,7 +14,7 @@ def main() -> None:
     print(f"*** Classifying: {text}")
     intent, confidence, config = classifier.classify(text)
 
-    print(f"\nResult:")
+    print("\nResult:")
     print(f"  intent     : {intent}")
     print(f"  confidence : {confidence}")
     print(f"  response   : {config.get('response_text')}")
@@ -22,4 +22,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

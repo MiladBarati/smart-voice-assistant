@@ -28,9 +28,12 @@ def test_persian_slow_computer() -> None:
 
     for text in test_cases:
         intent, conf, config = classifier.classify(text)
-        # The classifier may return "slow_computer" or "slow_computer_general" 
+        # The classifier may return "slow_computer" or "slow_computer_general"
         # depending on keyword matching specificity
-        assert intent in ("slow_computer", "slow_computer_general"), f"Failed for: {text}, got: {intent}"
+        assert intent in (
+            "slow_computer",
+            "slow_computer_general",
+        ), f"Failed for: {text}, got: {intent}"
         assert conf > 0.3, f"Low confidence for: {text}"
         assert "response_text" in config
 
@@ -47,9 +50,13 @@ def test_persian_computer_shuts_down() -> None:
 
     for text in test_cases:
         intent, conf, config = classifier.classify(text)
-        # The classifier may return "computer_shuts_down" or "computer_shuts_down_general" 
+        # The classifier may return "computer_shuts_down" or "computer_shuts_down_general"
         # or "system_not_booting" depending on keyword matching
-        assert intent in ("computer_shuts_down", "computer_shuts_down_general", "system_not_booting"), f"Failed for: {text}, got: {intent}"
+        assert intent in (
+            "computer_shuts_down",
+            "computer_shuts_down_general",
+            "system_not_booting",
+        ), f"Failed for: {text}, got: {intent}"
         assert conf > 0.3
         assert "response_text" in config
 
@@ -67,9 +74,12 @@ def test_persian_screen_freezes() -> None:
 
     for text in test_cases:
         intent, conf, config = classifier.classify(text)
-        # The classifier may return "screen_freezes" or "screen_freezes_general" 
+        # The classifier may return "screen_freezes" or "screen_freezes_general"
         # depending on keyword matching specificity
-        assert intent in ("screen_freezes", "screen_freezes_general"), f"Failed for: {text}, got: {intent}"
+        assert intent in (
+            "screen_freezes",
+            "screen_freezes_general",
+        ), f"Failed for: {text}, got: {intent}"
         assert conf > 0.3
         assert "response_text" in config
 

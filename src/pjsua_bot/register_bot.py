@@ -1,5 +1,4 @@
 import argparse
-import json
 import os
 import signal
 import sys
@@ -610,10 +609,7 @@ def main() -> None:
                 reg_is_active = getattr(info, "regIsActive", False)
                 reg_status = getattr(info, "regStatus", 0)
                 # Accept any 2xx status code as success (200, 201, 202, etc.)
-                return bool(
-                    reg_is_active
-                    and 200 <= reg_status < 300
-                )
+                return bool(reg_is_active and 200 <= reg_status < 300)
             except Exception:
                 return False
 

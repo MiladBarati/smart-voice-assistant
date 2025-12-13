@@ -117,12 +117,8 @@ class Account(pj.Account):
 
         # Collect registration event
         # Accept any 2xx status code as success (200, 201, 202, etc.)
-        is_success_2xx = (info.regIsActive and 200 <= info.regStatus < 300)
-        event_type = (
-            "registration_success"
-            if is_success_2xx
-            else "registration_failed"
-        )
+        is_success_2xx = info.regIsActive and 200 <= info.regStatus < 300
+        event_type = "registration_success" if is_success_2xx else "registration_failed"
         self._collect_event(
             event_type=event_type,
             user=getattr(self, "username", "unknown"),

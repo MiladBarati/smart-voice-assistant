@@ -272,7 +272,9 @@ class IntentHandlerMixin:
             # Create player for intent response
             self._intent_response_player = pj.AudioMediaPlayer()
             # PJMEDIA_FILE_NO_LOOP = 1 prevents looping (False=0 would allow looping)
-            self._intent_response_player.createPlayer(audio_path, pj.PJMEDIA_FILE_NO_LOOP)
+            self._intent_response_player.createPlayer(
+                audio_path, pj.PJMEDIA_FILE_NO_LOOP
+            )
 
             # Connect player to call media
             self._intent_response_player.startTransmit(self._call_media)
@@ -367,7 +369,7 @@ class IntentHandlerMixin:
         # audio has actually finished playing on the remote side.
         AUDIO_DRAIN_BUFFER = 0.5  # seconds - small buffer for pipeline latency
         effective_stop_time = self._intent_response_stop_time + AUDIO_DRAIN_BUFFER
-        
+
         if current_time >= effective_stop_time:
             elapsed = current_time - (
                 self._intent_response_stop_time - self._intent_response_duration
@@ -472,14 +474,29 @@ class IntentHandlerMixin:
         if not self._intent_response_player:
             return
 
+        # Check if call is still active
+        call_active = False
         try:
-            # Stop all transmissions first
-            self._stop_player_transmissions()
+            if hasattr(self, "isActive"):
+                call_active = self.isActive()
+        except Exception:
+            call_active = False
 
-            # Stop call media to playback transmission
-            self._stop_call_media_to_playback()
+        try:
+            # Stop all transmissions first (only if call is active)
+            if call_active:
+                self._stop_player_transmissions()
+                # Stop call media to playback transmission
+                self._stop_call_media_to_playback()
+            else:
+                # Call is inactive (user hung up), skip transmission stopping
+                # but still destroy the player to allow goodbye transition
+                logger.debug(
+                    "Intent: call inactive, skipping transmission stop, destroying player directly"
+                )
 
-            # Stop and destroy the player
+            # Always stop and destroy the player, regardless of call state
+            # This ensures cleanup happens even if user hung up
             self._stop_and_destroy_player()
 
         except (RuntimeError, AttributeError, ValueError, TypeError) as e:
@@ -524,6 +541,29 @@ class IntentHandlerMixin:
         """
         # Early return checks
         if not self._should_check_response_status():
+            return True
+
+        # Check if call is still active
+        call_active = False
+        try:
+            if hasattr(self, "isActive"):
+                call_active = self.isActive()
+        except Exception:
+            call_active = False
+
+        # If call is inactive and intent response was playing, force cleanup
+        # This handles the case where user hung up before goodbye message
+        if (
+            not call_active
+            and self._intent_response_played
+            and not self._intent_response_finished
+        ):
+            logger.debug(
+                "Intent: call inactive but response was playing, forcing cleanup"
+            )
+            self._cleanup_intent_response_player()
+            self._notify_response_finished()
+            self._mark_response_as_finished()
             return True
 
         # Check if it's time to stop the intent response player

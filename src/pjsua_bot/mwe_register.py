@@ -113,7 +113,9 @@ def main() -> None:
 
     ep.libDestroy()
     if not registration_succeeded:
-        print(f"***Registration failed: status={final_reg_status}, active={final_reg_active}")
+        print(
+            f"***Registration failed: status={final_reg_status}, active={final_reg_active}"
+        )
         sys.exit(1)
 
 

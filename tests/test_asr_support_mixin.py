@@ -3,7 +3,7 @@
 import os
 import tempfile
 import time
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 from pjsua_bot.calls.mixins.asr_support import ASRSupportMixin
 

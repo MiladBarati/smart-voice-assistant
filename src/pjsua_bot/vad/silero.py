@@ -693,7 +693,9 @@ class SileroVAD:
                 if has_speech:
                     # CRITICAL: Ignore speech detection when bot is playing audio
                     # The bot's own playback should not be treated as caller speech
-                    bot_playback_active = getattr(self.silence, '_bot_playback_active', False)
+                    bot_playback_active = getattr(
+                        self.silence, "_bot_playback_active", False
+                    )
                     if not bot_playback_active:
                         # Speech detected from caller - end any current silence period
                         self.silence.note_non_silence(current_monotonic_time)
@@ -706,7 +708,9 @@ class SileroVAD:
                             or (self.last_speech_time_monotonic - prev_time) > 0.5
                         ):
                             log_speech_detected(
-                                prob, self.last_speech_time_monotonic, original_sample_pos
+                                prob,
+                                self.last_speech_time_monotonic,
+                                original_sample_pos,
                             )
                 else:
                     # Possibly a silence period depending on bot playback state

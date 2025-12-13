@@ -182,7 +182,11 @@ class RecordingCleanupMixin:
                 # (ports may already be disconnected)
                 recording_call_media = getattr(self, "_recording_call_media", None)
                 recorder = getattr(self, "_recorder", None)
-                if recording_call_media is not None and recorder is not None and call_active:
+                if (
+                    recording_call_media is not None
+                    and recorder is not None
+                    and call_active
+                ):
                     try:
                         recording_call_media.stopTransmit(recorder)
                     except Exception:
@@ -317,7 +321,11 @@ class RecordingCleanupMixin:
                     self, "_outgoing_recording_call_media", None
                 )
                 outgoing_recorder = getattr(self, "_outgoing_recorder", None)
-                if outgoing_call_media is not None and outgoing_recorder is not None and call_active:
+                if (
+                    outgoing_call_media is not None
+                    and outgoing_recorder is not None
+                    and call_active
+                ):
                     try:
                         outgoing_call_media.stopTransmit(outgoing_recorder)
                     except Exception:
@@ -454,7 +462,11 @@ class RecordingCleanupMixin:
                 player = getattr(self, "_player", None)
                 mixed_recorder = getattr(self, "_mixed_recorder", None)
 
-                if call_media is not None and mixed_recorder is not None and call_active:
+                if (
+                    call_media is not None
+                    and mixed_recorder is not None
+                    and call_active
+                ):
                     try:
                         call_media.stopTransmit(mixed_recorder)
                     except Exception:

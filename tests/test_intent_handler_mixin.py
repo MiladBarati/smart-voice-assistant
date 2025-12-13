@@ -1,7 +1,6 @@
 """Tests for IntentHandlerMixin."""
 
 import os
-import sys
 import tempfile
 import time
 from unittest.mock import Mock, patch
@@ -172,11 +171,11 @@ class TestIntentHandlerMixin:
                 # Mock get_wav_duration and pjsua2 imports
                 with patch("pjsua_bot.utils.get_wav_duration") as mock_duration:
                     mock_duration.return_value = 5.0
-                    
+
                     # Mock pjsua2 module
                     mock_pj = Mock()
                     mock_pj.AudioMediaPlayer = mock_pj_class
-                    
+
                     with patch.dict("sys.modules", {"pjsua2": mock_pj}):
                         call._play_intent_response()
 
