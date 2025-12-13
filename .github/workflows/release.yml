@@ -44,8 +44,10 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/smart-voice-assistant:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Use registry cache instead of GHA cache to avoid 404 BlobNotFound errors
+          # Registry cache is more reliable and doesn't have the 404 issue
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/smart-voice-assistant:buildcache
+          cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/smart-voice-assistant:buildcache,mode=max
 
       - name: Deploy to Server with Docker Compose
         uses: appleboy/ssh-action@master
