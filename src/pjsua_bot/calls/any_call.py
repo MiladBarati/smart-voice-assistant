@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import json
 
 import pjsua2 as pj
 
@@ -17,6 +18,15 @@ from .mixins import (
     PlaybackMonitorMixin,
 )
 from .recording_cleanup import RecordingCleanupMixin
+
+# #region agent log
+_DEBUG_LOG_PATH = "/home/milad/projects/pjsua-installation/.cursor/debug.log"
+def _dbg_log(hypothesis: str, location: str, message: str, **data):
+    try:
+        with open(_DEBUG_LOG_PATH, "a") as f:
+            f.write(json.dumps({"hypothesisId": hypothesis, "location": location, "message": message, "data": data, "timestamp": time.time(), "sessionId": "debug-session"}) + "\n")
+    except: pass
+# #endregion
 
 
 class AnyCall(
@@ -33,7 +43,22 @@ class AnyCall(
     """Generic call handler with recording and playback capabilities."""
 
     def __init__(self, acc: pj.Account, call_id: int):
+        # #region agent log
+        _before_super = time.time()
+        _dbg_log("B", "any_call.py:before_super_init", "Before pj.Call.__init__", call_id=call_id)
+        # #endregion
         super().__init__(acc, call_id)
+        # #region agent log
+        _after_super = time.time()
+        try:
+            _info = self.getInfo()
+            _state_after_super = _info.stateText
+            _status_after_super = _info.lastStatusCode
+        except Exception as _e:
+            _state_after_super = f"error:{_e}"
+            _status_after_super = -1
+        _dbg_log("B", "any_call.py:after_super_init", "After pj.Call.__init__", call_id=call_id, state=_state_after_super, status=_status_after_super, super_init_time_ms=(_after_super-_before_super)*1000)
+        # #endregion
         self._acc_ref = acc  # keep backref for settings
         self._pjsua_call_id = call_id  # Store call ID early for safe cleanup
         self.unique_call_id = generate_unique_id()

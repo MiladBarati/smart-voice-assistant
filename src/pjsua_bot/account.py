@@ -3,6 +3,8 @@
 import logging
 import os
 import tempfile
+import time
+import json
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -11,6 +13,15 @@ import pjsua2 as pj
 from .utils import generate_unique_id, parse_sip_user
 
 logger = logging.getLogger(__name__)
+
+# #region agent log
+_DEBUG_LOG_PATH = "/home/milad/projects/pjsua-installation/.cursor/debug.log"
+def _dbg_log(hypothesis: str, location: str, message: str, **data):
+    try:
+        with open(_DEBUG_LOG_PATH, "a") as f:
+            f.write(json.dumps({"hypothesisId": hypothesis, "location": location, "message": message, "data": data, "timestamp": time.time(), "sessionId": "debug-session"}) + "\n")
+    except: pass
+# #endregion
 
 
 class Account(pj.Account):
@@ -153,6 +164,10 @@ class Account(pj.Account):
     def onIncomingCall(self, prm: Any) -> None:  # noqa: N802 - pjsua2 callback name
         """Handle incoming call."""
         logger.info("IncomingCall: ringing")
+        # #region agent log
+        _entry_time = time.time()
+        _dbg_log("A", "account.py:onIncomingCall:entry", "onIncomingCall entry", callId=prm.callId, entry_time=_entry_time)
+        # #endregion
         try:
             # Check if we're already handling a call - reject if busy
             if self._has_active_call():
@@ -179,7 +194,22 @@ class Account(pj.Account):
             # Import here to avoid circular dependency
             from .calls import AnyCall
 
+            # #region agent log
+            _before_construct = time.time()
+            _dbg_log("B", "account.py:before_AnyCall", "Before AnyCall constructor", callId=prm.callId, elapsed_since_entry=(time.time()-_entry_time)*1000)
+            # #endregion
             call = AnyCall(self, prm.callId)
+            # #region agent log
+            _after_construct = time.time()
+            try:
+                _call_info = call.getInfo()
+                _call_state_after_construct = _call_info.stateText
+                _call_status_after_construct = _call_info.lastStatusCode
+            except Exception as _e:
+                _call_state_after_construct = f"error:{_e}"
+                _call_status_after_construct = -1
+            _dbg_log("B", "account.py:after_AnyCall", "After AnyCall constructor", callId=prm.callId, call_state=_call_state_after_construct, call_status=_call_status_after_construct, construct_time_ms=(_after_construct-_before_construct)*1000)
+            # #endregion
             self.calls[prm.callId] = call  # <-- keep it!
 
             # Parse caller information early
@@ -203,7 +233,20 @@ class Account(pj.Account):
             op = pj.CallOpParam()
             if self.auto_answer:
                 op.statusCode = 200
+                # #region agent log
+                try:
+                    _pre_answer_info = call.getInfo()
+                    _pre_answer_state = _pre_answer_info.stateText
+                    _pre_answer_status = _pre_answer_info.lastStatusCode
+                except Exception as _e:
+                    _pre_answer_state = f"error:{_e}"
+                    _pre_answer_status = -1
+                _dbg_log("C", "account.py:before_answer", "Before call.answer(200)", callId=prm.callId, state=_pre_answer_state, status=_pre_answer_status, elapsed_since_entry=(time.time()-_entry_time)*1000)
+                # #endregion
                 call.answer(op)
+                # #region agent log
+                _dbg_log("C", "account.py:after_answer", "After call.answer(200) SUCCESS", callId=prm.callId, elapsed_since_entry=(time.time()-_entry_time)*1000)
+                # #endregion
                 logger.info("IncomingCall: auto-answered 200 OK")
 
                 # Collect call answered event
@@ -226,6 +269,9 @@ class Account(pj.Account):
                     call_code=180,
                 )
         except Exception as e:
+            # #region agent log
+            _dbg_log("D", "account.py:onIncomingCall:exception", "Exception in onIncomingCall", callId=prm.callId, error=str(e), error_type=type(e).__name__)
+            # #endregion
             logger.error("IncomingCall error: %s", e, exc_info=True)
             # Collect error event
             self._collect_event(

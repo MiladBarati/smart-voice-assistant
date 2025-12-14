@@ -132,6 +132,17 @@ class ASRService:
                 self._device = self.cfg.device
                 print(f"***ASR: Using specified device: {self._device}")
 
+            # Clear CUDA cache before loading model to free any stale memory
+            if self._device == "cuda":
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()
+                        print("***ASR: Cleared CUDA cache before model load")
+                except Exception:
+                    pass  # Ignore cleanup errors
+
             # Load omnilingual-asr pipeline
             print(f"***ASR: Loading model {self.cfg.model_name}...")
             print("***ASR: This may download ~1-2GB on first run...")
