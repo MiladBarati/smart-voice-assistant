@@ -84,22 +84,13 @@ class PlaybackMonitorMixin:
         # 1. Intent response was played
         # 2. Intent response is actually finished (not just checked)
         # 3. Intent response player is destroyed (None)
-        # 4. At least 0.1 seconds have passed since intent response finished
-        #    (ensures player fully stopped)
-        # 5. Goodbye hasn't been requested yet
-        intent_finished_time = getattr(self, "_intent_response_finished_time", None)
-        time_since_finished = (
-            time.time() - intent_finished_time if intent_finished_time else float("inf")
-        )
-
+        # 4. Goodbye hasn't been requested yet
         if (
             hasattr(self, "_intent_response_played")
             and getattr(self, "_intent_response_played", False)
             and intent_finished
             and getattr(self, "_intent_response_finished", False)
             and getattr(self, "_intent_response_player", None) is None
-            and time_since_finished
-            >= 0.5  # Delay to ensure audio pipeline fully drains
             and not getattr(self, "_goodbye_requested", False)
         ):
             try:
