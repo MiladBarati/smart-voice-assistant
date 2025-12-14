@@ -213,7 +213,7 @@ CMD ["sh", "-c", "python3.11 /app/src/pjsua_bot/register_bot.py \
     --enable-recording \
     --recording-path \"/app/recordings\" \
     --enable-vad \
-    --silence-after-speech-sec \"${SIP_SILENCE_AFTER_SPEECH_SEC:-3.0}\" \
+    --silence-after-speech-sec \"${SIP_SILENCE_AFTER_SPEECH_SEC:-1.0}\" \
     --vad-threshold \"${SIP_VAD_THRESHOLD:-0.5}\" \
     --goodbye-file \"/app/assets/audio/goodbye_voice.wav\" \
     --enable-asr \
