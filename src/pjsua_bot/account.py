@@ -179,7 +179,12 @@ class Account(pj.Account):
                 op = pj.CallOpParam()
                 op.statusCode = 486  # Busy Here
                 op.reason = "Busy Here"
-                temp_call.answer(op)
+                try:
+                    temp_call.answer(op)
+                except pj.Error as reject_err:
+                    # PJ_EPENDING (70002) means operation already in progress
+                    if reject_err.status != 70002:
+                        logger.warning("IncomingCall: reject failed: %s", reject_err)
                 
                 # Collect busy rejection event
                 self._collect_event(
@@ -243,11 +248,19 @@ class Account(pj.Account):
                     _pre_answer_status = -1
                 _dbg_log("C", "account.py:before_answer", "Before call.answer(200)", callId=prm.callId, state=_pre_answer_state, status=_pre_answer_status, elapsed_since_entry=(time.time()-_entry_time)*1000)
                 # #endregion
-                call.answer(op)
-                # #region agent log
-                _dbg_log("C", "account.py:after_answer", "After call.answer(200) SUCCESS", callId=prm.callId, elapsed_since_entry=(time.time()-_entry_time)*1000)
-                # #endregion
-                logger.info("IncomingCall: auto-answered 200 OK")
+                try:
+                    call.answer(op)
+                    # #region agent log
+                    _dbg_log("C", "account.py:after_answer", "After call.answer(200) SUCCESS", callId=prm.callId, elapsed_since_entry=(time.time()-_entry_time)*1000)
+                    # #endregion
+                    logger.info("IncomingCall: auto-answered 200 OK")
+                except pj.Error as answer_err:
+                    # PJ_EPENDING (70002) means operation already in progress - not a real error
+                    if answer_err.status == 70002:
+                        logger.debug("IncomingCall: answer already pending (PJ_EPENDING), continuing")
+                        _dbg_log("C", "account.py:answer_pending", "call.answer returned PJ_EPENDING - operation in progress", callId=prm.callId)
+                    else:
+                        raise  # Re-raise other errors
 
                 # Collect call answered event
                 self._collect_event(
@@ -258,8 +271,15 @@ class Account(pj.Account):
                 )
             else:
                 op.statusCode = 180
-                call.answer(op)
-                logger.info("IncomingCall: sent 180 Ringing")
+                try:
+                    call.answer(op)
+                    logger.info("IncomingCall: sent 180 Ringing")
+                except pj.Error as answer_err:
+                    # PJ_EPENDING (70002) means operation already in progress - not a real error
+                    if answer_err.status == 70002:
+                        logger.debug("IncomingCall: ringing already pending (PJ_EPENDING), continuing")
+                    else:
+                        raise  # Re-raise other errors
 
                 # Collect call ringing event
                 self._collect_event(
