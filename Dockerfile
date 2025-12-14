@@ -217,7 +217,7 @@ CMD ["sh", "-c", "python3.11 /app/src/pjsua_bot/register_bot.py \
     --vad-threshold \"${SIP_VAD_THRESHOLD:-0.5}\" \
     --goodbye-file \"/app/assets/audio/goodbye_voice.wav\" \
     --enable-asr \
-    --asr-model \"${ASR_MODEL:-omniASR_CTC_7B_v2}\" \
+    --asr-model \"${ASR_MODEL:-omniASR_CTC_7B}\" \
     --enable-intent \
     --intent-classifier \"${INTENT_CLASSIFIER:-ollama}\" \
     --ollama-url \"${OLLAMA_URL:-http://host.docker.internal:11434}\" \
