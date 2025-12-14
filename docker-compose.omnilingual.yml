@@ -22,6 +22,9 @@ services:
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-3}
       
+      # ASR Configuration
+      - ASR_MODEL=${ASR_MODEL:-omniASR_CTC_1B}
+      
       # Python/ML settings
       - PYTHONUNBUFFERED=1
       - TRANSFORMERS_CACHE=/app/.cache/huggingface

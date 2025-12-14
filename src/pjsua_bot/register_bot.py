@@ -260,6 +260,15 @@ def main() -> None:
         help=("Enable ASR for live and final transcription " "(default: disabled)"),
     )
     parser.add_argument(
+        "--asr-model",
+        type=str,
+        default="omniASR_CTC_1B",
+        help=(
+            "ASR model to use: omniASR_CTC_1B or omniASR_CTC_350M "
+            "(default: omniASR_CTC_1B)"
+        ),
+    )
+    parser.add_argument(
         "--enable-intent",
         action="store_true",
         help="Enable intent classification from transcription (default: False)",
@@ -515,11 +524,12 @@ def main() -> None:
             try:
                 # Support both module and script execution
                 if __package__ in (None, ""):
-                    from pjsua_bot.asr import ASRService
+                    from pjsua_bot.asr import ASRConfig, ASRService
                 else:
-                    from .asr import ASRService
+                    from .asr import ASRConfig, ASRService
 
-                acc._asr_service = ASRService()
+                asr_config = ASRConfig(model_name=args.asr_model)
+                acc._asr_service = ASRService(config=asr_config)
                 acc._asr_available = bool(
                     acc._asr_service and acc._asr_service.available
                 )

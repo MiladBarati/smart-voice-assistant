@@ -157,5 +157,6 @@ VOLUME ["/app/recordings", "/app/assets/audio", "/app/.cache"]
 EXPOSE 5060/udp 10000-20000/udp
 
 # Default command (can be overridden)
-CMD ["python3", "-m", "pjsua_bot.register_bot"]
+# Use shell form to allow environment variable substitution
+CMD ["sh", "-c", "python3 -m pjsua_bot.register_bot --asr-model \"${ASR_MODEL:-omniASR_CTC_1B}\""]
 

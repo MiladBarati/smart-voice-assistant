@@ -34,6 +34,8 @@ services:
       - SIP_SILENCE_AFTER_SPEECH_SEC=${SIP_SILENCE_AFTER_SPEECH_SEC:-3.0}
       - SIP_VAD_THRESHOLD=${SIP_VAD_THRESHOLD:-0.5}
       - RECORDING_PATH=${RECORDING_PATH:-/app/recordings}
+      # ASR Configuration
+      - ASR_MODEL=${ASR_MODEL:-omniASR_CTC_1B}
       # Ollama Configuration
       - INTENT_CLASSIFIER=${INTENT_CLASSIFIER:-ollama}
       - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
