@@ -682,36 +682,39 @@ class SileroVAD:
                 # Check if this frame contains speech
                 has_speech = prob >= self.cfg.threshold
 
-                # Update chunk boundaries based on speech detection
+                # CRITICAL: Don't treat bot's own playback as caller speech
+                # for both chunk creation and speech time tracking.
+                # This prevents creating "ghost chunks" when the bot is playing
+                # audio that gets detected as speech.
+                bot_playback_active = getattr(
+                    self.silence, "_bot_playback_active", False
+                )
+                effective_has_speech = has_speech and not bot_playback_active
+
+                # Update chunk boundaries based on caller speech detection only
                 self._check_chunk_boundaries(
                     monotonic_time=current_monotonic_time,
                     current_sample_idx=original_sample_pos,
-                    has_speech=has_speech,
+                    has_speech=effective_has_speech,
                 )
 
-                # Track silence periods (when neither caller nor bot are speaking)
-                if has_speech:
-                    # CRITICAL: Ignore speech detection when bot is playing audio
-                    # The bot's own playback should not be treated as caller speech
-                    bot_playback_active = getattr(
-                        self.silence, "_bot_playback_active", False
-                    )
-                    if not bot_playback_active:
-                        # Speech detected from caller - end any current silence period
-                        self.silence.note_non_silence(current_monotonic_time)
-                        prev_time = self.last_speech_time_monotonic
-                        self.last_speech_time_monotonic = current_monotonic_time
-                        # Print when speech is first detected or after a gap
-                        # (avoid spam on continuous speech)
-                        if (
-                            prev_time is None
-                            or (self.last_speech_time_monotonic - prev_time) > 0.5
-                        ):
-                            log_speech_detected(
-                                prob,
-                                self.last_speech_time_monotonic,
-                                original_sample_pos,
-                            )
+                # Track silence periods and speech time
+                if effective_has_speech:
+                    # Speech detected from caller - end any current silence period
+                    self.silence.note_non_silence(current_monotonic_time)
+                    prev_time = self.last_speech_time_monotonic
+                    self.last_speech_time_monotonic = current_monotonic_time
+                    # Print when speech is first detected or after a gap
+                    # (avoid spam on continuous speech)
+                    if (
+                        prev_time is None
+                        or (self.last_speech_time_monotonic - prev_time) > 0.5
+                    ):
+                        log_speech_detected(
+                            prob,
+                            self.last_speech_time_monotonic,
+                            original_sample_pos,
+                        )
                 else:
                     # Possibly a silence period depending on bot playback state
                     self.silence.note_possible_silence(current_monotonic_time)

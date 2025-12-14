@@ -134,10 +134,48 @@ class Account(pj.Account):
         if is_success_2xx:
             logger.info("Registered successfully")
 
+    def _has_active_call(self) -> bool:
+        """Check if there's an active call being handled.
+        
+        Returns True if any call in self.calls is still active (not disconnected).
+        """
+        active_calls = []
+        for call_id, call in list(self.calls.items()):
+            try:
+                if call.isActive():
+                    active_calls.append(call_id)
+            except Exception:
+                # Call object might be invalid, clean it up
+                pass
+        
+        return len(active_calls) > 0
+
     def onIncomingCall(self, prm: Any) -> None:  # noqa: N802 - pjsua2 callback name
         """Handle incoming call."""
         logger.info("IncomingCall: ringing")
         try:
+            # Check if we're already handling a call - reject if busy
+            if self._has_active_call():
+                logger.info("IncomingCall: BUSY - already handling a call, rejecting with 486")
+                
+                # Create a temporary call object just to reject it
+                from .calls import AnyCall
+                temp_call = AnyCall(self, prm.callId)
+                op = pj.CallOpParam()
+                op.statusCode = 486  # Busy Here
+                op.reason = "Busy Here"
+                temp_call.answer(op)
+                
+                # Collect busy rejection event
+                self._collect_event(
+                    event_type="incoming_call_rejected",
+                    call_id=str(prm.callId),
+                    call_state="rejected",
+                    call_code=486,
+                    reason="busy",
+                )
+                return
+
             # Import here to avoid circular dependency
             from .calls import AnyCall
 
