@@ -227,6 +227,59 @@ class Account(pj.Account):
                 logger.warning("IncomingCall: could not parse caller info: %s", e)
                 call._caller_number = "unknown"
 
+            # Check if caller ID is in allowed range (1001-1010)
+            try:
+                caller_id_int = int(call._caller_number)
+                if caller_id_int < 1001 or caller_id_int > 1010:
+                    logger.warning(
+                        "IncomingCall: REJECTED - caller ID %s not in allowed range (1001-1010)",
+                        call._caller_number
+                    )
+                    op = pj.CallOpParam()
+                    op.statusCode = 403  # Forbidden
+                    op.reason = "Caller ID not allowed"
+                    try:
+                        call.answer(op)
+                    except pj.Error as reject_err:
+                        if reject_err.status != 70002:  # PJ_EPENDING
+                            logger.warning("IncomingCall: reject failed: %s", reject_err)
+                    
+                    # Collect rejection event
+                    self._collect_event(
+                        event_type="incoming_call_rejected",
+                        call_id=str(prm.callId),
+                        call_state="rejected",
+                        call_code=403,
+                        reason="caller_id_not_allowed",
+                        caller_id=call._caller_number,
+                    )
+                    return
+            except (ValueError, TypeError):
+                # If caller ID is not numeric or parsing fails, reject the call
+                logger.warning(
+                    "IncomingCall: REJECTED - caller ID '%s' is not numeric or could not be parsed",
+                    call._caller_number
+                )
+                op = pj.CallOpParam()
+                op.statusCode = 403  # Forbidden
+                op.reason = "Invalid caller ID"
+                try:
+                    call.answer(op)
+                except pj.Error as reject_err:
+                    if reject_err.status != 70002:  # PJ_EPENDING
+                        logger.warning("IncomingCall: reject failed: %s", reject_err)
+                
+                # Collect rejection event
+                self._collect_event(
+                    event_type="incoming_call_rejected",
+                    call_id=str(prm.callId),
+                    call_state="rejected",
+                    call_code=403,
+                    reason="invalid_caller_id",
+                    caller_id=call._caller_number,
+                )
+                return
+
             # Collect incoming call event
             self._collect_event(
                 event_type="incoming_call",
