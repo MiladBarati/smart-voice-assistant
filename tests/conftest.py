@@ -1,10 +1,38 @@
 """Pytest configuration for tests."""
 
 import os
+import sys
 from typing import Any
 from unittest.mock import Mock
 
 import pytest
+
+# Mock pjsua2 module before any imports to prevent ImportError during test collection
+# This allows tests to be collected even when pjsua2 is not installed
+if "pjsua2" not in sys.modules:
+    mock_pjsua2 = Mock()
+
+    # Create a mock Endpoint class with instance() method
+    mock_endpoint_instance = Mock()
+    mock_endpoint_class = Mock()
+    mock_endpoint_class.instance = Mock(return_value=mock_endpoint_instance)
+    mock_endpoint_class.return_value = mock_endpoint_instance
+
+    # Add common pjsua2 classes and attributes that might be accessed
+    mock_pjsua2.Account = Mock
+    mock_pjsua2.Call = Mock
+    mock_pjsua2.Endpoint = mock_endpoint_class
+    mock_pjsua2.AudioMediaPlayer = Mock
+    mock_pjsua2.AudioMedia = Mock
+    mock_pjsua2.TransportConfig = Mock
+    mock_pjsua2.AccountConfig = Mock
+    mock_pjsua2.AuthCredInfo = Mock
+    mock_pjsua2.EpConfig = Mock
+    mock_pjsua2.CallInfo = Mock
+    mock_pjsua2.CallOpParam = Mock
+    mock_pjsua2.MediaFormat = Mock
+    mock_pjsua2.MediaFormatAudio = Mock
+    sys.modules["pjsua2"] = mock_pjsua2
 
 # Exclude standalone scripts that aren't pytest tests
 collect_ignore = ["test_asr_migration.py"]

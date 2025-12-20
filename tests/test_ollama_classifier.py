@@ -2,7 +2,7 @@
 
 from unittest.mock import Mock, patch
 
-import requests  # type: ignore[import-untyped]
+import requests
 
 from pjsua_bot.intent.ollama_classifier import OllamaClassifier
 

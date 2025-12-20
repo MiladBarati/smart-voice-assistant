@@ -13,11 +13,10 @@ A comprehensive SIP bot implementation using PJSUA2 library with advanced featur
 
 __version__ = "1.0.0"
 
-# Import main components for easy access
-from .account import Account
-from .calls import AnyCall, OutCall
+from typing import Any
+
+# Import non-pjsua2 dependencies immediately
 from .elasticsearch_client import ElasticsearchLogger, es_logger
-from .register_bot import main
 from .utils import (
     ensure_recording_directory,
     generate_unique_id,
@@ -27,6 +26,30 @@ from .utils import (
     setup_logging,
     wait_until,
 )
+
+
+# Lazy imports for pjsua2-dependent modules to avoid import errors during
+# test collection. These will only be imported when actually accessed
+def __getattr__(name: str) -> Any:
+    """Lazy import for pjsua2-dependent modules."""
+    if name == "Account":
+        from .account import Account
+
+        return Account
+    if name == "AnyCall":
+        from .calls import AnyCall
+
+        return AnyCall
+    if name == "OutCall":
+        from .calls import OutCall
+
+        return OutCall
+    if name == "main":
+        from .register_bot import main
+
+        return main
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "Account",

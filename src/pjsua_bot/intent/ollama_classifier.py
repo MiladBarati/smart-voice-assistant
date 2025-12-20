@@ -7,7 +7,7 @@ import logging
 import re
 from typing import Any, Dict, Optional, Tuple
 
-import requests  # type: ignore[import-untyped]
+import requests
 
 from pjsua_bot.intent.classifier import (
     IntentClassifier,

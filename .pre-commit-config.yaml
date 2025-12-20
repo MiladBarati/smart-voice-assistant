@@ -20,7 +20,8 @@ repos:
     rev: v1.11.2
     hooks:
       - id: mypy
-        additional_dependencies: []
+        additional_dependencies:
+          - types-requests<2.32.0.20240521
         files: ^src/|^tests/
         stages: [pre-commit]
 
