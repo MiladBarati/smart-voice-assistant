@@ -42,10 +42,17 @@ from .silero_model_loader import SileroModelLoader
 from .types import VoiceChunk
 
 # Import torch/torchaudio for inference (model loading is in silero_model_loader)
+#
+# These are optional runtime dependencies. We keep the public names (`torch`,
+# `torchaudio`, etc.) set to either the imported module or `None`.
+torch: Any | None
+
 try:
-    import torch
+    import torch as _torch
 except Exception:  # pragma: no cover - optional dependency at runtime
     torch = None
+else:
+    torch = _torch
 
 try:
     import torchaudio
