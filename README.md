@@ -1,7 +1,7 @@
 # PJSUA2 SIP Registration & Call Bot
 
 
-A comprehensive Python toolkit for SIP/VoIP functionality using PJSUA2, including registration, outbound/inbound call handling, and automated audio playback.
+A comprehensive Python toolkit for SIP/VoIP functionality using PJSUA2, including registration, outbound/inbound call handling, automated audio playback, voice activity detection, automatic speech recognition, and intelligent intent classification.
 
 ## 📋 Table of Contents
 
@@ -17,40 +17,59 @@ A comprehensive Python toolkit for SIP/VoIP functionality using PJSUA2, includin
 
 ## 🎯 Overview
 
-This project provides Python scripts for interacting with SIP servers (like Asterisk, FreeSWITCH, or any SIP-compliant PBX) using the PJSUA2 library. It includes both minimal working examples and a production-ready bot with comprehensive features.
+This project provides Python scripts for interacting with SIP servers (like Asterisk, FreeSWITCH, or any SIP-compliant PBX) using the PJSUA2 library. It includes both minimal working examples and a production-ready bot with comprehensive features including AI-powered intent classification for automated FAQ responses.
 
 ## ✨ Features
 
+### Core SIP Functionality
 - **SIP Registration**: Register with SIP servers using various authentication methods
 - **Inbound Call Handling**: Accept and process incoming calls with auto-answer capability
 - **Outbound Calls**: Make calls to SIP extensions or full URIs
-- **Audio Playback**: Play WAV files to remote party during calls (e.g., welcome messages, IVR)
-- **Voice Recording**: Capture incoming caller audio streams and outgoing bot audio to separate WAV files with organized storage
-- **Voice Activity Detection (VAD)**: Real-time speech detection using Silero VAD with automatic chunk segmentation
-- **VAD Metrics Logging**: Speech duration, chunk count, silence duration, and confidence scores logged to Elasticsearch for analytics
-- **Automatic Speech Recognition (ASR)**: Transcribe audio recordings using multiple backends:
-  - **Whisper-based ASR**: OpenAI Whisper models via transformers (Persian/Farsi and 100+ languages)
-  - **Omnilingual ASR**: Meta SeamlessM4T v2 models for superior multilingual support (100+ languages with translation)
-- **Live Transcription**: Real-time ASR transcription during calls with chunk-based processing
-- **Automatic Audio Duration Detection**: Reads WAV file duration for precise playback timing
-- **Auto-Answer**: Automatically answer incoming calls (enabled by default)
-- **Smart Hangup**: Automatically hang up after audio playback completes with configurable delay or based on VAD silence detection
-- **Unique Call IDs**: Uses UUID-based call IDs to prevent duplicates across program restarts
 - **Multiple Transports**: Support for UDP, TCP, and TLS
 - **NAT Traversal**: Proper handling of NAT scenarios
+- **Busy Call Handling**: Automatic rejection of incoming calls when already busy (486 Busy Here)
+- **Caller ID Validation**: Configurable caller ID filtering for security
+
+### Audio & Media
+- **Audio Playback**: Play WAV files to remote party during calls (e.g., welcome messages, IVR)
+- **Voice Recording**: Capture incoming caller audio streams and outgoing bot audio to separate WAV files
+- **Automatic Audio Duration Detection**: Reads WAV file duration for precise playback timing
+- **Goodbye & Waiting Messages**: Configurable goodbye and waiting voice playback
+
+### Voice Activity Detection (VAD)
+- **Real-time Speech Detection**: Using Silero VAD with automatic chunk segmentation
+- **VAD Metrics Logging**: Speech duration, chunk count, silence duration, and confidence scores logged to Elasticsearch
+- **Smart Hangup**: Automatically hang up based on VAD silence detection
+
+### Automatic Speech Recognition (ASR)
+- **Whisper-based ASR**: OpenAI Whisper models via transformers (Persian/Farsi and 100+ languages)
+- **Omnilingual ASR**: Meta SeamlessM4T v2 models for superior multilingual support (100+ languages with translation)
+- **Live Transcription**: Real-time ASR transcription during calls with chunk-based processing
+- **Model Selection**: Choose between `omniASR_CTC_1B` and `omniASR_CTC_350M` models
+
+### Intent Classification (NEW!)
+- **Rule-Based Classification**: Fast keyword matching with Persian text normalization
+- **LLM-Based Classification**: Ollama integration with Qwen models for intelligent classification
+- **58+ FAQ Intents**: Pre-configured Persian/Farsi FAQ responses for IT help desk
+- **Custom FAQ Support**: Load custom FAQ configurations from JSON files
+- **Automatic Response Playback**: Play audio responses based on detected intent
+- **Fallback Support**: Graceful fallback from LLM to rule-based when Ollama unavailable
+
+### Infrastructure & Operations
 - **Event-Driven**: Non-blocking event loop with proper PJSUA2 event pumping
 - **Signal Handling**: Graceful shutdown on Ctrl+C / SIGTERM
 - **Extensive Logging**: Configurable log levels for debugging
+- **Elasticsearch Integration**: Call logging and analytics with VAD metrics
 - **Comprehensive Testing**: Unit testing framework with pytest, coverage reporting, and mock support
 - **Docker Support**: Multi-stage Dockerfile with optimized build and runtime images
-- **Production Ready**: Docker Compose setup for easy deployment with Elasticsearch integration
 - **Code Quality**: Pre-commit hooks with Ruff, Black, and mypy for linting, formatting, and type checking
 
 ## 📦 Prerequisites
 
-- **Python**: 3.11 or higher
+- **Python**: 3.9 or higher (3.11 recommended)
 - **PJSUA2**: Python bindings for PJSIP library
 - **FFmpeg** (optional): For audio file conversion to WAV format
+- **Ollama** (optional): For LLM-based intent classification
 
 ### Installing PJSUA2
 
@@ -63,6 +82,19 @@ PJSUA2 Python bindings typically need to be compiled from source or installed vi
 
 # Option 2: Use pre-built packages (if available for your platform)
 # Check your distribution's package manager
+```
+
+### Installing Ollama (for LLM Intent Classification)
+
+```bash
+# Linux/WSL
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# Start Ollama service
+ollama serve
+
+# Pull recommended model
+ollama pull qwen2.5:3b
 ```
 
 ## 🚀 Installation
@@ -144,6 +176,39 @@ python -m src.pjsua_bot.register_bot \
   --enable-asr
 ```
 
+### Enable Intent Classification (Rule-Based)
+
+```bash
+python -m src.pjsua_bot.register_bot \
+  --user 1001 \
+  --password secret123 \
+  --domain pbx.local \
+  --stay-online \
+  --enable-recording \
+  --enable-vad \
+  --enable-asr \
+  --enable-intent
+```
+
+### Enable Intent Classification (LLM via Ollama)
+
+```bash
+# Make sure Ollama is running with the model loaded
+ollama pull qwen2.5:3b
+
+python -m src.pjsua_bot.register_bot \
+  --user 1001 \
+  --password secret123 \
+  --domain pbx.local \
+  --stay-online \
+  --enable-recording \
+  --enable-vad \
+  --enable-asr \
+  --enable-intent \
+  --intent-classifier ollama \
+  --ollama-model qwen2.5:3b
+```
+
 ### Play Welcome Message
 
 ```bash
@@ -204,7 +269,6 @@ The `register_bot.py` script supports the following command-line arguments:
 #### Audio Playback
 - `--play-file`: Path to WAV file to play when call connects (default: `welcome_message.wav`)
 - `--goodbye-file`: Path to WAV file to play before hanging up (default: `goodbye_voice.wav`)
-- `--waiting-file`: Path to WAV file to play when VAD detects silence (default: `waiting_voice.wav`)
 - `--message-duration`: Fallback duration in seconds if WAV file cannot be read (default: 5)
 - `--hangup-delay`: Deprecated: fixed delay; overridden by VAD-based hangup if enabled (default: 2)
 
@@ -215,6 +279,15 @@ The `register_bot.py` script supports the following command-line arguments:
 - `--silence-after-speech-sec`: Seconds of silence after last caller speech to hang up (default: 3.0)
 - `--vad-threshold`: Silero VAD speech probability threshold (default: 0.5)
 - `--enable-asr`: Enable ASR for live and final transcription (default: False)
+- `--asr-model`: ASR model to use: `omniASR_CTC_1B` or `omniASR_CTC_350M` (default: omniASR_CTC_1B)
+
+#### Intent Classification
+- `--enable-intent`: Enable intent classification from transcription (default: False)
+- `--intent-classifier`: Classifier type: `rule-based` (keyword matching) or `ollama` (LLM-based) (default: rule-based)
+- `--ollama-url`: Ollama API base URL (default: http://localhost:11434)
+- `--ollama-model`: Ollama model name (default: qwen2.5:3b). Using 1.5b/3b recommended for GPUs with <8GB VRAM
+- `--ollama-use-cpu`: Attempt to force CPU usage for Ollama (hint only; set OLLAMA_NUM_GPU=0 for true CPU mode)
+- `--faq-config`: Path to custom FAQ JSON config file (optional)
 
 #### Logging
 - `--log-level`: Endpoint log level 0-6, higher = more verbose (default: 3)
@@ -302,35 +375,39 @@ pjsua-installation/
 ├── src/
 │   └── pjsua_bot/
 │       ├── __init__.py              # Package exports
-│       ├── utils.py                 # Utility functions (235 lines)
-│       ├── account.py               # Account management class (120 lines)
-│       ├── register_bot.py          # Main entry point (533 lines)
-│       ├── elasticsearch_client.py  # Elasticsearch integration (547 lines)
-│       ├── asr.py                   # Automatic Speech Recognition - Omnilingual (376 lines)
-│       ├── asr_whisper.py           # Whisper-based ASR backend (481 lines)
-│       ├── asr_omnilingual.py       # Omnilingual ASR wrapper (376 lines)
-│       ├── mwe_register.py          # Minimal working example (109 lines)
+│       ├── utils.py                 # Utility functions
+│       ├── account.py               # Account management class
+│       ├── register_bot.py          # Main entry point (~900 lines)
+│       ├── elasticsearch_client.py  # Elasticsearch integration
+│       ├── asr.py                   # Automatic Speech Recognition - Omnilingual
+│       ├── mwe_register.py          # Minimal working example
 │       ├── calls/                   # Call handling modules
 │       │   ├── __init__.py          # Call package exports
-│       │   ├── any_call.py          # Advanced call handling (871 lines)
-│       │   ├── out_call.py          # Outbound call handling (122 lines)
-│       │   ├── goodbye.py           # Goodbye playback mixin (351 lines)
-│       │   ├── recording_cleanup.py # Recording cleanup utilities (351 lines)
+│       │   ├── any_call.py          # Advanced call handling
+│       │   ├── out_call.py          # Outbound call handling
+│       │   ├── goodbye.py           # Goodbye playback mixin
+│       │   ├── recording_cleanup.py # Recording cleanup utilities
 │       │   └── mixins/              # Reusable call handler mixins
 │       │       ├── __init__.py      # Mixin package exports
 │       │       ├── asr_support.py   # ASR integration mixin
 │       │       ├── call_media_handler.py # Media handling mixin
 │       │       ├── call_state_handler.py # State management mixin
 │       │       ├── event_logger.py  # Event logging mixin
+│       │       ├── intent_handler.py # Intent classification mixin
 │       │       └── playback_monitor.py # Playback monitoring mixin
+│       ├── intent/                  # Intent classification modules (NEW!)
+│       │   ├── __init__.py          # Intent package exports
+│       │   ├── classifier.py        # Base classifier & rule-based implementation
+│       │   ├── faq_config.py        # Persian FAQ configuration (58+ intents)
+│       │   └── ollama_classifier.py # LLM-based classifier using Ollama
 │       └── vad/                     # Voice Activity Detection modules
 │           ├── __init__.py          # VAD package exports
-│           ├── silero.py            # Silero VAD implementation (752 lines)
-│           ├── audio_reader.py      # Audio stream reading (262 lines)
-│           ├── chunk_manager.py     # Voice chunk management (326 lines)
-│           ├── silence.py           # Silence tracking (54 lines)
-│           ├── types.py             # VAD type definitions (17 lines)
-│           └── config.py            # VAD configuration (17 lines)
+│           ├── silero.py            # Silero VAD implementation
+│           ├── audio_reader.py      # Audio stream reading
+│           ├── chunk_manager.py     # Voice chunk management
+│           ├── silence.py           # Silence tracking
+│           ├── types.py             # VAD type definitions
+│           └── config.py            # VAD configuration
 ├── examples/                    # Usage examples
 │   ├── asr_usage_example.py    # ASR transcription example (Whisper)
 │   ├── omnilingual_asr_example.py # Omnilingual ASR example
@@ -341,12 +418,17 @@ pjsua-installation/
 │   ├── __init__.py             # Test package
 │   ├── conftest.py             # Pytest fixtures and configuration
 │   ├── test_main.py            # Main module tests
+│   ├── test_account.py         # Account tests
+│   ├── test_intent_classifier.py # Intent classifier tests
+│   ├── test_intent_handler_mixin.py # Intent handler mixin tests
+│   ├── test_intent_phase1.py   # Phase 1 intent tests
+│   ├── test_ollama_classifier.py # Ollama classifier tests
 │   ├── test_elasticsearch_client.py # Elasticsearch tests
-│   ├── test_batch.py           # Batch processing tests
-│   └── test_setup.py           # Setup and configuration tests
+│   └── [additional test files]
 ├── scripts/                     # Utility scripts
 │   ├── run_tests.py            # Test runner with coverage
-│   ├── demo_tests.py           # Demo test suite
+│   ├── check_ollama.py         # Ollama connectivity check
+│   ├── test_intent_classifier.py # Intent classifier testing
 │   ├── test_connectivity.py    # Connectivity testing
 │   └── test_elasticsearch.py   # Elasticsearch connectivity test
 ├── docs/                        # Documentation
@@ -359,7 +441,13 @@ pjsua-installation/
 │   ├── TROUBLESHOOTING.md
 │   ├── TECHNICAL_DETAILS.md
 │   ├── TESTING.md
+│   ├── INTENT_CLASSIFICATION_IMPLEMENTATION_GUIDE.md  # NEW!
+│   ├── RASA_INTEGRATION_GUIDE.md  # NEW!
 │   └── [additional technical docs]
+├── rasa-integration/            # Rasa NLU integration (optional)
+│   ├── README.md               # Rasa setup instructions
+│   ├── setup.sh                # Setup script
+│   └── install-python3.10.sh   # Python 3.10 installer for Rasa
 ├── assets/                      # Static assets
 │   └── audio/                   # Audio files (WAV, M4A)
 ├── recordings/                  # Call recordings (organized by date)
@@ -367,7 +455,9 @@ pjsua-installation/
 │   ├── freepbx/                # FreePBX Docker setup
 │   └── nginx/                  # Nginx reverse proxy setup
 ├── Dockerfile                  # Multi-stage Docker build
+├── Dockerfile.omnilingual      # Docker build with omnilingual ASR
 ├── docker-compose.yml          # Docker Compose configuration
+├── docker-compose.omnilingual.yml # Docker Compose with omnilingual
 ├── pyproject.toml              # Project configuration and dependencies
 ├── requirements.txt            # Python dependencies
 ├── pytest.ini                  # Pytest configuration
@@ -379,153 +469,87 @@ pjsua-installation/
 
 #### Core Modules (`src/pjsua_bot/`)
 
-- **`utils.py`** (235 lines): Common utility functions
+- **`utils.py`**: Common utility functions
   - `parse_sip_user()`, `setup_logging()`, `get_wav_duration()`
   - `ensure_recording_directory()`, `pump_events()`, `wait_until()`
   - `generate_unique_id()` for UUID-based call identification
 
-- **`account.py`** (120 lines): SIP account management
+- **`account.py`**: SIP account management
   - `Account` class with registration and incoming call handling
   - Event-driven callback system for call state changes
+  - Busy call rejection and caller ID validation
 
-- **`register_bot.py`** (533 lines): Main entry point and CLI
-  - Comprehensive CLI argument parsing with 30+ options
+- **`register_bot.py`** (~900 lines): Main entry point and CLI
+  - Comprehensive CLI argument parsing with 35+ options
   - Bot lifecycle management and graceful shutdown
-  - Integration of all components (account, calls, VAD, ASR, Elasticsearch)
+  - Integration of all components (account, calls, VAD, ASR, intent, Elasticsearch)
   - Signal handling for SIGINT/SIGTERM
+  - Resource cleanup for models and connections
 
-- **`elasticsearch_client.py`** (547 lines): Elasticsearch integration
+- **`elasticsearch_client.py`**: Elasticsearch integration
   - `ElasticsearchLogger` class for event logging
   - Call record management with VAD metrics
   - Automatic index creation and schema management
-  - Health checking and connection verification
 
-- **`asr.py`** (376 lines): Automatic Speech Recognition (Omnilingual backend - default)
-  - `ASRService` class for transcribing audio using omnilingual-asr (Meta SeamlessM4T v2)
-  - Support for 100+ languages with automatic language detection
-  - Translation capabilities (e.g., Farsi to English)
-  - Model caching for improved performance
-  - Error handling and retry logic for robust transcription
-  - **Note**: Requires Linux/WSL environment; falls back gracefully if unavailable
+- **`asr.py`**: Automatic Speech Recognition (Omnilingual backend)
+  - `ASRService` class using Meta SeamlessM4T v2
+  - Support for 100+ languages with automatic detection
+  - Model selection: `omniASR_CTC_1B` or `omniASR_CTC_350M`
 
-- **`asr_whisper.py`** (481 lines): Whisper-based ASR (Alternative backend)
-  - `ASRService` class for transcribing audio using OpenAI Whisper models via transformers
-  - Support for Persian/Farsi and 100+ other languages
-  - Cross-platform support (Windows, Linux, macOS)
-  - Batch processing capabilities for efficient transcription
-  - Error handling and retry logic
+#### Intent Classification Package (`src/pjsua_bot/intent/`) - NEW!
 
-- **`asr_omnilingual.py`** (376 lines): Omnilingual ASR wrapper
-  - Wrapper around omnilingual-asr library
-  - Provides compatibility layer with Whisper-based interface
-  - Enhanced multilingual support and translation
-  - Seamless integration with existing ASR service interface
+- **`classifier.py`**: Base classifier interface and rule-based implementation
+  - `IntentClassifier` abstract base class
+  - `RuleBasedClassifier` with Persian text normalization
+  - Weighted keyword matching with confidence scoring
 
-- **`mwe_register.py`** (109 lines): Minimal working example
-  - Simplified SIP registration example for learning
-  - Basic call handling without advanced features
+- **`faq_config.py`**: Persian FAQ configuration
+  - 58+ predefined intents for IT help desk
+  - Keywords, questions, and response text for each intent
+  - Audio file paths for response playback
+  - System prompt generator for Ollama
+
+- **`ollama_classifier.py`**: LLM-based classifier
+  - `OllamaClassifier` using Qwen models via Ollama API
+  - Model preloading for faster first response
+  - Automatic fallback to rule-based on errors
+  - CPU/GPU mode support
+  - Connection pooling for performance
 
 #### Call Handling Package (`src/pjsua_bot/calls/`)
 
-- **`any_call.py`** (871 lines): Advanced call handler
+- **`any_call.py`**: Advanced call handler
   - `AnyCall` class for full-featured call management
   - Audio recording (incoming/outgoing streams)
-  - Audio playback with duration detection
-  - VAD integration for real-time speech detection
-  - ASR integration for live transcription
-  - Silence tracking and auto-hangup logic
-  - Event logging to Elasticsearch
+  - VAD, ASR, and intent classification integration
 
-- **`out_call.py`** (122 lines): Outbound call handler
+- **`out_call.py`**: Outbound call handler
   - `OutCall` class for making calls
   - Simple playback and hangup logic
-  - Integration with account management
 
-- **`goodbye.py`** (351 lines): Goodbye playback mixin
-  - Reusable mixin for playing goodbye messages before hangup
+- **`goodbye.py`**: Goodbye playback mixin
   - Waiting voice playback during silence periods
-  - State management for playback tracking
   - Configurable hangup timing
-  - ASR completion tracking integration
 
 #### Call Handler Mixins (`src/pjsua_bot/calls/mixins/`)
 
 - **`asr_support.py`**: ASR integration mixin
-  - Thread-safe ASR processing queue
-  - Real-time chunk transcription
-  - Background transcription thread management
-  - Integration with VAD chunk manager
-
 - **`call_media_handler.py`**: Media handling mixin
-  - Audio recording setup and management
-  - VAD initialization and configuration
-  - Media stream handling
-  - Recording file management
-
 - **`call_state_handler.py`**: State management mixin
-  - Call state transition handling
-  - Event collection and logging
-  - VAD metrics aggregation
-  - Elasticsearch event logging
-
 - **`event_logger.py`**: Event logging mixin
-  - Structured event logging
-  - Elasticsearch integration
-  - Call record management
-
+- **`intent_handler.py`**: Intent classification mixin (NEW!)
 - **`playback_monitor.py`**: Playback monitoring mixin
-  - Audio playback status tracking
-  - VAD-based hangup logic
-  - ASR completion detection
-  - Playback completion callbacks
-
-- **`recording_cleanup.py`** (351 lines): Recording management
-  - Automatic cleanup of incomplete recordings
-  - File organization by date
-  - Error handling for file operations
 
 #### Voice Activity Detection Package (`src/pjsua_bot/vad/`)
 
-- **`silero.py`** (752 lines): Silero VAD implementation
-  - `SileroVAD` class for real-time speech detection
-  - PyTorch-based Silero VAD model integration
-  - Audio preprocessing and normalization
-  - Confidence scoring and threshold-based detection
-
-- **`audio_reader.py`** (262 lines): Audio stream processing
-  - Real-time audio frame reading from PJSUA2
-  - Format conversion and buffering
-  - Integration with VAD pipeline
-
-- **`chunk_manager.py`** (326 lines): Voice chunk management
-  - Automatic segmentation of speech into chunks
-  - Chunk metadata tracking (duration, confidence, etc.)
-  - MP3 encoding and file storage
-  - Metrics calculation (speech duration, chunk count)
-
-- **`silence.py`** (54 lines): Silence tracking
-  - `SilenceTracker` class for monitoring silence periods
-  - Detection of mutual silence (neither party speaking)
-  - Duration calculation for silence metrics
-
-- **`config.py`** (17 lines): VAD configuration
-  - `VADConfig` dataclass for VAD parameters
-  - Configurable thresholds and timing settings
-
-- **`types.py`** (17 lines): VAD type definitions
-  - `VoiceChunk` dataclass for chunk metadata
-  - Type hints for VAD components
-
-### Benefits of Modular Structure
-
-- **Improved Maintainability**: Each module has a focused responsibility
-- **Better Testability**: Modules can be tested independently
-- **Enhanced Reusability**: Components can be imported and used separately
-- **Easier Navigation**: Developers can find functionality more quickly
+- **`silero.py`**: Silero VAD implementation
+- **`audio_reader.py`**: Audio stream processing
+- **`chunk_manager.py`**: Voice chunk management
+- **`silence.py`**: Silence tracking
+- **`config.py`**: VAD configuration
+- **`types.py`**: VAD type definitions
 
 ### Importing and Using Modules
-
-You can now import specific components as needed:
 
 ```python
 # Import from package root (recommended)
@@ -534,18 +558,19 @@ from src.pjsua_bot import Account, OutCall, AnyCall, main, setup_logging
 # Import from specific modules
 from src.pjsua_bot.account import Account
 from src.pjsua_bot.calls import OutCall, AnyCall
-from src.pjsua_bot.utils import setup_logging, pump_events, wait_until, generate_unique_id
-from src.pjsua_bot.asr import ASRService  # Omnilingual ASR (default)
-from src.pjsua_bot.asr_whisper import ASRService as WhisperASRService  # Whisper ASR
+from src.pjsua_bot.utils import setup_logging, pump_events, wait_until
+from src.pjsua_bot.asr import ASRService, ASRConfig
 from src.pjsua_bot.vad import SileroVAD, VADConfig, VoiceChunk
 from src.pjsua_bot.elasticsearch_client import ElasticsearchLogger, es_logger
+
+# Import intent classification (NEW!)
+from src.pjsua_bot.intent import RuleBasedClassifier, FAQS
+from src.pjsua_bot.intent.ollama_classifier import OllamaClassifier
 
 # Use the main function
 from src.pjsua_bot import main
 main()
 ```
-
-**Note**: See `docs/REFACTORING_SUMMARY.md` for detailed migration guide and module documentation.
 
 ## 📚 Documentation
 
@@ -560,10 +585,12 @@ main()
 ### Features
 - **[Audio Playback](docs/AUDIO_PLAYBACK.md)** - Playing WAV files and automatic duration detection
 - **[Voice Recording](docs/VOICE_RECORDING.md)** - Recording incoming/outgoing audio streams
+- **[Intent Classification](docs/INTENT_CLASSIFICATION_IMPLEMENTATION_GUIDE.md)** - AI-powered FAQ response system (NEW!)
 
 ### Integration & Testing
-- **[Elasticsearch Integration](docs/ELASTICSEARCH.md)** - Call logging and data storage with VAD metrics (speech duration, chunk count, silence duration, confidence scores)
+- **[Elasticsearch Integration](docs/ELASTICSEARCH.md)** - Call logging and data storage with VAD metrics
 - **[Testing Framework](docs/TESTING.md)** - Unit tests and coverage reporting
+- **[Rasa Integration](docs/RASA_INTEGRATION_GUIDE.md)** - NLU integration guide (NEW!)
 
 ### Infrastructure
 - **[Docker Deployment](#-docker-deployment)** - Production deployment with Docker and Docker Compose
@@ -589,19 +616,12 @@ main()
 - **Omnilingual ASR Overview**
   - [Omnilingual ASR Summary](docs/OMNILINGUAL_ASR_SUMMARY.md)
   - [Omnilingual ASR Options](docs/OMNILINGUAL_ASR_OPTIONS.md)
-  - [Omnilingual ASR Setup (original overview)](docs/OMNILINGUAL_ASR_SETUP.md)
+  - [Omnilingual ASR Setup](docs/OMNILINGUAL_ASR_SETUP.md)
 - **Performance & Caching**
   - [Model Cache Guide](docs/MODEL_CACHE_GUIDE.md)
   - [Inference Time Guide](docs/INFERENCE_TIME_GUIDE.md)
 - **Index**
   - [Setup Documentation Index](docs/SETUP_INDEX.md)
-
-### Additional Documentation
-- **[REFACTORING_SUMMARY.md](REFACTORING_SUMMARY.md)** - Module refactoring guide
-- **[TESTING.md](TESTING.md)** - Testing documentation
-- **[PROJECT_STRUCTURE_IMPROVEMENTS.md](PROJECT_STRUCTURE_IMPROVEMENTS.md)** - Project structure details
-- **[VOICE_CAPTURE_IMPLEMENTATION.md](VOICE_CAPTURE_IMPLEMENTATION.md)** - Voice recording implementation
-- **[ELASTICSEARCH_INTEGRATION.md](ELASTICSEARCH_INTEGRATION.md)** - Elasticsearch integration details
 
 ## 🧰 Development & Testing
 
@@ -628,24 +648,8 @@ pre-commit run --all-files
 **Tools:**
 
 - **Ruff** (v0.6.9): Fast Python linter and import sorter
-  - Replaces Flake8, isort, and more
-  - Auto-fixes common issues
-  - Configured in `pyproject.toml`
-  
-- **Black** (v24.8.0): Code formatting
-  - 88 character line length
-  - Consistent style across codebase
-  
+- **Black** (v24.8.0): Code formatting (88 character line length)
 - **mypy** (v1.11.2): Static type checking
-  - Type hints validation
-  - Catches type-related bugs early
-
-**Pre-commit Configuration:**
-
-The `.pre-commit-config.yaml` file defines:
-- Ruff: Two-pass (autofix then check)
-- Black: Automatic formatting
-- mypy: Type checking on `src/` and `tests/` directories
 
 ### Running Tests
 
@@ -655,6 +659,9 @@ pytest
 
 # Run specific test file
 pytest tests/test_main.py
+
+# Run intent classification tests
+pytest tests/test_intent_classifier.py tests/test_ollama_classifier.py -v
 
 # Run with verbose output
 pytest -v
@@ -679,10 +686,6 @@ python scripts/run_tests.py
 - `pyproject.toml`: Primary dependency configuration
 - `requirements.txt`: Pip-compatible dependency list
 - `uv.lock`: UV dependency lock file for reproducible builds
-
-**Dependency groups:**
-- Production: Core runtime dependencies
-- Dev: Development tools (pytest, ruff, black, mypy, pre-commit)
 
 ## 🤝 Contributing
 
@@ -715,19 +718,22 @@ Contributions are welcome! Please follow these guidelines:
 - Multiple simultaneous calls management
 - WebSocket API for real-time call monitoring
 - Kubernetes deployment manifests
+- Semantic search-based intent classification (Phase 2)
+- TTS integration for dynamic audio responses (Phase 4)
 
 **Medium Priority:**
 - SIP MESSAGE support
 - Presence/subscription handling
-- Enhanced audio playback completion detection (using PJSUA2 callbacks)
+- Enhanced audio playback completion detection
 - Video call support
 - Call transfer and forwarding
+- Rasa NLU integration
 
 **Completed Features:**
 - ✅ Call recording (incoming/outgoing streams)
 - ✅ Environment variable configuration
 - ✅ Voice Activity Detection (VAD)
-- ✅ Automatic Speech Recognition (ASR) - Multiple backends (Whisper & Omnilingual)
+- ✅ Automatic Speech Recognition (ASR) - Multiple backends
 - ✅ Live transcription during calls
 - ✅ Elasticsearch integration
 - ✅ Docker containerization (standard & omnilingual variants)
@@ -736,8 +742,8 @@ Contributions are welcome! Please follow these guidelines:
 - ✅ Pre-commit hooks and code quality tools
 - ✅ Goodbye and waiting voice playback
 - ✅ VAD-based smart hangup
-
-See `docs/` for detailed technical documentation and `REFACTORING_SUMMARY.md` for architecture details.
+- ✅ **Intent Classification** - Rule-based and LLM (Ollama) (NEW!)
+- ✅ **Persian FAQ System** - 58+ IT help desk intents (NEW!)
 
 ## 📝 License
 
@@ -749,6 +755,7 @@ For issues specific to:
 - **PJSIP/PJSUA2 library**: See [PJSIP Mailing List](https://www.pjsip.org/lists.htm)
 - **This project**: Open an issue in the repository
 - **SIP server configuration**: Consult your PBX documentation
+- **Ollama**: See [Ollama Documentation](https://ollama.ai/docs)
 
 ## 📚 Resources
 
@@ -758,61 +765,77 @@ For issues specific to:
 - [Asterisk Documentation](https://docs.asterisk.org/)
 - [pytest Documentation](https://docs.pytest.org/)
 - [pytest-cov Documentation](https://pytest-cov.readthedocs.io/)
+- [Ollama Documentation](https://ollama.ai/docs)
+- [Qwen2.5 Models](https://huggingface.co/Qwen)
 
 ---
 
 ## 📋 Version Information
 
-**Current Version**: 1.0.0  
-**Last Updated**: November 2025  
-**Python**: 3.11+  
+**Current Version**: 1.1.0  
+**Last Updated**: December 2025  
+**Python**: 3.9+ (3.11 recommended)  
 **PJSUA2**: Compatible with PJSIP 2.x (tested with 2.14)  
-**ASR Backends**: Whisper (transformers) & Omnilingual (Meta SeamlessM4T v2)
+**ASR Backends**: Omnilingual (Meta SeamlessM4T v2) & Whisper (transformers)
+**Intent Classification**: Rule-based & Ollama (Qwen2.5)
 
 ### Changelog
+
+#### v1.1.0 (December 2025) - Intent Classification Release
+- 🧠 **Intent Classification**: Added AI-powered intent classification system
+  - Rule-based classifier with Persian text normalization
+  - LLM-based classifier using Ollama with Qwen models
+  - 58+ predefined FAQ intents for IT help desk
+  - IntentHandlerMixin for call integration
+- 🔌 **Ollama Integration**: Full Ollama API support
+  - Model preloading for faster responses
+  - CPU/GPU mode support
+  - Automatic fallback to rule-based classifier
+  - Connection pooling for performance
+- 📞 **Call Handling Improvements**:
+  - Busy call rejection (486 Busy Here) when already handling a call
+  - Caller ID validation (configurable range filtering)
+  - Improved resource cleanup on shutdown
+- 🎯 **ASR Model Selection**: New `--asr-model` flag for model choice
+- 📚 **New Documentation**:
+  - Intent Classification Implementation Guide
+  - Rasa Integration Guide
+- ✅ **Expanded Test Coverage**: New tests for intent classification
 
 #### v1.0.0 (November 2025) - Production Release
 - ✨ **Modular architecture**: Refactored into `calls/` and `vad/` subpackages with mixin-based design
 - 🎯 **Advanced call handling**: Separated `AnyCall`, `OutCall`, and `GoodbyePlaybackMixin` classes
 - 🔊 **Enhanced VAD**: Modular VAD system with audio reader, chunk manager, and silence tracker
-- 🎤 **Dual ASR backends**: Support for both Whisper-based and Omnilingual ASR with automatic fallback
+- 🎤 **Dual ASR backends**: Support for both Whisper-based and Omnilingual ASR
 - 🌐 **Omnilingual ASR**: Meta SeamlessM4T v2 integration for superior multilingual support
-- 🔄 **Live transcription**: Real-time ASR transcription during calls with chunk-based processing
-- 🐳 **Docker production ready**: Multi-stage Dockerfile with PJSIP 2.14 compiled from source
-- 🐳 **Omnilingual Docker**: Separate Dockerfile and compose file for omnilingual ASR support
+- 🔄 **Live transcription**: Real-time ASR transcription during calls
+- 🐳 **Docker production ready**: Multi-stage Dockerfile with PJSIP 2.14
 - 🔧 **Code quality**: Pre-commit hooks with Ruff, Black, and mypy
 - 📦 **Dependency management**: UV lock file for reproducible builds
-- 📚 **Comprehensive documentation**: 25+ documentation files covering all aspects
+- 📚 **Comprehensive documentation**: 25+ documentation files
 - 🎵 **Enhanced playback**: Goodbye and waiting voice playback support
 
 #### v0.5.0 (October 2025)
 - 🎤 **ASR Integration**: Automatic Speech Recognition with Whisper models
 - 🌐 **Multi-language support**: Persian/Farsi and 100+ other languages
 - 🔇 **Silence tracking**: Enhanced VAD with mutual silence detection
-- 📊 **Extended metrics**: Silence duration tracking in Elasticsearch
 
 #### v0.4.1 (October 2025)
-- 🎙️ **Voice Activity Detection**: Silero VAD integration for real-time speech detection
+- 🎙️ **Voice Activity Detection**: Silero VAD integration
 - ✂️ **Automatic chunking**: Intelligent voice segment separation
-- 📈 **VAD metrics**: Speech duration, chunk count, and confidence logging to Elasticsearch
-- 🎵 **MP3 encoding**: Efficient storage of voice chunks
+- 📈 **VAD metrics**: Speech duration, chunk count, confidence logging
 
 #### v0.4.0 (September 2025)
-- 🏗️ **Modular codebase**: Separated into focused modules (account, calls, utils)
+- 🏗️ **Modular codebase**: Separated into focused modules
 - 📦 **Package structure**: Professional src/package layout
-- 🔄 **Import system**: Clean package exports and imports
-- 📉 **Code reduction**: 77% reduction in main module size
 
 #### v0.3.0 (September 2025)
 - ✅ **Testing framework**: Comprehensive pytest suite
-- 📊 **Coverage reporting**: HTML, XML, and terminal coverage reports
-- 🎭 **Mock support**: Full PJSUA2 and Elasticsearch mocking
-- 🔍 **Test markers**: Categorized tests (unit, integration, slow, etc.)
+- 📊 **Coverage reporting**: HTML, XML, and terminal reports
 
 #### v0.2.0 (August 2025)
-- 🆔 **UUID call IDs**: Unique identifiers prevent duplicates across restarts
+- 🆔 **UUID call IDs**: Unique identifiers prevent duplicates
 - 📁 **Organized recordings**: Date-based directory structure
-- 🔄 **Call lifecycle**: Proper call state management
 
 #### v0.1.0 (July 2025) - Initial Release
 - 📞 **SIP registration**: Basic SIP account registration
