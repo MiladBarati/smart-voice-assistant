@@ -25,7 +25,7 @@ _omnilingual_error: str | None = None
 ASRInferencePipeline: Any = None
 
 try:
-    from omnilingual_asr.models.inference.pipeline import (  # type: ignore[import-untyped]
+    from omnilingual_asr.models.inference.pipeline import (
         ASRInferencePipeline as _ASRInferencePipeline,
     )
 
@@ -101,7 +101,7 @@ class ASRService:
             return self.cfg.device
 
         try:
-            import torch  # type: ignore[import-untyped]
+            import torch
 
             return "cuda" if torch.cuda.is_available() else "cpu"
         except Exception:
@@ -123,7 +123,8 @@ class ASRService:
 
         try:
             self._device = self._resolve_device()
-            # NOTE: omnilingual-asr selects device internally; we keep device for metadata.
+            # NOTE: omnilingual-asr selects device internally.
+            # We keep device locally for metadata/logging only.
             self._pipeline = ASRInferencePipeline(model_card=self.cfg.model_name)
             return True
         except Exception as exc:  # noqa: BLE001 - surface a stable error
@@ -168,7 +169,7 @@ class ASRService:
             if self._pipeline is None:
                 raise RuntimeError("ASR pipeline not initialized")
 
-            transcriptions = self._pipeline.transcribe(  # type: ignore[attr-defined]
+            transcriptions = self._pipeline.transcribe(
                 [audio_path], lang=lang, batch_size=self.cfg.batch_size
             )
 
@@ -197,7 +198,9 @@ class ASRService:
                     self.cfg.retry_backoff**retry_count
                 )
                 if self.cfg.log_errors:
-                    logger.error("ASR: error transcribing %s: %s", audio_path, error_msg)
+                    logger.error(
+                        "ASR: error transcribing %s: %s", audio_path, error_msg
+                    )
                     logger.info(
                         "ASR: retrying in %.2fs (attempt %d/%d)...",
                         retry_delay,
@@ -223,5 +226,3 @@ class ASRService:
 # Backward compatibility aliases (some callers may use these names)
 OmnilingualASRService = ASRService
 OmnilingualASRConfig = ASRConfig
-
-

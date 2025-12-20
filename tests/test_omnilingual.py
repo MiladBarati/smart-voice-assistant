@@ -24,4 +24,3 @@ def test_omnilingual_asr_import_smoke() -> None:
         )
     except Exception as exc:  # noqa: BLE001 - native loader errors should skip in CI
         pytest.skip(f"omnilingual-asr not available in this environment: {exc}")
-
