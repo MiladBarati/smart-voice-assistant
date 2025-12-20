@@ -193,8 +193,7 @@ class Account(pj.Account):
             # Check if we're already handling a call - reject if busy
             if self._has_active_call():
                 logger.info(
-                    "IncomingCall: BUSY - already handling a call, "
-                    "rejecting with 486"
+                    "IncomingCall: BUSY - already handling a call, rejecting with 486"
                 )
 
                 # Create a temporary call object just to reject it

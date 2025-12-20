@@ -158,8 +158,7 @@ def log_waveform_too_small(actual: int, required: int, sample_rate: int) -> None
 def log_speech_detected(prob: float, time: float, sample: int) -> None:
     """Log that speech was detected."""
     print(
-        f"***VAD: speech detected (prob={prob:.3f}, "
-        f"time={time:.3f}, sample={sample})"
+        f"***VAD: speech detected (prob={prob:.3f}, time={time:.3f}, sample={sample})"
     )
 
 

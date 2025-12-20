@@ -257,7 +257,7 @@ def main() -> None:
     parser.add_argument(
         "--enable-asr",
         action="store_true",
-        help=("Enable ASR for live and final transcription " "(default: disabled)"),
+        help=("Enable ASR for live and final transcription (default: disabled)"),
     )
     parser.add_argument(
         "--asr-model",

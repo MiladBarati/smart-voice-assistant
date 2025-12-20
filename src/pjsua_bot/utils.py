@@ -109,8 +109,7 @@ def ensure_recording_directory(base_path: str, call_id: Optional[str] = None) ->
             os.makedirs(base_path, exist_ok=True)
         except PermissionError as e:
             logger.error(
-                f"Permission denied creating base recording directory "
-                f"{base_path}: {e}"
+                f"Permission denied creating base recording directory {base_path}: {e}"
             )
             uid = os.getuid() if hasattr(os, "getuid") else "unknown"
             logger.info(

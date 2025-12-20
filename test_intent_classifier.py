@@ -73,9 +73,9 @@ def test_classifier(
         "details": [],
     }
 
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print(f"Testing {classifier_name}")
-    print(f"{'='*80}\n")
+    print(f"{'=' * 80}\n")
 
     for i, (input_text, expected_intent, description) in enumerate(test_cases, 1):
         print(f"Test {i}/{len(test_cases)}: {description}")
@@ -140,9 +140,9 @@ def test_classifier(
 
 def print_summary(results_ollama: dict, results_rule: dict = None):
     """Print summary of test results."""
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print("SUMMARY")
-    print(f"{'='*80}\n")
+    print(f"{'=' * 80}\n")
 
     print("Ollama Classifier:")
     print(f"  Total tests: {results_ollama['total']}")

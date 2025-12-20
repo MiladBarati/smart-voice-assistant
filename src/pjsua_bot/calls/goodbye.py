@@ -163,7 +163,6 @@ class GoodbyePlaybackMixin:
         ):
             if self._goodbye_player and self._call_media:
                 try:
-
                     # Check if call is still active before attempting port disconnection
                     # If call is disconnected, PJSUA2 has already disconnected ports
                     call_active = False
