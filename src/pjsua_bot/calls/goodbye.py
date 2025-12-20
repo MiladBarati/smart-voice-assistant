@@ -91,7 +91,9 @@ class GoodbyePlaybackMixin:
                     self._goodbye_player.startTransmit(self._mixed_recorder)
                     logger.debug("Goodbye: transmitting to mixed recorder")
                 except Exception as e:
-                    logger.warning("Goodbye: error transmitting to mixed recorder: %s", e)
+                    logger.warning(
+                        "Goodbye: error transmitting to mixed recorder: %s", e
+                    )
 
             # Monitor on local speakers
             adm = pj.Endpoint.instance().audDevManager()
@@ -129,7 +131,8 @@ class GoodbyePlaybackMixin:
                 pass
 
             logger.info(
-                "Goodbye: started playing, will stop after %.2f seconds", goodbye_duration
+                "Goodbye: started playing, will stop after %.2f seconds",
+                goodbye_duration,
             )
 
         except Exception as e:
@@ -184,7 +187,9 @@ class GoodbyePlaybackMixin:
                         if getattr(self, "_mixed_recorder", None):
                             try:
                                 self._goodbye_player.stopTransmit(self._mixed_recorder)
-                                logger.debug("Goodbye: stopped transmission to mixed recorder")
+                                logger.debug(
+                                    "Goodbye: stopped transmission to mixed recorder"
+                                )
                             except Exception:
                                 # Mixed recorder might already be stopped, ignore
                                 pass
@@ -199,8 +204,9 @@ class GoodbyePlaybackMixin:
                         # Call might be destroyed, assume inactive
                         call_active = False
 
-                    # FIX: Skip stopping call_media->playback transmission to avoid PJSUA2
-                    # internal "Remove port failed" error (same fix as in playback_monitor.py)
+                    # FIX: Skip stopping call_media->playback transmission to
+                    # avoid PJSUA2 internal "Remove port failed" error
+                    # (same fix as in playback_monitor.py)
                     # Also stop the call media to playback transmission
                     # if call_active:
                     #     adm = pj.Endpoint.instance().audDevManager()
@@ -227,7 +233,9 @@ class GoodbyePlaybackMixin:
                         self._stop_bot_playback_tracking()
                     except Exception as e:  # pragma: no cover - defensive
                         logger.warning(
-                            "Bot tracking: error stopping goodbye playback tracking: %s", e
+                            "Bot tracking: error stopping goodbye playback "
+                            "tracking: %s",
+                            e,
                         )
 
                 # Notify VAD that bot playback finished (goodbye message)
@@ -237,7 +245,9 @@ class GoodbyePlaybackMixin:
                     try:
                         self._vad.set_bot_playback_state(False, time.time)
                     except Exception as e:  # pragma: no cover - defensive
-                        logger.warning("VAD: error notifying goodbye playback stop: %s", e)
+                        logger.warning(
+                            "VAD: error notifying goodbye playback stop: %s", e
+                        )
 
                 # Collect goodbye playback finished event
                 try:

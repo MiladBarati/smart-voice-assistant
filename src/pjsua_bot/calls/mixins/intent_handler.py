@@ -230,6 +230,10 @@ class IntentHandlerMixin:
                 logger.error("Intent: error getting FAQ config: %s", exc, exc_info=True)
                 return
 
+        # Type narrowing: faq_config is guaranteed to be a dict at this point
+        assert faq_config is not None, "faq_config should not be None here"
+        assert isinstance(faq_config, dict), "faq_config should be a dict"
+
         # Determine response method (audio file or TTS)
         response_audio = faq_config.get("response_audio")
         response_text = faq_config.get("response_text", "")
@@ -367,19 +371,20 @@ class IntentHandlerMixin:
         # 2. Time for buffered audio to drain from the pipeline
         # This prevents the goodbye message from starting before the intent response
         # audio has actually finished playing on the remote side.
-        AUDIO_DRAIN_BUFFER = 0.5  # seconds - small buffer for pipeline latency
-        effective_stop_time = self._intent_response_stop_time + AUDIO_DRAIN_BUFFER
+        audio_drain_buffer = 0.5  # seconds - small buffer for pipeline latency
+        effective_stop_time = self._intent_response_stop_time + audio_drain_buffer
 
         if current_time >= effective_stop_time:
             elapsed = current_time - (
                 self._intent_response_stop_time - self._intent_response_duration
             )
             logger.debug(
-                "Intent: stop time reached (current=%.2f, stop=%.2f, elapsed=%.2fs, buffer=%.2fs)",
+                "Intent: stop time reached (current=%.2f, stop=%.2f, "
+                "elapsed=%.2fs, buffer=%.2fs)",
                 current_time,
                 self._intent_response_stop_time,
                 elapsed,
-                AUDIO_DRAIN_BUFFER,
+                audio_drain_buffer,
             )
             return True
         return False
@@ -492,7 +497,8 @@ class IntentHandlerMixin:
                 # Call is inactive (user hung up), skip transmission stopping
                 # but still destroy the player to allow goodbye transition
                 logger.debug(
-                    "Intent: call inactive, skipping transmission stop, destroying player directly"
+                    "Intent: call inactive, skipping transmission stop, "
+                    "destroying player directly"
                 )
 
             # Always stop and destroy the player, regardless of call state

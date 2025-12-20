@@ -136,6 +136,7 @@ class ASRService:
             if self._device == "cuda":
                 try:
                     import torch
+
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                         torch.cuda.synchronize()
@@ -267,7 +268,11 @@ class ASRService:
         except Exception as e:
             error_msg = str(e)
             if "map function has failed" in error_msg:
-                error_msg += " (Possible VRAM exhaustion or multiprocessing error. Try using a smaller ASR model/batch size, or check if another process is holding GPU memory.)"
+                error_msg += (
+                    " (Possible VRAM exhaustion or multiprocessing error. "
+                    "Try using a smaller ASR model/batch size, or check if "
+                    "another process is holding GPU memory.)"
+                )
 
             # Retry logic
             if retry_count < self.cfg.max_retries:
@@ -275,7 +280,9 @@ class ASRService:
                     self.cfg.retry_backoff**retry_count
                 )
                 if self.cfg.log_errors:
-                    logger.error("ASR: Error transcribing %s: %s", audio_path, error_msg)
+                    logger.error(
+                        "ASR: Error transcribing %s: %s", audio_path, error_msg
+                    )
                     logger.info(
                         "ASR: Retrying in %.2fs (attempt %d/%d)...",
                         retry_delay,

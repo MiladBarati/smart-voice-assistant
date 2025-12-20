@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 logger = logging.getLogger(__name__)
 
@@ -135,22 +135,23 @@ class PlaybackMonitorMixin:
                     # Call might be destroyed, assume inactive
                     call_active = False
 
-                # Import pjsua2 here (before using it) - local import to avoid module-level dependency
+                # Import pjsua2 here (before using it) - local import to avoid
+                # module-level dependency
                 import pjsua2 as pj
 
                 if call_active:
-                    adm = pj.Endpoint.instance().audDevManager()
-                    playback = adm.getPlaybackDevMedia()
-
-                    # FIX: Skip stopping call_media->playback transmission to prevent PJSUA2
-                    # internal "Remove port failed" error. When we stop the player transmission
-                    # and destroy the player, PJSUA2 starts cleaning up the conference bridge.
-                    # Stopping call_media->playback at this point causes a race condition where
-                    # PJSUA2 tries to remove a port that's already being cleaned up.
-                    # The call_media->playback transmission will be cleaned up automatically
-                    # when the call ends or when PJSUA2's cleanup completes.
+                    # FIX: Skip stopping call_media->playback transmission to
+                    # prevent PJSUA2 internal "Remove port failed" error. When
+                    # we stop the player transmission and destroy the player,
+                    # PJSUA2 starts cleaning up the conference bridge. Stopping
+                    # call_media->playback at this point causes a race
+                    # condition where PJSUA2 tries to remove a port that's
+                    # already being cleaned up. The call_media->playback
+                    # transmission will be cleaned up automatically when the
+                    # call ends or when PJSUA2's cleanup completes.
                     logger.debug(
-                        "Skipped stopping call_media->playback to avoid PJSUA2 internal error"
+                        "Skipped stopping call_media->playback to avoid "
+                        "PJSUA2 internal error"
                     )
                     # Original code (commented out):
                     # self._call_media.stopTransmit(playback)
@@ -213,12 +214,15 @@ class PlaybackMonitorMixin:
         # Clear stop time to prevent re-running this block
         self._stop_player_time = None
 
-    def _process_vad_audio(self, current_time: float) -> list:
+    def _process_vad_audio(self, current_time: float) -> list[Any]:
         """Process VAD audio and update hangup time based on speech detection.
 
         Returns:
             List of finalized audio chunks from VAD.
         """
+        if self._vad is None:
+            return []
+
         # Debug: confirm VAD is being called
         if not hasattr(self, "_vad_called"):
             logger.debug("VAD: processing audio from %s", self._recording_file)
@@ -235,7 +239,8 @@ class PlaybackMonitorMixin:
                 # Update hangup time if needed
                 old_hangup_time = self._hangup_time
                 self._hangup_time = target
-                # Only log if hangup time changed significantly (avoid spam during continuous speech)
+                # Only log if hangup time changed significantly (avoid spam
+                # during continuous speech)
                 if old_hangup_time is None or (target - old_hangup_time) > 0.5:
                     logger.debug(
                         "VAD: last speech at %.3f; hangup at %.3f",
@@ -258,7 +263,13 @@ class PlaybackMonitorMixin:
                     except Exception as e:
                         logger.warning("VAD: error finalizing chunk: %s", e)
 
-        return self._vad.get_chunks()
+        chunks = self._vad.get_chunks()
+        # Type narrowing: chunks is guaranteed to be a list
+        # (get_chunks always returns a list)
+        if chunks is None:
+            return []
+        # Cast to list[Any] to satisfy mypy's return type requirement
+        return cast(list[Any], chunks) if isinstance(chunks, list) else []
 
     def _submit_chunks_for_transcription(
         self, chunks: list, current_time: float
@@ -273,7 +284,8 @@ class PlaybackMonitorMixin:
         has_new_chunks = len(chunks) > self._last_transcribed_chunk_count
 
         if has_new_chunks:
-            # If we have chunks (speech was detected), wait for hangup_time to be set and reached
+            # If we have chunks (speech was detected), wait for hangup_time to
+            # be set and reached
             if self._hangup_time is None:
                 # VAD hasn't set hangup_time yet, wait for it
                 logger.debug(
@@ -325,12 +337,14 @@ class PlaybackMonitorMixin:
     def _is_asr_ready_to_complete(self, chunks: list, current_time: float) -> bool:
         """Check if ASR is in a valid state to be marked as complete.
 
-        Ensures chunks have actually been finalized AND submitted for transcription
-        before marking ASR complete. The issue is that VAD might detect brief speech,
-        set hangup_time 3s later, but chunks need to be submitted before ASR can complete.
+        Ensures chunks have actually been finalized AND submitted for
+        transcription before marking ASR complete. The issue is that VAD might
+        detect brief speech, set hangup_time 3s later, but chunks need to be
+        submitted before ASR can complete.
 
         Logic:
-        1. If we have chunks, wait for them to be submitted (last_transcribed_count == len(chunks))
+         1. If we have chunks, wait for them to be submitted
+            (last_transcribed_count == len(chunks))
         2. If no chunks but hangup_time passed, wait a bit more
            (give VAD time to finalize any pending chunks)
         3. If no chunks and a long time has passed since welcome
@@ -368,7 +382,9 @@ class PlaybackMonitorMixin:
         #   - Hangup time + grace period passed (chunks should be ready), OR
         #   - Long timeout with no speech at all
         result = welcome_finished and (
-            (has_chunks and chunks_submitted) or hangup_grace_passed or no_speech_timeout
+            (has_chunks and chunks_submitted)
+            or hangup_grace_passed
+            or no_speech_timeout
         )
         return result
 
@@ -434,7 +450,8 @@ class PlaybackMonitorMixin:
                     else:
                         # No transcription available, skip intent classification
                         logger.debug(
-                            "Intent: skipping classification - no transcription available"
+                            "Intent: skipping classification - no transcription "
+                            "available"
                         )
             except Exception as exc:
                 logger.warning("Intent: error in intent classification: %s", exc)
@@ -443,21 +460,25 @@ class PlaybackMonitorMixin:
         # Only trigger goodbye if:
         # 1. No intent response is playing, AND
         # 2. The silence period has passed:
-        #    - If we have chunks (speech was detected), wait for hangup_time to be set and reached
-        #    - If we have no chunks (no speech detected), hangup_time is None means timeout, trigger goodbye
+        #    - If we have chunks (speech was detected), wait for hangup_time to
+        #      be set and reached
+        #    - If we have no chunks (no speech detected), hangup_time is None
+        #      means timeout, trigger goodbye
         intent_response_played = getattr(self, "_intent_response_played", False)
         has_chunks = len(chunks) > 0
         if not intent_response_played:
             # Only trigger goodbye if silence period has passed
             if has_chunks:
-                # Speech was detected - must wait for hangup_time to be set and reached
-                # VAD will set hangup_time based on last_speech_time + silence_after_speech_sec
+                # Speech was detected - must wait for hangup_time to be set and
+                # reached. VAD will set hangup_time based on
+                # last_speech_time + silence_after_speech_sec
                 hangup_time_reached = (
                     self._hangup_time is not None and current_time >= self._hangup_time
                 )
             else:
-                # No speech detected - hangup_time is None means timeout (no speech for 10+ seconds)
-                # Trigger goodbye immediately in this case
+                # No speech detected - hangup_time is None means timeout
+                # (no speech for 10+ seconds). Trigger goodbye immediately in
+                # this case
                 hangup_time_reached = (
                     self._hangup_time is None or current_time >= self._hangup_time
                 )
@@ -548,7 +569,8 @@ class PlaybackMonitorMixin:
                 chunks = self._process_vad_audio(current_time)
 
                 # Live transcription of newly finalized chunks (non-blocking)
-                # Only submit after silence period has passed to confirm speech has ended
+                # Only submit after silence period has passed to confirm speech
+                # has ended
                 try:
                     self._submit_chunks_for_transcription(chunks, current_time)
 
@@ -583,7 +605,8 @@ class PlaybackMonitorMixin:
             # ASR completed earlier, but hangup_time wasn't reached yet.
             # Now hangup_time has been reached, so trigger goodbye
             logger.info(
-                "ASR: hangup_time reached after ASR completion, triggering goodbye message"
+                "ASR: hangup_time reached after ASR completion, triggering "
+                "goodbye message"
             )
             self._play_goodbye_message()
 

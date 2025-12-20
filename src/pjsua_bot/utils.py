@@ -112,9 +112,10 @@ def ensure_recording_directory(base_path: str, call_id: Optional[str] = None) ->
                 f"Permission denied creating base recording directory "
                 f"{base_path}: {e}"
             )
+            uid = os.getuid() if hasattr(os, "getuid") else "unknown"
             logger.info(
                 f"Hint: Ensure the directory exists and is writable by the "
-                f"current user (UID {os.getuid() if hasattr(os, 'getuid') else 'unknown'})"
+                f"current user (UID {uid})"
             )
             raise
         except OSError as e:

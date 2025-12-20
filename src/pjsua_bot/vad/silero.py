@@ -539,7 +539,8 @@ class SileroVAD:
         frames_processed = 0
         max_prob = 0.0
         # Calculate number of frames to match actual range() iterations
-        # range(0, waveform.shape[1] - window + 1, window) produces exactly waveform.shape[1] // window iterations
+        # range(0, waveform.shape[1] - window + 1, window) produces exactly
+        # waveform.shape[1] // window iterations
         total_frames_available = waveform.shape[1] // window
 
         # Calculate sample rate ratio to map resampled indices back to original WAV

@@ -97,7 +97,7 @@ class TestASRSupportMixin:
         call._stop_asr_thread()
 
     def test_start_asr_thread_idempotent(self) -> None:
-        """Test that starting ASR thread multiple times doesn't create multiple threads."""
+        """Test that starting ASR thread multiple times doesn't create multiple threads."""  # noqa: E501
         mock_asr_service = Mock()
         mock_asr_service.available = True
 

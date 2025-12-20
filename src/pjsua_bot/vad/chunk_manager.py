@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import time
 import wave
 from typing import List, Optional, Tuple, cast
 

@@ -23,6 +23,31 @@ class MockCall(GoodbyePlaybackMixin):
         self._mixed_recorder = None
         self._collected_events: list[dict[str, Any]] = []
         self.init_goodbye_state()
+        # Waiting message playback state (for testing)
+        self._waiting_player: Any = None
+        self._waiting_playback_started: bool = False
+        self._waiting_playback_finished: bool = False
+        self._waiting_stop_time: float | None = None
+        self._waiting_requested: bool = False
+
+    def _play_waiting_message(self) -> None:
+        """Mock implementation of _play_waiting_message for testing."""
+        waiting_file = getattr(self._acc_ref, "waiting_file", None)
+        if not waiting_file or self._waiting_requested:
+            return
+        self._waiting_playback_started = True
+        self._waiting_requested = True
+
+    def check_waiting_status(self) -> None:
+        """Mock implementation of check_waiting_status for testing."""
+        if not self._waiting_playback_started:
+            return
+        if (
+            self._waiting_stop_time
+            and time.time() >= self._waiting_stop_time
+            and not self._waiting_playback_finished
+        ):
+            self._waiting_playback_finished = True
 
 
 class TestGoodbyePlaybackMixin:
@@ -81,7 +106,7 @@ class TestGoodbyePlaybackMixin:
             try:
                 call = MockCall()
                 call._acc_ref.goodbye_file = tmp.name
-                call._call_media = Mock()  # type: ignore[assignment]
+                call._call_media = Mock()
 
                 mock_player = Mock()
                 mock_pj_module = Mock()
@@ -190,7 +215,7 @@ class TestGoodbyePlaybackMixin:
             try:
                 call = MockCall()
                 call._acc_ref.waiting_file = tmp.name
-                call._call_media = Mock()  # type: ignore[assignment]
+                call._call_media = Mock()
 
                 mock_player = Mock()
                 mock_pj_module = Mock()

@@ -101,7 +101,8 @@ def main() -> None:
             registration_succeeded = True
             break
 
-    # Capture final info before destroying endpoint (account becomes invalid after libDestroy)
+    # Capture final info before destroying endpoint (account becomes invalid
+    # after libDestroy)
     final_info = acc.getInfo()
     final_reg_status = final_info.regStatus
     final_reg_active = final_info.regIsActive
@@ -114,7 +115,8 @@ def main() -> None:
     ep.libDestroy()
     if not registration_succeeded:
         print(
-            f"***Registration failed: status={final_reg_status}, active={final_reg_active}"
+            f"***Registration failed: status={final_reg_status}, "
+            f"active={final_reg_active}"
         )
         sys.exit(1)
 

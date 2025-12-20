@@ -24,7 +24,7 @@ class TestMweRegister:
         mock_ep.libHandleEvents.assert_called_once_with(50)
 
     @patch("pjsua_bot.mwe_register.pj")
-    def test_main_creates_endpoint(self, mock_pj) -> None:
+    def test_main_creates_endpoint(self, mock_pj: Mock) -> None:
         """Test that main function creates endpoint."""
         mock_ep = Mock()
         mock_pj.Endpoint.return_value = mock_ep

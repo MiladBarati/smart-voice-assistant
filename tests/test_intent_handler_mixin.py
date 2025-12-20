@@ -2,7 +2,9 @@
 
 import os
 import tempfile
+import threading
 import time
+from typing import Any
 from unittest.mock import Mock, patch
 
 from pjsua_bot.calls.mixins.intent_handler import IntentHandlerMixin
@@ -16,12 +18,12 @@ class MockCall(IntentHandlerMixin):
         self._acc_ref = acc_ref
         self._asr_enabled = False
         self._asr_available = False
-        self._asr_chunk_texts = []
-        self._asr_lock = None
+        self._asr_chunk_texts: list[str] = []
+        self._asr_lock: threading.Lock = threading.Lock()
         self._call_media = None
-        self._collected_events = []
+        self._collected_events: list[dict[str, Any]] = []
 
-        def _collect_event(event_type: str, **kwargs) -> None:
+        def _collect_event(event_type: str, **kwargs: Any) -> None:
             self._collected_events.append({"event_type": event_type, **kwargs})
 
         self._collect_event = _collect_event
@@ -87,7 +89,7 @@ class TestIntentHandlerMixin:
 
         call = MockCall(mock_account)
         call._asr_chunk_texts = []
-        call._asr_lock = None
+        call._asr_lock = threading.Lock()
 
         result = call._classify_intent()
         assert result is None
@@ -101,7 +103,7 @@ class TestIntentHandlerMixin:
 
         call = MockCall(mock_account)
         call._asr_chunk_texts = ["کامپیوترم کند است"]
-        call._asr_lock = None
+        call._asr_lock = threading.Lock()
 
         result = call._classify_intent()
         assert result is not None
@@ -120,7 +122,7 @@ class TestIntentHandlerMixin:
 
         call = MockCall(mock_account)
         call._asr_chunk_texts = ["کامپیوترم کند است"]
-        call._asr_lock = None
+        call._asr_lock = threading.Lock()
 
         result1 = call._classify_intent()
         result2 = call._classify_intent()
@@ -147,7 +149,7 @@ class TestIntentHandlerMixin:
 
         call = MockCall(mock_account)
         call._asr_chunk_texts = ["کامپیوترم کند است"]
-        call._asr_lock = None
+        call._asr_lock = threading.Lock()
 
         # Create a mock audio file
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
@@ -194,7 +196,7 @@ class TestIntentHandlerMixin:
 
         call = MockCall(mock_account)
         call._asr_chunk_texts = ["کامپیوترم کند است"]
-        call._asr_lock = None
+        call._asr_lock = threading.Lock()
         call._call_media = None
 
         # Classify intent first
@@ -214,7 +216,8 @@ class TestIntentHandlerMixin:
                 }
 
                 call._play_intent_response()
-                # When call_media is None, _play_response_audio sets _intent_response_finished
+                # When call_media is None, _play_response_audio sets
+                # _intent_response_finished
                 assert call._intent_response_finished is True
         finally:
             if os.path.exists(temp_path):

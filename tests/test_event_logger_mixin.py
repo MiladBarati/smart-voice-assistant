@@ -9,7 +9,7 @@ class MockCall(EventLoggerMixin):
     def __init__(self) -> None:
         self._init_event_logger()
 
-    def getId(self) -> int:
+    def getId(self) -> int:  # noqa: N802 - Mock method matching PJSUA2 API
         """Mock getId method."""
         return 123
 

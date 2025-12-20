@@ -318,7 +318,9 @@ def main() -> None:
     logger.info("Testing Elasticsearch connection...")
     health = es_logger.health_check()
     if health.get("status") == "connected":
-        logger.info("Elasticsearch connected: %s", health.get("cluster_name", "unknown"))
+        logger.info(
+            "Elasticsearch connected: %s", health.get("cluster_name", "unknown")
+        )
     else:
         err = health.get("error", "unknown error")
         logger.warning("Elasticsearch connection failed: %s", err)
@@ -563,11 +565,14 @@ def main() -> None:
 
                     with open(args.faq_config, "r", encoding="utf-8") as f:
                         faqs = json.load(f)
-                    logger.info("Intent: loaded custom FAQ config from %s", args.faq_config)
+                    logger.info(
+                        "Intent: loaded custom FAQ config from %s", args.faq_config
+                    )
                 else:
                     if args.faq_config:
                         logger.warning(
-                            "Intent: warning: FAQ config file not found: %s, using default",
+                            "Intent: warning: FAQ config file not found: %s, "
+                            "using default",
                             args.faq_config,
                         )
 
@@ -631,7 +636,9 @@ def main() -> None:
             active = getattr(info, "regIsActive", False)
             status = getattr(info, "regStatus", "unknown")
             logger.warning(
-                "Warning: not registered (active=%s code=%s). Continuing...", active, status
+                "Warning: not registered (active=%s code=%s). Continuing...",
+                active,
+                status,
             )
 
         # Do not send registration events individually; only send one record at call end
@@ -705,7 +712,9 @@ def main() -> None:
                             except Exception as e:
                                 logger.error("Hangup error: %s", e, exc_info=True)
                     except Exception as e:
-                        logger.error("Error in main loop for call %s: %s", call, e, exc_info=True)
+                        logger.error(
+                            "Error in main loop for call %s: %s", call, e, exc_info=True
+                        )
 
     finally:
         stopping["cleanup_done"] = False
@@ -726,7 +735,9 @@ def main() -> None:
                             except Exception:
                                 break
                     except Exception as e:
-                        logger.error("Account unregistration error: %s", e, exc_info=True)
+                        logger.error(
+                            "Account unregistration error: %s", e, exc_info=True
+                        )
 
                     # Stop all ASR threads from all calls FIRST
                     logger.info("Stopping all ASR worker threads...")
@@ -738,7 +749,11 @@ def main() -> None:
                                 try:
                                     call._stop_asr_thread()
                                 except Exception as e:
-                                    logger.error("ASR: Error stopping thread: %s", e, exc_info=True)
+                                    logger.error(
+                                        "ASR: Error stopping thread: %s",
+                                        e,
+                                        exc_info=True,
+                                    )
                         except Exception:
                             pass
 
@@ -875,9 +890,11 @@ def main() -> None:
         except Exception as e:
             logger.error("Endpoint destruction error: %s", e, exc_info=True)
         finally:
-            # CRITICAL: Set cleanup_done to True in finally block AFTER libDestroy() completes
-            # This ensures the force exit thread won't kill the process if cleanup completed successfully.
-            # If libDestroy() hangs, cleanup_done stays False and the force exit thread will kill it.
+            # CRITICAL: Set cleanup_done to True in finally block AFTER
+            # libDestroy() completes. This ensures the force exit thread won't
+            # kill the process if cleanup completed successfully. If libDestroy()
+            # hangs, cleanup_done stays False and the force exit thread will
+            # kill it.
             stopping["cleanup_done"] = True
             logger.info("Shutdown complete")
             # Flush all output before exiting to ensure messages are printed
@@ -886,9 +903,10 @@ def main() -> None:
                 sys.stderr.flush()
             except Exception:
                 pass
-            # Note: Do not force-exit here. Let normal exit flow proceed.
-            # The force-exit timeout mechanism (in _stop_handler) will handle hung processes.
-            # This allows KeyboardInterrupt and other normal exit flows to work properly.
+            # Note: Do not force-exit here. Let normal exit flow proceed. The
+            # force-exit timeout mechanism (in _stop_handler) will handle hung
+            # processes. This allows KeyboardInterrupt and other normal exit
+            # flows to work properly.
 
 
 if __name__ == "__main__":

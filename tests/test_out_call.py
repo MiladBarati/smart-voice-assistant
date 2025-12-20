@@ -1,6 +1,5 @@
 """Tests for OutCall class."""
 
-from typing import Any
 from unittest.mock import Mock, patch
 
 from pjsua_bot.calls.out_call import OutCall
@@ -65,7 +64,7 @@ class TestOutCall:
         with patch("pjsua_bot.calls.out_call.pj.Call.__init__"):
             call = OutCall(mock_account)
             call.getId = Mock(return_value=123)  # Mock getId
-            call._player: Any = Mock()  # Set a player
+            call._player = Mock()  # type: ignore[assignment]  # Set a player
 
             mock_info = Mock()
             mock_info.state = 5  # PJSIP_INV_STATE_DISCONNECTED

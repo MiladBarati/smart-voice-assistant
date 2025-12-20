@@ -50,8 +50,9 @@ def test_persian_computer_shuts_down() -> None:
 
     for text in test_cases:
         intent, conf, config = classifier.classify(text)
-        # The classifier may return "computer_shuts_down" or "computer_shuts_down_general"
-        # or "system_not_booting" depending on keyword matching
+        # The classifier may return "computer_shuts_down" or
+        # "computer_shuts_down_general" or "system_not_booting" depending on
+        # keyword matching
         assert intent in (
             "computer_shuts_down",
             "computer_shuts_down_general",
