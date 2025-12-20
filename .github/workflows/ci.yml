@@ -52,6 +52,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install mypy==1.11.2
+          # Ensure project deps + stub packages are available for mypy.
+          pip install -e .
+          pip install "types-requests<2.32.0.20240521"
 
       - name: Run mypy
         run: mypy src tests
