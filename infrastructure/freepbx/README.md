@@ -22,14 +22,14 @@ The setup includes:
 1. **Start the services** :
 
 ```bash
-   docker-compose up -d
+   docker compose up -d
 ```
 
 1. **Wait for initialization** : The first startup may take 2-3 minutes as FreePBX initializes and configures the database
 2. **Verify services are running** :
 
 ```bash
-   docker-compose ps
+   docker compose ps
 ```
 
 Both `freepbx-app` and `freepbx-db` containers should show as "running"
@@ -155,4 +155,25 @@ Save the file, then restart Fail2Ban:
 sudo systemctl restart fail2ban
 sudo fail2ban-client status
 sudo fail2ban-client status asterisk-iptables
+```
+
+## Firewall Configuration (FreePBX)
+
+To ensure proper SIP signaling and RTP media flow, the following ports **must be open** on the firewall.
+
+### Required Ports
+
+| Purpose | Port Range | Protocol |
+|-------|-----------|----------|
+| SIP Signaling | 5060 | TCP / UDP |
+| RTP Media (Audio) | 10000–20000 | UDP |
+
+### firewalld Commands
+
+```bash
+firewall-cmd --zone=public --add-port=5060/tcp --permanent
+firewall-cmd --zone=public --add-port=5060/udp --permanent
+firewall-cmd --zone=public --add-port=10000-20000/udp --permanent
+
+firewall-cmd --reload
 ```
