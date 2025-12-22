@@ -74,19 +74,19 @@ Once logged into the FreePBX admin panel:
 * **Stop services** :
 
 ```bash
-  docker-compose down
+  docker compose down
 ```
 
 * **View logs** :
 
 ```bash
-  docker-compose logs -f freepbx-app
+  docker compose logs -f freepbx-app
 ```
 
 * **Restart services** :
 
 ```bash
-  docker-compose restart
+  docker compose restart
 ```
 
 ## Accessing the Container Shell
