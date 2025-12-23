@@ -10,7 +10,7 @@ I've configured your project to use `omnilingual-asr` in WSL:
    - Added `omnilingual-asr>=0.1.0` as a dependency
 
 2. **Created Setup Files**:
-   - `setup_wsl.sh` - Automated setup script
+   - `scripts/maintenance/setup_wsl.sh` - Automated setup script
    - `WSL_SETUP_GUIDE.md` - Detailed documentation
    - `WSL_QUICK_START.md` - Quick reference
    - `examples/omnilingual_asr_example.py` - Usage examples
@@ -33,7 +33,7 @@ wsl
 
 ```bash
 cd "/mnt/d/Amin Raay/pjsua installation"
-./setup_wsl.sh
+./scripts/maintenance/setup_wsl.sh
 ```
 
 This will:
@@ -212,7 +212,7 @@ You're all set! Just run:
 ```bash
 wsl
 cd "/mnt/d/Amin Raay/pjsua installation"
-./setup_wsl.sh
+./scripts/maintenance/setup_wsl.sh
 ```
 
 And you'll have omnilingual-asr running on your system! 🎉

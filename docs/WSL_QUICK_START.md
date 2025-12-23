@@ -17,10 +17,10 @@ cd "/mnt/d/Amin Raay/pjsua installation"
 
 ```bash
 # Make script executable
-chmod +x setup_wsl.sh
+chmod +x scripts/maintenance/setup_wsl.sh
 
 # Run setup
-./setup_wsl.sh
+./scripts/maintenance/setup_wsl.sh
 ```
 
 The script will:
@@ -139,8 +139,8 @@ nvidia-smi
 ```bash
 wsl
 cd "/mnt/d/Amin Raay/pjsua installation"
-chmod +x setup_wsl.sh
-./setup_wsl.sh
+chmod +x scripts/maintenance/setup_wsl.sh
+./scripts/maintenance/setup_wsl.sh
 ```
 
 

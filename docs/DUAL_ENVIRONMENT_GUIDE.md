@@ -18,7 +18,7 @@ Your Project Directory
 │   └── lib/                  ← Linux Python packages
 │
 ├── pyproject.toml            ← Currently configured for: Linux
-├── setup_wsl.sh             ← For WSL setup
+├── scripts/maintenance/setup_wsl.sh             ← For WSL setup
 └── setup_windows.ps1        ← For Windows setup
 ```
 
@@ -128,7 +128,7 @@ Since both environments use the same `.venv` directory name, you need to choose:
    ```bash
    wsl
    cd "/mnt/d/Amin Raay/pjsua installation"
-   ./setup_wsl.sh  # Recreates Linux .venv
+   ./scripts/maintenance/setup_wsl.sh  # Recreates Linux .venv
    ```
 
 2. **To use Windows:**
@@ -182,7 +182,7 @@ D:\Amin Raay\pjsua installation\
 # In WSL
 cp -r "/mnt/d/Amin Raay/pjsua installation" ~/pjsua-installation
 cd ~/pjsua-installation
-./setup_wsl.sh
+./scripts/maintenance/setup_wsl.sh
 ```
 
 ## Current Status: What You Have Now
@@ -191,7 +191,7 @@ Based on your setup:
 
 ✅ **WSL environment exists** at `.venv`
 - Python 3.12 (Linux)
-- Will have omnilingual-asr after running `./setup_wsl.sh`
+- Will have omnilingual-asr after running `./scripts/maintenance/setup_wsl.sh`
 - Activate with: `source .venv/bin/activate` (in WSL only)
 
 ❌ **No Windows environment**
@@ -207,7 +207,7 @@ Based on your setup:
    ```bash
    # You should already be here:
    cd "/mnt/d/Amin Raay/pjsua installation"
-   ./setup_wsl.sh
+   ./scripts/maintenance/setup_wsl.sh
    ```
 
 2. **Later, if you need Windows development:**
@@ -220,7 +220,7 @@ Based on your setup:
 |--------|-------------------|----------|
 | **Open environment** | Already there | `wsl` |
 | **Navigate to project** | `cd "D:\Amin Raay\pjsua installation"` | `cd "/mnt/d/Amin Raay/pjsua installation"` |
-| **Setup** | `.\setup_windows.ps1` | `./setup_wsl.sh` |
+| **Setup** | `.\setup_windows.ps1` | `./scripts/maintenance/setup_wsl.sh` |
 | **Activate venv** | `.venv\Scripts\Activate.ps1` | `source .venv/bin/activate` |
 | **Check activation** | `($env:VIRTUAL_ENV -ne $null)` | `echo $VIRTUAL_ENV` |
 | **Run Python** | `python` | `python` or `python3` |
@@ -238,7 +238,7 @@ Based on your setup:
 
 **Right now**, you should:
 1. Stay in WSL (where you currently are)
-2. Run: `./setup_wsl.sh`
+2. Run: `./scripts/maintenance/setup_wsl.sh`
 3. Test omnilingual-asr
 
 **Later**, if you want Windows development:

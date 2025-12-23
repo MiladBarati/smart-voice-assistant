@@ -333,7 +333,7 @@ If Docker network issues persist and you can't resolve them:
 ```bash
 wsl
 cd "/mnt/d/Amin Raay/pjsua installation"
-./setup_wsl.sh
+./scripts/maintenance/setup_wsl.sh
 ```
 
 See `WSL_SETUP_GUIDE.md` for details.

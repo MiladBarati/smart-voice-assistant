@@ -6,16 +6,18 @@ set -e
 
 echo "Fixing permissions for Docker volumes..."
 
+RECORDINGS_DIR="./artifacts/recordings"
+
 # Fix recordings directory
-if [ -d "./recordings" ]; then
-    echo "Setting permissions for ./recordings..."
-    sudo chown -R 1000:1000 ./recordings
-    sudo chmod -R 755 ./recordings
+if [ -d "$RECORDINGS_DIR" ]; then
+    echo "Setting permissions for $RECORDINGS_DIR..."
+    sudo chown -R 1000:1000 "$RECORDINGS_DIR"
+    sudo chmod -R 755 "$RECORDINGS_DIR"
 else
-    echo "Creating ./recordings directory..."
-    mkdir -p ./recordings
-    sudo chown -R 1000:1000 ./recordings
-    sudo chmod -R 755 ./recordings
+    echo "Creating $RECORDINGS_DIR directory..."
+    mkdir -p "$RECORDINGS_DIR"
+    sudo chown -R 1000:1000 "$RECORDINGS_DIR"
+    sudo chmod -R 755 "$RECORDINGS_DIR"
 fi
 
 # Fix logs directory

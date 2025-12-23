@@ -60,7 +60,7 @@ You have **three options** to use omnilingual-asr on your Windows machine:
 ```bash
 wsl
 cd "/mnt/d/Amin Raay/pjsua installation"
-./setup_wsl.sh
+./scripts/maintenance/setup_wsl.sh
 ```
 
 **When to Choose:**
@@ -91,7 +91,7 @@ cd "/mnt/d/Amin Raay/pjsua installation"
 # On Ubuntu VM
 git clone <your-repo>
 cd pjsua-installation
-./setup_wsl.sh  # Works on native Linux too
+./scripts/maintenance/setup_wsl.sh  # Works on native Linux too
 ```
 
 **When to Choose:**
@@ -139,7 +139,7 @@ cd pjsua-installation
 - ✅ `DOCKER_SETUP_GUIDE.md` - Complete guide
 
 ### For WSL (✅ Ready to use):
-- ✅ `setup_wsl.sh` - Automated setup
+- ✅ `scripts/maintenance/setup_wsl.sh` - Automated setup
 - ✅ `WSL_SETUP_GUIDE.md` - Detailed guide
 - ✅ `WSL_QUICK_START.md` - Quick reference
 - ✅ `DUAL_ENVIRONMENT_GUIDE.md` - Managing both environments
@@ -212,7 +212,7 @@ wsl
 cd "/mnt/d/Amin Raay/pjsua installation"
 
 # 3. Run setup
-./setup_wsl.sh
+./scripts/maintenance/setup_wsl.sh
 
 # 4. Test
 source .venv/bin/activate
@@ -231,7 +231,7 @@ git clone <your-repo>
 cd pjsua-installation
 
 # Run WSL script (it works on native Linux too)
-./setup_wsl.sh
+./scripts/maintenance/setup_wsl.sh
 
 # Test
 source .venv/bin/activate
@@ -272,7 +272,7 @@ See: `DOCKER_SETUP_GUIDE.md`
 ```bash
 wsl
 cd "/mnt/d/Amin Raay/pjsua installation"
-./setup_wsl.sh
+./scripts/maintenance/setup_wsl.sh
 ```
 
 See: `WSL_SETUP_GUIDE.md`

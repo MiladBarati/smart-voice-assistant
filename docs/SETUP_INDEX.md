@@ -150,7 +150,7 @@ Do you want omnilingual-asr?
 
 | File | Purpose | Platform |
 |------|---------|----------|
-| `setup_wsl.sh` | Automated WSL setup | WSL/Linux |
+| `scripts/maintenance/setup_wsl.sh` | Automated WSL setup | WSL/Linux |
 | `setup_windows.ps1` | Windows environment | Windows |
 | `docker-build.ps1` | Build Docker image | Windows |
 | `docker-run.ps1` | Run Docker container | Windows |
@@ -320,7 +320,7 @@ Choose your path:
 ### 🐧 **WSL**
 ```bash
 wsl
-./setup_wsl.sh
+./scripts/maintenance/setup_wsl.sh
 ```
 → Continue with `WSL_SETUP_GUIDE.md`
 

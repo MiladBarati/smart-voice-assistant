@@ -56,7 +56,7 @@ You wanted to use `omnilingual-asr` (a powerful multilingual ASR with 100+ langu
 - ✅ Direct file access
 
 **Files Created:**
-- `setup_wsl.sh` - Automated WSL setup
+- `scripts/maintenance/setup_wsl.sh` - Automated WSL setup
 - `WSL_SETUP_GUIDE.md` - Complete guide
 - `WSL_QUICK_START.md` - Quick reference
 - `DUAL_ENVIRONMENT_GUIDE.md` - Managing Windows + WSL
@@ -71,7 +71,7 @@ wsl
 cd "/mnt/d/Amin Raay/pjsua installation"
 
 # 3. Run setup (30 minutes)
-./setup_wsl.sh
+./scripts/maintenance/setup_wsl.sh
 
 # 4. Test
 source .venv/bin/activate
@@ -130,7 +130,7 @@ DOCKER_QUICK_START.md           - Quick reference
 
 ### WSL Solution
 ```
-setup_wsl.sh                     - Automated setup
+scripts/maintenance/setup_wsl.sh                     - Automated setup
 WSL_SETUP_GUIDE.md              - Complete guide
 WSL_QUICK_START.md              - Quick reference
 DUAL_ENVIRONMENT_GUIDE.md       - Managing both environments
@@ -369,7 +369,7 @@ Use omnilingual as primary, Whisper as fallback.
 ```bash
 wsl
 cd "/mnt/d/Amin Raay/pjsua installation"
-./setup_wsl.sh
+./scripts/maintenance/setup_wsl.sh
 ```
 
 **Time:** 30+ minutes  
