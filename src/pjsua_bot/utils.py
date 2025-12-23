@@ -8,9 +8,15 @@ import time
 import uuid
 import wave
 from datetime import datetime
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
-import pjsua2 as pj
+try:
+    import pjsua2 as pj
+except ImportError:
+    pj = None  # PJSUA2 bindings are optional in CI/test environments
+
+if TYPE_CHECKING:
+    pass  # For type checkers only
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +69,10 @@ def setup_logging(log_level: int = 3) -> None:
         ],
     )
 
-    # Set PJSUA2 log level
-    pj_logger = logging.getLogger("pjsua2")
-    pj_logger.setLevel(log_level)
+    # Set PJSUA2 log level when bindings are available
+    if pj is not None:
+        pj_logger = logging.getLogger("pjsua2")
+        pj_logger.setLevel(log_level)
 
 
 def get_wav_duration(file_path: str) -> float:
@@ -293,8 +300,11 @@ def convert_wav_to_mp3(wav_path: str, delete_source: bool = True) -> Optional[st
         return None
 
 
-def pump_events(ep: pj.Endpoint, ms_per_iter: int = DEFAULT_EVENT_PUMP_MS) -> None:
+def pump_events(ep: "pj.Endpoint", ms_per_iter: int = DEFAULT_EVENT_PUMP_MS) -> None:
     """Pump the PJSUA2 event loop once."""
+    if pj is None:
+        raise ImportError("pjsua2 bindings are not installed")
+
     try:
         ep.libHandleEvents(ms_per_iter)
     except (RuntimeError, AttributeError) as e:
@@ -305,7 +315,7 @@ def pump_events(ep: pj.Endpoint, ms_per_iter: int = DEFAULT_EVENT_PUMP_MS) -> No
 
 
 def wait_until(
-    ep: pj.Endpoint,
+    ep: "pj.Endpoint",
     predicate: Callable[[], bool],
     timeout_s: float,
 ) -> bool:

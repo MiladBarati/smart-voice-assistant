@@ -2,7 +2,13 @@
 """Test script to verify ASR migration from Whisper to omnilingual-asr."""
 
 import os
-import sys
+
+import pytest
+
+pytestmark = pytest.mark.pjsua
+
+# Skip early when PJSUA2 bindings are unavailable (e.g., CI runners)
+pytest.importorskip("pjsua2")
 
 print("=" * 70)
 print("ASR MIGRATION TEST")
@@ -17,7 +23,7 @@ try:
     print("  ✓ Successfully imported ASR components")
 except ImportError as e:
     print(f"  ✗ Failed to import: {e}")
-    sys.exit(1)
+    pytest.skip("pjsua2/ASR dependencies not available in this environment")
 
 # Test 2: Check backend
 print()
