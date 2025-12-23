@@ -36,6 +36,8 @@ class TestOllamaClassifier:
 
             with patch("pjsua_bot.intent.ollama_classifier.requests.post") as mock_post:
                 mock_post.return_value.status_code = 200
+                # Note: When use_cpu=False (default), timeout is set to max(timeout, 90)
+                # So passing timeout=60 will result in timeout=90
                 classifier = OllamaClassifier(
                     ollama_url="http://custom:11434",
                     model="custom:model",
@@ -44,7 +46,8 @@ class TestOllamaClassifier:
                 )
                 assert classifier.ollama_url == "http://custom:11434"
                 assert classifier.model == "custom:model"
-                assert classifier.timeout == 60
+                # For GPU mode, timeout is max(timeout, 90) = 90
+                assert classifier.timeout == 90
                 assert classifier.fallback_to_rule_based is False
 
     def test_classify_empty_transcription(self) -> None:
@@ -63,33 +66,35 @@ class TestOllamaClassifier:
 
     def test_classify_success(self) -> None:
         """Test successful classification."""
-        with patch("pjsua_bot.intent.ollama_classifier.requests.get") as mock_get:
-            mock_response = Mock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {"models": []}
-            mock_get.return_value = mock_response
+        with patch(
+            "pjsua_bot.intent.ollama_classifier.requests.Session"
+        ) as mock_session_class:
+            mock_session = Mock()
+            mock_session_class.return_value = mock_session
 
-            with patch("pjsua_bot.intent.ollama_classifier.requests.post") as mock_post:
-                mock_response = Mock()
-                mock_response.status_code = 200
-                mock_response.json.return_value = {
-                    "message": {"content": '{"intent": "greeting", "confidence": 0.95}'}
+            # Mock GET response for availability check
+            mock_get_response = Mock()
+            mock_get_response.status_code = 200
+            mock_get_response.json.return_value = {"models": []}
+            mock_session.get.return_value = mock_get_response
+
+            # Mock POST response for both preload and classify
+            mock_post_response = Mock()
+            mock_post_response.status_code = 200
+            mock_post_response.json.return_value = {
+                "message": {
+                    "content": '{"intent": "slow_computer", "confidence": 0.95}'
                 }
-                mock_post.return_value = mock_response
+            }
+            mock_session.post.return_value = mock_post_response
 
-                # Use a valid intent from default FAQs
-                mock_response.json.return_value = {
-                    "message": {
-                        "content": '{"intent": "slow_computer", "confidence": 0.95}'
-                    }
-                }
-                classifier = OllamaClassifier()
-                intent, confidence, config = classifier.classify("سلام")
+            classifier = OllamaClassifier()
+            intent, confidence, config = classifier.classify("سلام")
 
-                # Should return the intent if it's valid, or default if not
-                assert intent in ["slow_computer", "default"]
-                assert confidence >= 0.0
-                mock_post.assert_called()
+            # Should return the intent if it's valid, or default if not
+            assert intent in ["slow_computer", "default"]
+            assert confidence >= 0.0
+            mock_session.post.assert_called()
 
     def test_classify_with_fallback(self) -> None:
         """Test classification with fallback to rule-based."""
@@ -174,19 +179,25 @@ class TestOllamaClassifier:
 
     def test_preload_model(self) -> None:
         """Test model preloading."""
-        with patch("pjsua_bot.intent.ollama_classifier.requests.get") as mock_get:
-            mock_response = Mock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {"models": []}
-            mock_get.return_value = mock_response
+        with patch(
+            "pjsua_bot.intent.ollama_classifier.requests.Session"
+        ) as mock_session_class:
+            mock_session = Mock()
+            mock_session_class.return_value = mock_session
 
-            with patch("pjsua_bot.intent.ollama_classifier.requests.post") as mock_post:
-                mock_response = Mock()
-                mock_response.status_code = 200
-                mock_post.return_value = mock_response
+            # Mock GET response for availability check
+            mock_get_response = Mock()
+            mock_get_response.status_code = 200
+            mock_get_response.json.return_value = {"models": []}
+            mock_session.get.return_value = mock_get_response
 
-                with patch("builtins.print"):  # Suppress print output
-                    OllamaClassifier()
-                    # Preload should be called during init
-                    # Check that post was called for preload
-                    assert mock_post.called
+            # Mock POST response for preload
+            mock_post_response = Mock()
+            mock_post_response.status_code = 200
+            mock_session.post.return_value = mock_post_response
+
+            with patch("builtins.print"):  # Suppress print output
+                OllamaClassifier()
+                # Preload should be called during init
+                # Check that post was called for preload
+                assert mock_session.post.called

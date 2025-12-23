@@ -14,7 +14,7 @@ from pjsua_bot.calls.goodbye import GoodbyePlaybackMixin
 class MockCall(GoodbyePlaybackMixin):
     """Mock call class that uses GoodbyePlaybackMixin."""
 
-    def __init__(self) -> None:
+    def __init__(self, is_active: bool = True) -> None:
         self._acc_ref = Mock()
         self._acc_ref.goodbye_file = None
         self._acc_ref.waiting_file = None
@@ -22,6 +22,7 @@ class MockCall(GoodbyePlaybackMixin):
         self._vad = None
         self._mixed_recorder = None
         self._collected_events: list[dict[str, Any]] = []
+        self._is_active = is_active
         self.init_goodbye_state()
         # Waiting message playback state (for testing)
         self._waiting_player: Any = None
@@ -30,11 +31,27 @@ class MockCall(GoodbyePlaybackMixin):
         self._waiting_stop_time: float | None = None
         self._waiting_requested: bool = False
 
+    def isActive(self) -> bool:  # noqa: N802 - pjsua2 API uses camelCase
+        """Mock isActive method."""
+        return self._is_active
+
     def _play_waiting_message(self) -> None:
         """Mock implementation of _play_waiting_message for testing."""
         waiting_file = getattr(self._acc_ref, "waiting_file", None)
         if not waiting_file or self._waiting_requested:
             return
+
+        if not self._call_media:
+            return
+
+        # Import pjsua2 locally to use the mocked version
+        import pjsua2 as pj
+
+        # Create player and set up playback (matching actual implementation pattern)
+        self._waiting_player = pj.AudioMediaPlayer()
+        self._waiting_player.createPlayer(waiting_file, pj.PJMEDIA_FILE_NO_LOOP)
+        self._waiting_player.startTransmit(self._call_media)
+
         self._waiting_playback_started = True
         self._waiting_requested = True
 
@@ -220,6 +237,7 @@ class TestGoodbyePlaybackMixin:
                 mock_player = Mock()
                 mock_pj_module = Mock()
                 mock_pj_module.AudioMediaPlayer.return_value = mock_player
+                mock_pj_module.PJMEDIA_FILE_NO_LOOP = 1
                 mock_endpoint = Mock()
                 mock_adm = Mock()
                 mock_playback = Mock()
@@ -227,7 +245,8 @@ class TestGoodbyePlaybackMixin:
                 mock_endpoint.audDevManager.return_value = mock_adm
                 mock_adm.getPlaybackDevMedia.return_value = mock_playback
 
-                # Patch pjsua2 in sys.modules before the import happens
+                # Patch pjsua2 in sys.modules before calling the method
+                original_pjsua2 = sys.modules.get("pjsua2")
                 sys.modules["pjsua2"] = mock_pj_module
                 try:
                     # Patch get_wav_duration at the utils module level
@@ -240,8 +259,10 @@ class TestGoodbyePlaybackMixin:
                             assert call._waiting_requested is True
                             mock_player.createPlayer.assert_called_once()
                 finally:
-                    # Clean up
-                    if "pjsua2" in sys.modules and isinstance(
+                    # Restore original pjsua2
+                    if original_pjsua2:
+                        sys.modules["pjsua2"] = original_pjsua2
+                    elif "pjsua2" in sys.modules and isinstance(
                         sys.modules["pjsua2"], Mock
                     ):
                         del sys.modules["pjsua2"]

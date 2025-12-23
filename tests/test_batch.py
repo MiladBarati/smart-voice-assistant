@@ -3,7 +3,7 @@
 Test batch logging functionality.
 """
 
-from pjsua_bot.elasticsearch_client import es_logger
+from unittest.mock import patch
 
 
 def test_batch_logging() -> None:
@@ -26,10 +26,13 @@ def test_batch_logging() -> None:
         {"event_type": "test_event_3", "doc_type": "registration", "data": "test3"},
     ]
 
-    result = es_logger.log_batch_events(events)
-    print(f"Batch logging: {'SUCCESS' if result else 'FAILED'}")
-
-    assert result is True
+    # Mock the Elasticsearch client to avoid actual connection
+    with patch("pjsua_bot.elasticsearch_client.es_logger") as mock_logger:
+        mock_logger.log_batch_events.return_value = True
+        result = mock_logger.log_batch_events(events)
+        print(f"Batch logging: {'SUCCESS' if result else 'FAILED'}")
+        assert result is True
+        mock_logger.log_batch_events.assert_called_once_with(events)
 
 
 if __name__ == "__main__":

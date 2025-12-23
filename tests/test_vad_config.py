@@ -10,7 +10,7 @@ class TestVADConfig:
         """Test default VAD configuration values."""
         config = VADConfig()
         assert config.target_sample_rate == 16000
-        assert config.threshold == 0.5
+        assert config.threshold == 0.15  # Lower threshold for telephony audio
         assert config.min_speech_duration_ms == 150
         assert config.min_silence_duration_ms == 100
         assert config.window_size_samples == 1600  # 16000 // 10

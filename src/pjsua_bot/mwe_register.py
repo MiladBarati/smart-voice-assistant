@@ -1,7 +1,6 @@
 import argparse
 import sys
 import time
-from typing import Any
 
 import pjsua2 as pj
 
@@ -76,17 +75,9 @@ def main() -> None:
         )
     )
 
-    class Acc(pj.Account):
-        def onRegState(  # noqa: N802 - required by PJSUA2 bindings
-            self, prm: Any
-        ) -> None:
-            info = self.getInfo()
-            print(
-                f"***reg: active={info.regIsActive} "
-                f"code={info.regStatus} reason={prm.reason}"
-            )
-
-    acc = Acc()
+    # Note: We don't subclass `pj.Account` here; polling `getInfo()` is enough
+    # for this MWE and keeps test mocking straightforward.
+    acc = pj.Account()
     acc.create(acfg)
 
     # Wait for registration with event pumping

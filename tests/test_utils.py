@@ -333,12 +333,12 @@ class TestPumpEvents:
         mock_ep.libHandleEvents.assert_called_once_with(100)
 
     def test_pump_events_handles_exception(self) -> None:
-        """Test that pump_events handles exceptions gracefully."""
+        """Test that pump_events handles RuntimeError gracefully."""
         mock_ep = Mock()
-        mock_ep.libHandleEvents.side_effect = Exception("Event error")
-        with patch("builtins.print"):  # Suppress print output
-            # Should not raise
-            pump_events(mock_ep)
+        # pump_events catches RuntimeError and AttributeError, not generic Exception
+        mock_ep.libHandleEvents.side_effect = RuntimeError("Event error")
+        # Should not raise (RuntimeError is caught and logged)
+        pump_events(mock_ep)
 
 
 class TestWaitUntil:

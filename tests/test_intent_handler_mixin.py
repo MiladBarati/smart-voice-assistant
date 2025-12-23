@@ -14,7 +14,7 @@ from pjsua_bot.intent.classifier import RuleBasedClassifier
 class MockCall(IntentHandlerMixin):
     """Mock call class that uses IntentHandlerMixin."""
 
-    def __init__(self, acc_ref: Mock) -> None:
+    def __init__(self, acc_ref: Mock, is_active: bool = True) -> None:
         self._acc_ref = acc_ref
         self._asr_enabled = False
         self._asr_available = False
@@ -22,12 +22,17 @@ class MockCall(IntentHandlerMixin):
         self._asr_lock: threading.Lock = threading.Lock()
         self._call_media = None
         self._collected_events: list[dict[str, Any]] = []
+        self._is_active = is_active
 
         def _collect_event(event_type: str, **kwargs: Any) -> None:
             self._collected_events.append({"event_type": event_type, **kwargs})
 
         self._collect_event = _collect_event
         self._init_intent_state()
+
+    def isActive(self) -> bool:  # noqa: N802 - pjsua2 API uses camelCase
+        """Mock isActive method."""
+        return self._is_active
 
 
 class TestIntentHandlerMixin:
@@ -249,9 +254,10 @@ class TestIntentHandlerMixin:
         mock_account.enable_intent = False
         mock_account._intent_classifier = None
 
-        call = MockCall(mock_account)
+        call = MockCall(mock_account, is_active=True)
         call._intent_response_played = True
         call._intent_response_finished = False
+        call._intent_response_duration = 10.0
         call._intent_response_stop_time = time.time() + 10.0
         assert call.check_intent_response_status() is False
 
