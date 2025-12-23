@@ -1,4 +1,4 @@
-"""Quick manual test for the Ollama intent classifier."""
+"""Quick manual demo for the Ollama intent classifier."""
 
 from __future__ import annotations
 
@@ -22,3 +22,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+

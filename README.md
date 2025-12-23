@@ -428,7 +428,7 @@ pjsua-installation/
 ├── scripts/                     # Utility scripts
 │   ├── run_tests.py            # Test runner with coverage
 │   ├── check_ollama.py         # Ollama connectivity check
-│   ├── test_intent_classifier.py # Intent classifier testing
+│   ├── demo_intent_classifier.py # Manual demo for intent classifier
 │   ├── test_connectivity.py    # Connectivity testing
 │   └── test_elasticsearch.py   # Elasticsearch connectivity test
 ├── docs/                        # Documentation
