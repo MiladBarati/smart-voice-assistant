@@ -28,12 +28,26 @@ if __package__ in (None, ""):
     from pjsua_bot.account import Account
     from pjsua_bot.calls import OutCall
     from pjsua_bot.elasticsearch_client import es_logger
-    from pjsua_bot.utils import get_wav_duration, pump_events, setup_logging, wait_until
+    from pjsua_bot.utils import (
+        DEFAULT_EVENT_PUMP_MS,
+        _EndpointLike,
+        get_wav_duration,
+        pump_events,
+        setup_logging,
+        wait_until,
+    )
 else:
     from .account import Account
     from .calls import OutCall
     from .elasticsearch_client import es_logger
-    from .utils import get_wav_duration, pump_events, setup_logging, wait_until
+    from .utils import (
+        DEFAULT_EVENT_PUMP_MS,
+        _EndpointLike,
+        get_wav_duration,
+        pump_events,
+        setup_logging,
+        wait_until,
+    )
 
 
 # ---------- Resource Cleanup ----------
@@ -829,7 +843,9 @@ def main() -> None:
                     )
                 except Exception:
 
-                    def _pump_events(ep: pj.Endpoint, ms_per_iter: int = 50) -> None:
+                    def _pump_events(
+                        ep: _EndpointLike, ms_per_iter: int = DEFAULT_EVENT_PUMP_MS
+                    ) -> None:
                         try:
                             ep.libHandleEvents(ms_per_iter)
                         except Exception:

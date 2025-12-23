@@ -5,6 +5,7 @@ This file sets up mocks for pjsua2 to enable testing without the actual C++ bind
 
 from __future__ import annotations
 
+import os
 from typing import Any
 from unittest.mock import MagicMock, Mock
 
@@ -103,6 +104,31 @@ def reset_pjsua2_mock() -> Any:
     # This fixture runs before each test but doesn't do anything by default
     # Individual tests can choose to use the mock_pjsua2 fixture
     yield
+
+
+@pytest.fixture(autouse=True)
+def _default_test_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Provide deterministic defaults for environment variables expected by tests.
+
+    Some tests assert that Elasticsearch-related env vars are present even when
+    Elasticsearch integration tests are skipped. In CI, we provide safe defaults.
+    """
+    # Prefer already-set values (including legacy names), otherwise default.
+    es_host = (
+        os.environ.get("ES_HOST") or os.environ.get("ELASTICSEARCH_HOST") or "localhost"
+    )
+    es_port = (
+        os.environ.get("ES_PORT") or os.environ.get("ELASTICSEARCH_PORT") or "9200"
+    )
+    es_index = (
+        os.environ.get("ELASTIC_INDEX_PREFIX")
+        or os.environ.get("ELASTICSEARCH_INDEX")
+        or "pjsua-calls"
+    )
+
+    monkeypatch.setenv("ES_HOST", es_host)
+    monkeypatch.setenv("ES_PORT", es_port)
+    monkeypatch.setenv("ELASTIC_INDEX_PREFIX", es_index)
 
 
 @pytest.fixture

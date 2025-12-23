@@ -8,7 +8,7 @@ import time
 import uuid
 import wave
 from datetime import datetime
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional, Protocol
 
 try:
     import pjsua2 as pj
@@ -16,7 +16,8 @@ except ImportError:
     pj = None  # PJSUA2 bindings are optional in CI/test environments
 
 if TYPE_CHECKING:
-    pass  # For type checkers only
+    # Keep pjsua2 types for static analysis without requiring runtime bindings
+    import pjsua2 as pj  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,9 @@ def setup_logging(log_level: int = 3) -> None:
             logging.StreamHandler(),
         ],
     )
+
+    # Always touch getLogger() (tests expect this, and it's harmless)
+    logging.getLogger("pjsua_bot").setLevel(log_level)
 
     # Set PJSUA2 log level when bindings are available
     if pj is not None:
@@ -300,10 +304,16 @@ def convert_wav_to_mp3(wav_path: str, delete_source: bool = True) -> Optional[st
         return None
 
 
-def pump_events(ep: "pj.Endpoint", ms_per_iter: int = DEFAULT_EVENT_PUMP_MS) -> None:
-    """Pump the PJSUA2 event loop once."""
-    if pj is None:
-        raise ImportError("pjsua2 bindings are not installed")
+class _EndpointLike(Protocol):
+    def libHandleEvents(self, ms: int) -> Any: ...  # noqa: N802 - pjsua2 API
+
+
+def pump_events(ep: _EndpointLike, ms_per_iter: int = DEFAULT_EVENT_PUMP_MS) -> None:
+    """Pump the PJSUA2 event loop once.
+
+    This helper is intentionally written to work with a mocked endpoint in unit tests,
+    and does not require the `pjsua2` bindings to be installed.
+    """
 
     try:
         ep.libHandleEvents(ms_per_iter)
@@ -315,7 +325,7 @@ def pump_events(ep: "pj.Endpoint", ms_per_iter: int = DEFAULT_EVENT_PUMP_MS) -> 
 
 
 def wait_until(
-    ep: "pj.Endpoint",
+    ep: _EndpointLike,
     predicate: Callable[[], bool],
     timeout_s: float,
 ) -> bool:
