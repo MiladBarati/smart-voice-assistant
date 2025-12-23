@@ -52,8 +52,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install mypy==1.11.2
-          # Ensure project deps + stub packages are available for mypy.
-          pip install -e .
+          # Install project without heavy runtime deps (e.g., torch CUDA wheels)
+          # to keep the type-check job lightweight on the runner.
+          pip install --no-deps -e .
           pip install "types-requests<2.32.0.20240521"
 
       - name: Run mypy
