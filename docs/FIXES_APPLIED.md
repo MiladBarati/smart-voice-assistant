@@ -2,7 +2,7 @@
 
 ## Problems Identified
 
-1. **Recording Directory Permissions**: Container couldn't write to `./recordings` directory
+1. **Recording Directory Permissions**: Container couldn't write to `./artifacts/recordings` directory
 2. **ASR Model Loading Failure**: Model checkpoint couldn't be loaded after download
 
 ## Fixes Applied
@@ -11,10 +11,10 @@
 - Added `user: "1000:1000"` to ensure container runs as the correct user
 - Added cache volume mount: `./cache:/app/.cache` to persist ASR model downloads
 
-### 2. Permission Fix Script (`fix-permissions.sh`)
+### 2. Permission Fix Script (`scripts/maintenance/fix-permissions.sh`)
 - Created script to fix permissions on host directories
 - Sets ownership to UID 1000 (voicebot user) for:
-  - `./recordings`
+  - `./artifacts/recordings`
   - `./logs`
   - `./cache`
 
@@ -26,13 +26,13 @@
 
 ### 1. Fix Permissions (Run on Host)
 ```bash
-./fix-permissions.sh
+./scripts/maintenance/fix-permissions.sh
 ```
 
 Or manually:
 ```bash
-sudo chown -R 1000:1000 ./recordings ./logs ./cache
-sudo chmod -R 755 ./recordings ./logs ./cache
+sudo chown -R 1000:1000 ./artifacts/recordings ./logs ./cache
+sudo chmod -R 755 ./artifacts/recordings ./logs ./cache
 ```
 
 ### 2. Clear ASR Cache (If Model Still Fails)
@@ -55,7 +55,7 @@ docker logs -f sipbot
 
 ## Expected Behavior After Fixes
 
-- ✅ Recordings should be saved successfully to `./recordings/YYYY-MM-DD/call_*/`
+- ✅ Recordings should be saved successfully to `./artifacts/recordings/YYYY-MM-DD/call_*/`
 - ✅ ASR model should load (may take 1-2 minutes on first run to download)
 - ✅ No more "Permission denied" errors
 - ✅ Better error messages if ASR model fails
@@ -63,8 +63,8 @@ docker logs -f sipbot
 ## Troubleshooting
 
 ### If recordings still fail:
-1. Check directory exists: `ls -la ./recordings`
-2. Verify permissions: `ls -ld ./recordings` (should show owner 1000)
+1. Check directory exists: `ls -la ./artifacts/recordings`
+2. Verify permissions: `ls -ld ./artifacts/recordings` (should show owner 1000)
 3. Check container user: `docker exec sipbot id` (should show uid=1000)
 
 ### If ASR model still fails:

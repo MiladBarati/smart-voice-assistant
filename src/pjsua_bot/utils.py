@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_WAV_DURATION = 5.0
 DEFAULT_EVENT_PUMP_MS = 50
 DIRECTORY_MODE = 0o755
+DEFAULT_RECORDING_PATH = "./artifacts/recordings"
 
 # Path patterns for recording URL normalization
 RECORDINGS_APP_RECORDINGS_PREFIX = "recordings/app/recordings/"
@@ -203,7 +204,7 @@ def convert_recording_path_to_url(
     normalized_path = normalized_path.replace("\\", "/")
 
     # Get the recording base directory from environment or use default
-    recording_base_dir = os.getenv("RECORDING_PATH", "./recordings")
+    recording_base_dir = os.getenv("RECORDING_PATH", DEFAULT_RECORDING_PATH)
     recording_base_dir = os.path.abspath(recording_base_dir)
     recording_base_dir = recording_base_dir.replace("\\", "/")
 

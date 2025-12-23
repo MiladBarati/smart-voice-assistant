@@ -209,7 +209,7 @@ class TestConvertRecordingPathToUrl:
 
     def test_convert_path_with_leading_dot_slash(self) -> None:
         """Test converting path with leading ./."""
-        url = convert_recording_path_to_url("./recordings/test.wav")
+        url = convert_recording_path_to_url("./artifacts/recordings/test.wav")
         assert not url.startswith("./")
 
     def test_convert_empty_path(self) -> None:

@@ -30,6 +30,7 @@ if __package__ in (None, ""):
     from pjsua_bot.elasticsearch_client import es_logger
     from pjsua_bot.utils import (
         DEFAULT_EVENT_PUMP_MS,
+        DEFAULT_RECORDING_PATH,
         _EndpointLike,
         get_wav_duration,
         pump_events,
@@ -42,6 +43,7 @@ else:
     from .elasticsearch_client import es_logger
     from .utils import (
         DEFAULT_EVENT_PUMP_MS,
+        DEFAULT_RECORDING_PATH,
         _EndpointLike,
         get_wav_duration,
         pump_events,
@@ -256,10 +258,10 @@ def main() -> None:
     )
     parser.add_argument(
         "--recording-path",
-        default=os.getenv("RECORDING_PATH", "./recordings"),
+        default=os.getenv("RECORDING_PATH", DEFAULT_RECORDING_PATH),
         help=(
             "Base directory for storing recorded audio files "
-            "(default: ./recordings or RECORDING_PATH env var)"
+            "(default: ./artifacts/recordings or RECORDING_PATH env var)"
         ),
     )
     parser.add_argument(

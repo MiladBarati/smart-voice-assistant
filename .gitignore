@@ -30,11 +30,10 @@ ENV/
 # Testing and coverage
 .coverage
 .coverage.*
-htmlcov/
+artifacts/
 *.cover
 .hypothesis/
 .pytest_cache/
-coverage.xml
 *.coveragerc
 test-results.xml
 var/coverage/
@@ -57,7 +56,6 @@ GitCommitPractices
 GitCommitPractices.md
 
 # Project-specific
-recordings/
 *.wav
 !assets/audio/*.wav
 

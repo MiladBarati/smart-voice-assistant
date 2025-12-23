@@ -16,6 +16,7 @@ else:
         pj = None
 
 from ...utils import (
+    DEFAULT_RECORDING_PATH,
     convert_recording_path_to_url,
     ensure_recording_directory,
     parse_sip_user,
@@ -119,7 +120,9 @@ class CallMediaHandlerMixin:
                                 )
                                 self._call_recording_dir = ensure_recording_directory(
                                     getattr(
-                                        self._acc_ref, "recording_path", "./recordings"
+                                        self._acc_ref,
+                                        "recording_path",
+                                        DEFAULT_RECORDING_PATH,
                                     ),
                                     call_id=call_dir_name,
                                 )
@@ -380,7 +383,7 @@ class CallMediaHandlerMixin:
                                                         getattr(
                                                             self._acc_ref,
                                                             "recording_path",
-                                                            "./recordings",
+                                                            DEFAULT_RECORDING_PATH,
                                                         ),
                                                         call_id=call_dir_name,
                                                     )

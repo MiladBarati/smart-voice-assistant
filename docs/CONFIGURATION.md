@@ -28,7 +28,7 @@ This document describes all configuration options available for the bot.
 | 2 | Seconds to wait after welcome message before hanging up |
 | `--message-duration` | int | 5 | Fallback duration if WAV file cannot be read (auto-detected from file) |
 | `--enable-recording` | flag | `False` | Enable voice capture for incoming calls |
-| `--recording-path` | string | `./recordings` | Base directory for storing recorded audio files |
+| `--recording-path` | string | `./artifacts/recordings` | Base directory for storing recorded audio files |
 
 ## Environment Variables
 

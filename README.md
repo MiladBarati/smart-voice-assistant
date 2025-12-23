@@ -274,7 +274,7 @@ The `register_bot.py` script supports the following command-line arguments:
 
 #### Recording & Analysis
 - `--enable-recording`: Enable voice capture for incoming calls (default: False)
-- `--recording-path`: Base directory for storing recorded audio files (default: `./recordings`)
+- `--recording-path`: Base directory for storing recorded audio files (default: `./artifacts/recordings`)
 - `--enable-vad`: Enable Silero VAD-based hangup after caller silence (default: False)
 - `--silence-after-speech-sec`: Seconds of silence after last caller speech to hang up (default: 3.0)
 - `--vad-threshold`: Silero VAD speech probability threshold (default: 0.5)
@@ -306,7 +306,7 @@ docker build -t pjsua-bot:latest .
 docker run -d \
   --name sipbot \
   -p 5060:5060/udp \
-  -v ./recordings:/app/data/recordings \
+  -v ./artifacts/recordings:/app/data/recordings \
   -e ES_HOST=your-elasticsearch-host \
   pjsua-bot:latest
 ```
@@ -677,7 +677,7 @@ python scripts/run_tests.py
 
 - Configuration: `pytest.ini`
 - Coverage: 30% minimum threshold
-- Reports: Terminal, HTML (`htmlcov/`), and XML (`coverage.xml`)
+- Reports: Terminal, HTML (`artifacts/htmlcov/`), and XML (`artifacts/coverage.xml`)
 - Markers: unit, integration, slow, elasticsearch, pjsua
 
 ### Project Dependencies

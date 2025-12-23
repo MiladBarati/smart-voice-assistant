@@ -114,8 +114,8 @@ class TestMyFeature:
 
 Generated automatically when coverage is enabled:
 - **Terminal** summary during the run
-- **HTML** report at `htmlcov/index.html`
-- **XML** report (`coverage.xml`) for CI/CD
+- **HTML** report at `artifacts/htmlcov/index.html`
+- **XML** report (`artifacts/coverage.xml`) for CI/CD
 
 Tune thresholds or targets in `pytest.ini` if coverage requirements change.
 
@@ -123,7 +123,7 @@ Tune thresholds or targets in `pytest.ini` if coverage requirements change.
 
 Use these commands in pipelines or pre-commit hooks:
 ```bash
-pytest --cov=elasticsearch_client --cov=main --cov-report=xml --junitxml=test-results.xml
+pytest --cov=elasticsearch_client --cov=main --cov-report=xml:artifacts/coverage.xml --junitxml=test-results.xml
 ```
 Adjust reporting flags as needed for your CI provider.
 

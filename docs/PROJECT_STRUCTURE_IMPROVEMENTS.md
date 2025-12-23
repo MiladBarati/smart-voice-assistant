@@ -13,7 +13,7 @@ This document merges the repository structure improvement plan with the `registe
 
 ### Quick Wins Implemented
 
-- `.gitignore` excludes coverage artefacts (`.coverage`, `coverage.xml`, `htmlcov/`) and cache directories (`.pytest_cache/`).
+- `.gitignore` excludes coverage artefacts (`.coverage`, `artifacts/coverage.xml`, `artifacts/htmlcov/`) and cache directories (`.pytest_cache/`).
 - Broader Python build artefacts are ignored to prevent noisy commits.
 
 ### Modularization Delivered

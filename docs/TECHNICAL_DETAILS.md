@@ -74,16 +74,25 @@ pjsua-installation/
 │   ├── test_main.py
 │   └── test_batch.py
 ├── scripts/                     # Utility scripts
+│   ├── maintenance/            # Setup/operational helpers
+│   │   ├── fix-permissions.sh
+│   │   ├── lang_check.py
+│   │   ├── packages-microsoft-prod.deb
+│   │   ├── push_to_github.sh
+│   │   └── setup_wsl.sh
 │   ├── run_tests.py            # Custom test runner
 │   ├── test_connectivity.py    # Elasticsearch connectivity test
 │   └── test_elasticsearch.py   # Elasticsearch integration test
 ├── assets/                      # Static assets
 │   └── audio/                   # Audio files
-├── recordings/                  # Call recordings (generated)
+├── artifacts/                   # Generated artefacts (ignored)
+│   ├── coverage.xml             # XML coverage report
+│   ├── htmlcov/                 # Test coverage reports
+│   └── recordings/              # Call recordings (generated)
 ├── infrastructure/              # Infrastructure definitions
 │   └── freepbx/                # FreePBX Docker setup
 ├── docs/                        # Documentation
-│   └── htmlcov/                # Test coverage reports
+│   └── reports/                # Verification reports
 ├── register_bot.py_EXAMPLE             # Legacy entry point (deprecated - use src/)
 ├── main.py                     # Basic entry point
 ├── mwe_register.py             # Minimal example

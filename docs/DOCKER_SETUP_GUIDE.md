@@ -150,14 +150,14 @@ Container filesystem:
 /app/
   ├── src/                    ← Your bot code
   ├── examples/               ← Example scripts
-  ├── recordings/             ← Mounted from host
+  ├── recordings/             ← Mounted from host artifacts/recordings
   ├── assets/                 ← Mounted from host
   ├── logs/                   ← Application logs
   └── .cache/huggingface/     ← Model cache (persistent)
 ```
 
 **Mounted volumes** (shared with Windows):
-- `./recordings` ↔ `/app/recordings` (call recordings)
+- `./artifacts/recordings` ↔ `/app/recordings` (call recordings)
 - `./assets` ↔ `/app/assets` (audio files)
 - `./examples` ↔ `/app/examples` (example scripts)
 - Model cache is persistent in Docker volume

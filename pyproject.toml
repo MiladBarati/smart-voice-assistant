@@ -43,15 +43,14 @@ required-environments = ["sys_platform == 'linux'"]
 line-length = 88
 target-version = ["py311"]
 include = "\\.pyi?$"
-extend-exclude = "(^recordings/|^htmlcov/|^assets/|^infrastructure/|^docs/|^src/pjsua_installation\\.egg-info/)"
+extend-exclude = "(^artifacts/|^assets/|^infrastructure/|^docs/|^src/pjsua_installation\\.egg-info/)"
 
 [tool.ruff]
 target-version = "py311"
 line-length = 88
 src = ["src"]
 extend-exclude = [
-    "recordings",
-    "htmlcov",
+    "artifacts",
     "assets",
     "infrastructure",
     "docs",

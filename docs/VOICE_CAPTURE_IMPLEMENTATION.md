@@ -172,7 +172,7 @@ python -m src.pjsua_bot.register_bot \
   --domain example.com \
   --stay-online \
   --enable-recording \
-  --recording-path ./recordings
+  --recording-path ./artifacts/recordings
 ```
 
 ### Manual Verification

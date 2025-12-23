@@ -57,7 +57,7 @@ services:
     # Note: user switching is handled by docker-entrypoint.sh
     # This allows the entrypoint to fix permissions on mounted volumes
     volumes:
-      - ./recordings:/app/recordings
+      - ./artifacts/recordings:/app/recordings
       - ./logs:/app/logs
       - ./.env:/app/src/.env:ro
       - ./cache:/app/.cache
