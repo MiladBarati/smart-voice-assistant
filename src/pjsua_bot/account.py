@@ -6,9 +6,24 @@ import os
 import tempfile
 import time
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
-import pjsua2 as pj
+try:
+    import pjsua2 as pj  # pragma: no cover - depends on runtime env
+except ModuleNotFoundError:  # pragma: no cover - depends on runtime env
+    pj = None
+
+if TYPE_CHECKING:
+
+    class BaseAccount(pj.Account): ...
+
+elif pj is not None:
+    BaseAccount = pj.Account
+else:
+
+    class BaseAccount(object):
+        pass
+
 
 from .utils import generate_unique_id, parse_sip_user
 
@@ -39,10 +54,15 @@ def _dbg_log(hypothesis: str, location: str, message: str, **data: Any) -> None:
 # #endregion
 
 
-class Account(pj.Account):
+class Account(BaseAccount):
     """SIP Account with incoming call handling and event collection."""
 
     def __init__(self) -> None:
+        if pj is None:
+            raise RuntimeError(
+                "pjsua2 is required to use Account. "
+                "Install/build pjsua2 bindings or run without SIP features."
+            )
         super().__init__()
         self.auto_answer = False
         self.calls: Dict[int, Any] = {}  # keep strong refs to live calls

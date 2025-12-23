@@ -8,7 +8,13 @@ import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Callable
 
-import pjsua2 as pj
+if TYPE_CHECKING:
+    import pjsua2 as pj
+else:
+    try:
+        import pjsua2 as pj  # pragma: no cover - depends on runtime env
+    except ModuleNotFoundError:  # pragma: no cover - depends on runtime env
+        pj = None
 
 from ...elasticsearch_client import es_logger
 from ...utils import convert_recording_path_to_url, generate_unique_id, parse_sip_user

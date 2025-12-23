@@ -1,15 +1,34 @@
 """Outbound call handler with media playback support."""
 
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pjsua2 as pj
+try:
+    import pjsua2 as pj  # pragma: no cover - depends on runtime env
+except ModuleNotFoundError:  # pragma: no cover - depends on runtime env
+    pj = None
+
+if TYPE_CHECKING:
+
+    class BaseCall(pj.Call): ...
+
+elif pj is not None:
+    BaseCall = pj.Call
+else:
+
+    class BaseCall(object):
+        pass
 
 
-class OutCall(pj.Call):
+class OutCall(BaseCall):
     """Outbound call handler with media playback support."""
 
-    def __init__(self, acc: pj.Account):
+    def __init__(self, acc: Any):
+        if pj is None:
+            raise RuntimeError(
+                "pjsua2 is required to use OutCall. "
+                "Install/build pjsua2 bindings or run without SIP features."
+            )
         super().__init__(acc)
         self.connected = False
         self._acc_ref = acc

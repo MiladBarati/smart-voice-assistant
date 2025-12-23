@@ -5,7 +5,7 @@ Elasticsearch client configuration and logging utilities for PJSUA2 call monitor
 import logging
 import os
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 
 from dotenv import load_dotenv
 from elasticsearch import Elasticsearch
@@ -27,6 +27,8 @@ class ElasticsearchLogger:
         use_ssl: Optional[bool] = None,
         verify_certs: Optional[bool] = None,
         index_prefix: Optional[str] = None,
+        *,
+        connect_on_init: bool = True,
     ):
         """
         Initialize Elasticsearch client.
@@ -79,8 +81,9 @@ class ElasticsearchLogger:
         # Configure logging
         self.logger = logging.getLogger(__name__)
 
-        # Initialize connection
-        self._connect()
+        # Initialize connection (optional; avoid network I/O at import time in tests)
+        if connect_on_init:
+            self._connect()
 
     def _connect(self) -> bool:
         """Establish connection to Elasticsearch."""
@@ -617,5 +620,31 @@ class ElasticsearchLogger:
             return {"status": "error", "error": str(e)}
 
 
-# Global instance for easy access
-es_logger = ElasticsearchLogger()
+class _LazyElasticsearchLogger:
+    """Proxy that defers creating/connecting the ES client until first use.
+
+    This keeps module import side-effect free (important for unit tests/CI).
+    """
+
+    def __init__(self) -> None:
+        object.__setattr__(self, "_instance", cast(ElasticsearchLogger | None, None))
+
+    def _get(self) -> ElasticsearchLogger:
+        inst = object.__getattribute__(self, "_instance")
+        if inst is None:
+            inst = ElasticsearchLogger(connect_on_init=False)
+            object.__setattr__(self, "_instance", inst)
+        return cast(ElasticsearchLogger, inst)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._get(), name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "_instance":
+            object.__setattr__(self, name, value)
+            return
+        setattr(self._get(), name, value)
+
+
+# Global instance for easy access (lazy; does not connect at import time)
+es_logger: Any = _LazyElasticsearchLogger()

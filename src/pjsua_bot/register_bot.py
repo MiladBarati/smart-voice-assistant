@@ -6,9 +6,15 @@ import sys
 import threading
 import time
 from types import FrameType
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
-import pjsua2 as pj
+if TYPE_CHECKING:
+    import pjsua2 as pj
+else:
+    try:
+        import pjsua2 as pj  # pragma: no cover - depends on runtime env
+    except ModuleNotFoundError:  # pragma: no cover - depends on runtime env
+        pj = None
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +134,11 @@ def cleanup_resources(acc: Any) -> None:
 
 
 def main() -> None:
+    if pj is None:
+        raise RuntimeError(
+            "pjsua2 is required to run the SIP bot. "
+            "Install/build pjsua2 bindings before running main()."
+        )
     parser = argparse.ArgumentParser(
         description=(
             "PJSUA2 registration/call bot with proper event pumping and options."

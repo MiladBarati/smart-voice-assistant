@@ -1,11 +1,20 @@
+from __future__ import annotations
+
 import argparse
 import sys
 import time
+from typing import TYPE_CHECKING, Any
 
-import pjsua2 as pj
+if TYPE_CHECKING:
+    import pjsua2 as pj
+else:
+    try:
+        import pjsua2 as pj  # pragma: no cover - depends on runtime env
+    except ModuleNotFoundError:  # pragma: no cover - depends on runtime env
+        pj = None
 
 
-def pump(ep: pj.Endpoint) -> None:
+def pump(ep: Any) -> None:
     try:
         ep.libHandleEvents(50)
     except Exception as e:
@@ -13,6 +22,11 @@ def pump(ep: pj.Endpoint) -> None:
 
 
 def main() -> None:
+    if pj is None:
+        raise RuntimeError(
+            "pjsua2 is required to run mwe_register. "
+            "Install/build pjsua2 bindings before running this script."
+        )
     ap = argparse.ArgumentParser()
     ap.add_argument("--user", required=True)
     ap.add_argument("--password", required=True)

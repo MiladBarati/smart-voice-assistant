@@ -7,7 +7,13 @@ import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Callable
 
-import pjsua2 as pj
+if TYPE_CHECKING:
+    import pjsua2 as pj
+else:
+    try:
+        import pjsua2 as pj  # pragma: no cover - depends on runtime env
+    except ModuleNotFoundError:  # pragma: no cover - depends on runtime env
+        pj = None
 
 from ...utils import (
     convert_recording_path_to_url,

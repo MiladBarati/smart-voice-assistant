@@ -4,9 +4,24 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pjsua2 as pj
+try:
+    import pjsua2 as pj  # pragma: no cover - depends on runtime env
+except ModuleNotFoundError:  # pragma: no cover - depends on runtime env
+    pj = None
+
+if TYPE_CHECKING:
+
+    class PjCallBase(pj.Call): ...
+
+elif pj is not None:
+    PjCallBase = pj.Call
+else:
+
+    class PjCallBase(object):
+        pass
+
 
 from ..utils import generate_unique_id
 from .goodbye import GoodbyePlaybackMixin
@@ -56,11 +71,16 @@ class AnyCall(
     RecordingCleanupMixin,
     CallStateHandlerMixin,
     CallMediaHandlerMixin,
-    pj.Call,
+    PjCallBase,
 ):
     """Generic call handler with recording and playback capabilities."""
 
-    def __init__(self, acc: pj.Account, call_id: int):
+    def __init__(self, acc: Any, call_id: int):
+        if pj is None:
+            raise RuntimeError(
+                "pjsua2 is required to use AnyCall. "
+                "Install/build pjsua2 bindings or run without SIP features."
+            )
         # #region agent log
         _before_super = time.time()
         _dbg_log(
