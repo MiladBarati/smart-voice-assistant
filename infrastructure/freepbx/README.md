@@ -129,6 +129,28 @@ To execute commands inside the FreePBX container or view detailed logs:
 ```
 
 ## Fail2Ban
+Create a new filter for freepbx
+
+```bash
+sudo nano /etc/fail2ban/filter.d/freepbx.conf
+```
+
+adding the following content:
+
+```bash
+[Definition]
+failregex = NOTICE.* .*: Registration from '.*' failed for '<HOST>(:\d+)?' - Wrong password
+            NOTICE.* .*: Registration from '.*' failed for '<HOST>(:\d+)?' - No matching peer found
+            NOTICE.* .*: Registration from '.*' failed for '<HOST>(:\d+)?' - Username/auth name mismatch
+            NOTICE.* .*: Registration from '.*' failed for '<HOST>(:\d+)?' - Device does not match ACL
+            NOTICE.* .*: Registration from '.*' failed for '<HOST>(:\d+)?' - Peer is not supposed to register
+            NOTICE.* <HOST> failed to authenticate as '.*'$
+            NOTICE.* .*: No registration for peer '.*' \(from <HOST>\)
+            NOTICE.* .*: Host <HOST> failed MD5 authentication
+            NOTICE.* .*: Failed to authenticate user .*@<HOST>
+
+ignoreregex =
+```
 
 Create a new Fail2Ban jail for Asterisk
 
