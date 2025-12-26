@@ -142,11 +142,29 @@ adding the following content:
 [asterisk-iptables]
 enabled = true
 filter = asterisk
-action = iptables-allports[name=asterisk, protocol=all]
+action = iptables-allports[name=ASTERISK, protocol=all]
 logpath = /var/log/asterisk/full
-maxretry = 20
-findtime = 300
+maxretry = 5
+findtime = 600
 bantime = 86400
+
+[freepbx-iptables]
+enabled = true
+filter = freepbx
+action = iptables-allports[name=FREEPBX, protocol=all]
+logpath = /var/log/asterisk/freepbx_security.log
+maxretry = 3
+findtime = 600
+bantime = 86400
+
+[asterisk-sip-invite]
+enabled = true
+filter = asterisk
+action = iptables-allports[name=ASTERISK-INVITE, protocol=all]
+logpath = /var/log/asterisk/full
+maxretry = 10
+findtime = 60
+bantime = 3600
 ```
 
 Save the file, then restart Fail2Ban:
