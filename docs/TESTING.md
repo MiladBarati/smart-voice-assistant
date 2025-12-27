@@ -22,8 +22,13 @@ Install the core testing dependencies:
 # Install directly
 pip install pytest pytest-cov
 
-# Or install the project's full dependency set
-pip install -r requirements.txt
+# Or install the project's full dependency set using uv (recommended)
+uv pip install -e .
+uv pip install --group dev
+
+# Or using pip with pyproject.toml
+pip install -e .
+pip install pytest>=8.4.2 pytest-cov>=7.0.0
 ```
 
 ## Project Structure

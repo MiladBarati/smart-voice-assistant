@@ -147,7 +147,7 @@ python src/pjsua_bot/mwe_register.py \
   --domain YOUR_SIP_SERVER
 
 # Or using the full bot (recommended)
-python -m src.pjsua_bot.register_bot \
+python src/pjsua_bot/register_bot.py \
   --user YOUR_EXTENSION \
   --password YOUR_PASSWORD \
   --domain YOUR_SIP_SERVER
@@ -156,7 +156,7 @@ python -m src.pjsua_bot.register_bot \
 ### Receive Incoming Calls
 
 ```bash
-python -m src.pjsua_bot.register_bot \
+python src/pjsua_bot/register_bot.py \
   --user 1001 \
   --password secret123 \
   --domain pbx.local \
@@ -166,7 +166,7 @@ python -m src.pjsua_bot.register_bot \
 ### Enable Live Transcription (ASR)
 
 ```bash
-python -m src.pjsua_bot.register_bot \
+python src/pjsua_bot/register_bot.py \
   --user 1001 \
   --password secret123 \
   --domain pbx.local \
@@ -179,7 +179,7 @@ python -m src.pjsua_bot.register_bot \
 ### Enable Intent Classification (Rule-Based)
 
 ```bash
-python -m src.pjsua_bot.register_bot \
+python src/pjsua_bot/register_bot.py \
   --user 1001 \
   --password secret123 \
   --domain pbx.local \
@@ -196,7 +196,7 @@ python -m src.pjsua_bot.register_bot \
 # Make sure Ollama is running with the model loaded
 ollama pull qwen2.5:3b
 
-python -m src.pjsua_bot.register_bot \
+python src/pjsua_bot/register_bot.py \
   --user 1001 \
   --password secret123 \
   --domain pbx.local \
@@ -212,7 +212,7 @@ python -m src.pjsua_bot.register_bot \
 ### Play Welcome Message
 
 ```bash
-python -m src.pjsua_bot.register_bot \
+python src/pjsua_bot/register_bot.py \
   --user 1001 \
   --password secret123 \
   --domain pbx.local \
@@ -223,7 +223,7 @@ python -m src.pjsua_bot.register_bot \
 ### Make Outbound Call
 
 ```bash
-python -m src.pjsua_bot.register_bot \
+python src/pjsua_bot/register_bot.py \
   --user 1001 \
   --password secret123 \
   --domain pbx.local \
@@ -299,16 +299,21 @@ The `register_bot.py` script supports the following command-line arguments:
 The project includes a multi-stage Dockerfile for production deployment:
 
 ```bash
-# Build the Docker image
-docker build -t pjsua-bot:latest .
+# 1) Configure environment
+cp .env.example .env
+# Edit .env and set SIP_USER / SIP_PASSWORD / SIP_DOMAIN (and optionally ES_* for logging)
 
-# Run with Docker
-docker run -d \
-  --name sipbot \
-  -p 5060:5060/udp \
-  -v ./artifacts/recordings:/app/data/recordings \
-  -e ES_HOST=your-elasticsearch-host \
-  pjsua-bot:latest
+# 2) Build the image
+docker build -t sipbot:latest .
+
+# 3) Run
+docker run -d --name sipbot \
+  --env-file ./.env \
+  -p 5060:5060/udp -p 5060:5060/tcp \
+  -v ./artifacts/recordings:/app/recordings \
+  -v ./logs:/app/logs \
+  -v ./cache:/app/.cache \
+  sipbot:latest
 ```
 
 ### Docker Compose (Recommended)
@@ -317,31 +322,14 @@ For production deployment with Elasticsearch integration:
 
 ```bash
 # Start the bot and connect to existing Elasticsearch
-docker-compose up -d
+docker compose up -d
 
 # View logs
-docker-compose logs -f sipbot
+docker compose logs -f sipbot
 
 # Stop the bot
-docker-compose down
+docker compose down
 ```
-
-### Docker with Omnilingual ASR
-
-For enhanced multilingual ASR support with omnilingual-asr:
-
-```bash
-# Build and run with omnilingual ASR support
-docker-compose -f docker-compose.omnilingual.yml up -d
-
-# View logs
-docker-compose -f docker-compose.omnilingual.yml logs -f
-
-# Build the image manually
-docker build -f Dockerfile.omnilingual -t pjsua-bot-omnilingual:latest .
-```
-
-**Note**: Omnilingual ASR requires Linux/WSL environment. The `Dockerfile.omnilingual` includes all necessary dependencies for omnilingual-asr models.
 
 **Configuration via Environment Variables:**
 
@@ -435,9 +423,8 @@ pjsua-installation/
 │   ├── GETTING_STARTED.md
 │   ├── USAGE_GUIDE.md
 │   ├── CONFIGURATION.md
-│   ├── VOICE_RECORDING.md
+│   ├── VOICE_CAPTURE_IMPLEMENTATION.md
 │   ├── AUDIO_PLAYBACK.md
-│   ├── ELASTICSEARCH.md
 │   ├── TROUBLESHOOTING.md
 │   ├── TECHNICAL_DETAILS.md
 │   ├── TESTING.md
@@ -455,11 +442,8 @@ pjsua-installation/
 │   ├── freepbx/                # FreePBX Docker setup
 │   └── nginx/                  # Nginx reverse proxy setup
 ├── Dockerfile                  # Multi-stage Docker build
-├── Dockerfile.omnilingual      # Docker build with omnilingual ASR
 ├── docker-compose.yml          # Docker Compose configuration
-├── docker-compose.omnilingual.yml # Docker Compose with omnilingual
 ├── pyproject.toml              # Project configuration and dependencies
-├── requirements.txt            # Python dependencies
 ├── pytest.ini                  # Pytest configuration
 ├── .pre-commit-config.yaml     # Pre-commit hooks configuration
 └── uv.lock                     # UV dependency lock file
@@ -479,12 +463,43 @@ pjsua-installation/
   - Event-driven callback system for call state changes
   - Busy call rejection and caller ID validation
 
-- **`register_bot.py`** (~900 lines): Main entry point and CLI
+- **`register_bot.py`** (~300 lines): Main entry point and CLI
   - Comprehensive CLI argument parsing with 35+ options
-  - Bot lifecycle management and graceful shutdown
-  - Integration of all components (account, calls, VAD, ASR, intent, Elasticsearch)
-  - Signal handling for SIGINT/SIGTERM
-  - Resource cleanup for models and connections
+  - Bot lifecycle orchestration and signal handling
+  - Coordinates all components (account, calls, VAD, ASR, intent, Elasticsearch)
+
+- **`config.py`**: Configuration management
+  - `BotConfig` dataclass for all bot settings
+  - Configuration creation from command-line arguments
+
+- **`endpoint.py`**: Endpoint configuration and setup
+  - Endpoint configuration creation
+  - Codec priority configuration
+  - SIP transport setup (UDP/TCP/TLS)
+
+- **`account_setup.py`**: Account configuration
+  - Account configuration creation
+  - Account instance configuration with settings
+
+- **`services.py`**: Service initialization
+  - ASR service initialization
+  - Intent classifier initialization
+
+- **`registration.py`**: Registration and call handling
+  - Registration waiting logic
+  - Outbound call handling
+  - Main event loop for receiving calls
+
+- **`shutdown.py`**: Shutdown orchestration
+  - Graceful shutdown coordination
+  - ASR thread stopping
+  - Call hangup and cleanup
+  - Transport and endpoint destruction
+
+- **`cleanup.py`**: Resource cleanup
+  - ASR service cleanup (model release, CUDA cache clearing)
+  - Intent classifier cleanup
+  - Elasticsearch connection cleanup
 
 - **`elasticsearch_client.py`**: Elasticsearch integration
   - `ElasticsearchLogger` class for event logging
@@ -584,11 +599,11 @@ main()
 
 ### Features
 - **[Audio Playback](docs/AUDIO_PLAYBACK.md)** - Playing WAV files and automatic duration detection
-- **[Voice Recording](docs/VOICE_RECORDING.md)** - Recording incoming/outgoing audio streams
+- **[Voice Recording](docs/VOICE_CAPTURE_IMPLEMENTATION.md)** - Recording incoming/outgoing audio streams
 - **[Intent Classification](docs/INTENT_CLASSIFICATION_IMPLEMENTATION_GUIDE.md)** - AI-powered FAQ response system (NEW!)
 
 ### Integration & Testing
-- **[Elasticsearch Integration](docs/ELASTICSEARCH.md)** - Call logging and data storage with VAD metrics
+- **[Elasticsearch Integration](docs/CONFIGURATION.md)** - Call logging and data storage configuration (ES_* env vars)
 - **[Testing Framework](docs/TESTING.md)** - Unit tests and coverage reporting
 - **[Rasa Integration](docs/RASA_INTEGRATION_GUIDE.md)** - NLU integration guide (NEW!)
 
@@ -683,8 +698,7 @@ python scripts/run_tests.py
 ### Project Dependencies
 
 **Managed via:**
-- `pyproject.toml`: Primary dependency configuration
-- `requirements.txt`: Pip-compatible dependency list
+- `pyproject.toml`: Primary dependency configuration (authoritative source)
 - `uv.lock`: UV dependency lock file for reproducible builds
 
 ## 🤝 Contributing

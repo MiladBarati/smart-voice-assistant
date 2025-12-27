@@ -77,17 +77,12 @@ Add semantic search-based classification using sentence embeddings. This improve
 
 #### Step 1: Add Dependencies
 
-**File: `requirements.txt`**
-```txt
-# Add for Phase 2: Semantic search
-sentence-transformers>=2.2.0
-```
-
 **File: `pyproject.toml`**
 ```toml
+[project]
 dependencies = [
     # ... existing dependencies ...
-    "sentence-transformers>=2.2.0",
+    "sentence-transformers>=2.2.0",  # Add for Phase 2: Semantic search
 ]
 ```
 
@@ -607,12 +602,16 @@ Add Text-to-Speech capability to generate audio responses dynamically from FAQ t
 
 #### Step 1: Add TTS Dependencies
 
-**File: `requirements.txt`**
-```txt
-# Add for Phase 4: TTS
-pyttsx3>=2.90  # Offline TTS (cross-platform)
-# OR
-gTTS>=2.3.0  # Google TTS (requires internet)
+**File: `pyproject.toml`**
+```toml
+[project]
+dependencies = [
+    # ... existing dependencies ...
+    # Option A: Offline TTS (cross-platform)
+    "pyttsx3>=2.90",
+    # OR Option B: Google TTS (requires internet)
+    # "gTTS>=2.3.0",
+]
 ```
 
 **Option A: Offline TTS (pyttsx3)**

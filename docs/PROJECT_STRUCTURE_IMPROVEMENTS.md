@@ -6,7 +6,7 @@ This document merges the repository structure improvement plan with the `registe
 
 - Test suite already lives in `tests/`; audio, recordings, and infrastructure assets are scoped cleanly.
 - Utility and demo scripts still mix with application modules at the repository root.
-- `pyproject.toml` is the authoritative dependency manifest, yet `requirements.txt` remains checked in.
+- ✅ `pyproject.toml` is the authoritative dependency manifest; `requirements.txt` has been removed.
 - Modularization work split the 1081-line `register_bot.py` into focused modules under `src/pjsua_bot/`, but follow-up cleanup is pending.
 
 ## ✅ Completed Work
@@ -18,7 +18,7 @@ This document merges the repository structure improvement plan with the `registe
 
 ### Modularization Delivered
 
-- The monolithic `register_bot.py` has been decomposed into importable modules that follow the Single Responsibility Principle.
+- The monolithic `register_bot.py` (1030 lines) has been decomposed into focused modules that follow the Single Responsibility Principle.
 - New package structure:
 
 ```
@@ -26,8 +26,18 @@ src/pjsua_bot/
 ├── __init__.py          # Package exports (updated)
 ├── utils.py             # Utility helpers
 ├── account.py           # SIP account lifecycle
-├── calls.py             # Call media handling
-└── register_bot.py      # CLI entry point and orchestration
+├── calls/               # Call media handling
+│   ├── any_call.py
+│   ├── out_call.py
+│   └── ...
+├── config.py            # Bot configuration management
+├── endpoint.py          # Endpoint setup and configuration
+├── account_setup.py     # Account configuration
+├── services.py          # ASR and Intent service initialization
+├── registration.py      # Registration and call handling
+├── shutdown.py          # Shutdown orchestration
+├── cleanup.py           # Resource cleanup functions
+└── register_bot.py      # CLI entry point and orchestration (~300 lines)
 ```
 
 ## 🎯 Quick Wins Ready to Implement
@@ -47,7 +57,7 @@ src/pjsua_bot/
    - *Impact*: High | *Effort*: 10 minutes
 
 4. **Clean up dependency files**  
-   - Remove redundant `requirements.txt` after verifying `pyproject.toml` coverage  
+   - ✅ **COMPLETED**: Removed redundant `requirements.txt` (verified `pyproject.toml` is authoritative)
    - *Impact*: Low | *Effort*: 1 minute
 
 5. **Polish documentation layout**  
@@ -65,7 +75,7 @@ src/pjsua_bot/
    - Implicit namespace packages risk accidental module shadowing.
 
 3. **Configuration Drift**  
-   - Legacy dependency lists (`requirements.txt`) overlap with `pyproject.toml`.
+   - ✅ Legacy dependency lists (`requirements.txt`) removed; `pyproject.toml` is now the single source of truth.
    - `.env.example` is available, yet documentation should mirror actual configuration options.
 
 4. **Documentation Sync**  
@@ -109,19 +119,58 @@ pjsua-installation/
 
 ## Module Breakdown
 
-### `utils.py`
+### Core Modules
+
+#### `utils.py`
 - Shared helpers such as `generate_unique_id()`, `parse_sip_user()`, `setup_logging()`, `get_wav_duration()`, `ensure_recording_directory()`, `pump_events()`, and `wait_until()`.
 
-### `account.py`
+#### `account.py`
 - The `Account` class manages SIP registration, handling `onRegState()` updates and `onIncomingCall()` events.
 
-### `calls.py`
+#### `calls/` (package)
 - Implements `OutCall` and `AnyCall` to coordinate playback, recording, and media state transitions.
 - Contains helpers like `check_playback_status()`, `should_hangup()`, and `_cleanup_recording()` for lifecycle management.
 
-### `register_bot.py`
-- Reduced to 228 lines.
-- Focuses on argument parsing, environment setup, and orchestrating the refactored modules.
+### Bot Orchestration Modules (from `register_bot.py` refactoring)
+
+#### `config.py`
+- `BotConfig` dataclass containing all bot configuration options
+- `from_args()` method to create configuration from command-line arguments
+
+#### `endpoint.py`
+- `create_endpoint_config()`: Creates and configures PJSUA2 endpoint settings
+- `configure_codecs()`: Sets codec priorities (wideband preferred)
+- `create_transport()`: Creates SIP transport (UDP/TCP/TLS)
+
+#### `account_setup.py`
+- `create_account_config()`: Creates PJSUA2 account configuration
+- `configure_account()`: Configures Account instance with bot settings
+
+#### `services.py`
+- `initialize_asr_service()`: Initializes ASR service if enabled
+- `initialize_intent_classifier()`: Initializes intent classifier (rule-based or Ollama)
+
+#### `registration.py`
+- `wait_for_registration()`: Waits for SIP account registration
+- `handle_outbound_call()`: Handles outbound call if destination specified
+- `run_main_loop()`: Main event loop for receiving incoming calls
+
+#### `shutdown.py`
+- `stop_asr_threads()`: Stops all ASR worker threads
+- `hangup_all_calls()`: Hangs up all active calls
+- `unregister_account()`: Unregisters SIP account
+- `destroy_transports()`: Destroys all SIP transports
+- `shutdown_gracefully()`: Orchestrates complete graceful shutdown
+
+#### `cleanup.py`
+- `cleanup_resources()`: Cleans up ASR models, intent classifiers, and Elasticsearch connections
+- Handles CUDA cache clearing for GPU resources
+
+#### `register_bot.py`
+- Reduced to ~300 lines (from 1030 lines)
+- `parse_arguments()`: Command-line argument parsing
+- `setup_signal_handlers()`: Signal handling for graceful shutdown
+- `main()`: Main entry point that orchestrates all components
 
 ## Implementation Phases & Options
 
@@ -173,7 +222,7 @@ from src.pjsua_bot.register_bot import main
 
 1. Create the new directory structure.
 2. Move files and update imports.
-3. Remove `requirements.txt` after verifying parity with `pyproject.toml`.
+3. ✅ Remove `requirements.txt` after verifying parity with `pyproject.toml` - **COMPLETED**
 4. Run `pytest tests/` or `python scripts/run_tests.py`.
 5. Update documentation references (`README.md`, onboarding guides).
 
