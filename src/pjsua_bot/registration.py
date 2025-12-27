@@ -13,8 +13,8 @@ else:
         pj = None
 
 from .account import Account
-from .config import BotConfig
 from .calls import OutCall
+from .config import BotConfig
 from .utils import pump_events, wait_until
 
 logger = logging.getLogger(__name__)
@@ -144,4 +144,3 @@ def run_main_loop(ep: Any, acc: Account, stopping: dict) -> None:
                 logger.error(
                     "Error in main loop for call %s: %s", call, e, exc_info=True
                 )
-

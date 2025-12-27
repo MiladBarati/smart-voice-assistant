@@ -91,4 +91,3 @@ def cleanup_resources(acc: Any) -> None:
         logger.error("Elasticsearch cleanup error: %s", e, exc_info=True)
 
     logger.info("Resource cleanup complete")
-

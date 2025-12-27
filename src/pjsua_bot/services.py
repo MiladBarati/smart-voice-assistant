@@ -80,7 +80,9 @@ def initialize_intent_classifier(acc: Account, config: BotConfig) -> None:
 
         # Create classifier instance
         if config.intent_classifier == "ollama":
-            logger.info("Intent: using Ollama classifier (model: %s)", config.ollama_model)
+            logger.info(
+                "Intent: using Ollama classifier (model: %s)", config.ollama_model
+            )
             acc._intent_classifier = OllamaClassifier(
                 ollama_url=config.ollama_url,
                 model=config.ollama_model,
@@ -93,7 +95,9 @@ def initialize_intent_classifier(acc: Account, config: BotConfig) -> None:
                     "Note: Set OLLAMA_NUM_GPU=0 before starting "
                     "Ollama server for true CPU mode"
                 )
-            logger.info("Intent: Ollama classifier initialized at %s", config.ollama_url)
+            logger.info(
+                "Intent: Ollama classifier initialized at %s", config.ollama_url
+            )
         else:
             logger.info("Intent: using rule-based classifier")
             acc._intent_classifier = RuleBasedClassifier(faqs=faqs)
@@ -104,4 +108,3 @@ def initialize_intent_classifier(acc: Account, config: BotConfig) -> None:
         logger.error("Intent init error: %s", e, exc_info=True)
         acc._intent_classifier = None
         acc.enable_intent = False
-

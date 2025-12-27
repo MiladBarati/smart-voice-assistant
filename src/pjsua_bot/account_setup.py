@@ -101,4 +101,3 @@ def configure_account(acc: Account, config: BotConfig) -> None:
         logger.info("Using actual WAV duration: %.2f seconds", actual_duration)
     else:
         acc.message_duration = config.message_duration
-

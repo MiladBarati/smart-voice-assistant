@@ -104,4 +104,3 @@ class BotConfig:
             faq_config=args.faq_config,
             log_level=args.log_level,
         )
-

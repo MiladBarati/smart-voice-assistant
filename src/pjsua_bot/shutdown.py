@@ -185,4 +185,3 @@ def shutdown_gracefully(ep: Any, acc: Optional[Account], stopping: dict) -> None
             sys.stderr.flush()
         except Exception:
             pass
-

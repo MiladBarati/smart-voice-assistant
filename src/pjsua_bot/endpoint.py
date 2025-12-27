@@ -107,4 +107,3 @@ def create_transport(ep: Any, config: BotConfig) -> None:
         sip_tp_config.tlsConfig = tls_cfg
         ep.transportCreate(pj.PJSIP_TRANSPORT_TLS, sip_tp_config)
         logger.info("Transport: TLS %d verify=%s", config.local_port, config.tls_verify)
-
