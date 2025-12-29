@@ -60,6 +60,9 @@ class SileroModelLoader:
 
     Supports both TorchScript and ONNX backends with automatic fallback strategies.
     Uses class-level caching to share models across instances.
+
+    The loader uses a modular architecture with programmatic strategy generation,
+    unified cache management, and separate handlers for ONNX and TorchScript models.
     """
 
     # Class-level cache for the loaded model to share across instances
@@ -80,98 +83,77 @@ class SileroModelLoader:
         return ["CPUExecutionProvider"]
 
     @classmethod
-    def clear_cache_if_needed(cls) -> None:
-        """Proactively clear cache for PyTorch 2.5+ to avoid _construct errors.
-
-        This is a known issue with PyTorch 2.5+ and TorchScript models.
-        Only clears cache if model hasn't been loaded yet.
-        """
-        if cls._model_loaded:
-            return
-
-        if not _TORCH_AVAILABLE:
-            return
-
-        try:
-            torch_version = torch.__version__
-            # Check if PyTorch version is 2.5 or higher
-            major, minor = map(int, torch_version.split(".")[:2])
-            if major > 2 or (major == 2 and minor >= 5):
-                cache_dir = os.path.join(
-                    os.path.expanduser("~"), ".cache", "torch", "hub"
-                )
-                silero_cache = os.path.join(cache_dir, "snakers4_silero-vad_master")
-                if os.path.exists(silero_cache):
-                    log_cache_cleared(torch_version)
-                    shutil.rmtree(silero_cache, ignore_errors=True)
-        except Exception:
-            # Ignore cache clearing errors, continue with loading
-            pass
+    def _get_cache_path(cls) -> str:
+        """Get the path to the Silero VAD cache directory."""
+        cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "torch", "hub")
+        return os.path.join(cache_dir, "snakers4_silero-vad_master")
 
     @classmethod
-    def clear_cache_on_error(cls) -> None:
-        """Clear cache when encountering _construct errors during loading."""
+    def clear_cache(cls, reason: str = "manual") -> None:
+        """Clear the Silero VAD cache directory.
+
+        Args:
+            reason: Reason for clearing cache (for logging).
+        """
         try:
-            cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "torch", "hub")
-            silero_cache = os.path.join(cache_dir, "snakers4_silero-vad_master")
-            if os.path.exists(silero_cache):
-                log_cache_cleared("(error recovery)")
-                shutil.rmtree(silero_cache, ignore_errors=True)
+            cache_path = cls._get_cache_path()
+            if os.path.exists(cache_path):
+                log_cache_cleared(reason)
+                shutil.rmtree(cache_path, ignore_errors=True)
         except Exception:
             # Ignore cache clearing errors
             pass
 
     @classmethod
-    def get_loading_strategies(cls) -> list[dict[str, Any]]:
-        """Get list of model loading strategies to try in order.
+    def _should_clear_cache_proactively(cls) -> bool:
+        """Check if cache should be cleared proactively for PyTorch 2.5+."""
+        if cls._model_loaded or not _TORCH_AVAILABLE:
+            return False
+
+        try:
+            torch_version = torch.__version__
+            major, minor = map(int, torch_version.split(".")[:2])
+            return major > 2 or (major == 2 and minor >= 5)
+        except Exception:
+            return False
+
+    @classmethod
+    def _generate_strategies(cls) -> list[dict[str, Any]]:
+        """Generate model loading strategies programmatically.
 
         Returns:
-            List of strategy dictionaries with loading parameters.
+            List of strategy dictionaries ordered by preference.
         """
-        return [
-            # Strategy 1: ONNX with torch.hub.load (best for PyTorch 2.5+)
-            {
-                "force_reload": False,
+        strategies = []
+
+        # ONNX strategies (preferred for PyTorch 2.5+)
+        for force_reload in [False, True]:
+            strategies.append({
+                "force_reload": force_reload,
                 "trust_repo": True,
                 "onnx": True,
-                "name": "ONNX via torch.hub force_reload",
-            },
-            # Strategy 2: ONNX normal load
-            {
-                "force_reload": False,
-                "trust_repo": True,
-                "onnx": True,
-                "name": "ONNX via torch.hub normal load",
-            },
-            # Strategy 3: TorchScript with force reload and trust_repo
-            {
-                "force_reload": True,
+                "name": f"ONNX via torch.hub ({'force_reload' if force_reload else 'normal'})",
+            })
+
+        # TorchScript strategies with trust_repo
+        for force_reload in [True, False]:
+            strategies.append({
+                "force_reload": force_reload,
                 "trust_repo": True,
                 "onnx": False,
-                "name": "TorchScript force_reload with trust_repo",
-            },
-            # Strategy 4: TorchScript normal load with trust_repo
-            {
-                "force_reload": False,
-                "trust_repo": True,
-                "onnx": False,
-                "name": "TorchScript normal load with trust_repo",
-            },
-            # Strategy 5: TorchScript force reload without trust_repo (original)
-            {
-                "force_reload": True,
+                "name": f"TorchScript {'force_reload' if force_reload else 'normal'} with trust_repo",
+            })
+
+        # TorchScript fallback strategies (original behavior)
+        for force_reload in [True, False]:
+            strategies.append({
+                "force_reload": force_reload,
                 "trust_repo": False,
                 "onnx": False,
-                "name": "TorchScript force_reload (original)",
-            },
-            # Strategy 6: TorchScript normal load (original fallback)
-            {
-                "force_reload": False,
-                "trust_repo": False,
-                "onnx": False,
-                "name": "TorchScript normal load (original)",
-            },
-        ]
+                "name": f"TorchScript {'force_reload' if force_reload else 'normal'} (fallback)",
+            })
+
+        return strategies
 
     @classmethod
     def try_reuse_cached_model(cls, instance: Any) -> bool:
@@ -187,6 +169,7 @@ class SileroModelLoader:
             return False
 
         if cls._shared_use_onnx:
+            # Try ONNX session first, then wrapper
             if cls._shared_onnx_session is not None:
                 instance._onnx_session = cls._shared_onnx_session
                 instance._use_onnx = True
@@ -202,6 +185,7 @@ class SileroModelLoader:
                 log_reusing_cached_model("ONNX wrapper")
                 return True
         else:
+            # TorchScript model
             if cls._shared_model is not None:
                 instance._model = cls._shared_model
                 instance._use_onnx = False
@@ -211,6 +195,149 @@ class SileroModelLoader:
                 return True
 
         return False
+
+    @classmethod
+    def _build_hub_kwargs(cls, strategy: dict[str, Any]) -> dict[str, Any]:
+        """Build kwargs for torch.hub.load based on strategy.
+
+        Args:
+            strategy: Strategy dictionary with loading parameters.
+
+        Returns:
+            Dictionary of kwargs for torch.hub.load.
+        """
+        kwargs = {
+            "repo_or_dir": "snakers4/silero-vad",
+            "model": "silero_vad",
+            "force_reload": strategy["force_reload"],
+            "onnx": strategy["onnx"],
+        }
+
+        # trust_repo was added in PyTorch 1.13+, use it if available
+        if strategy.get("trust_repo") and hasattr(torch.hub, "load"):
+            sig = inspect.signature(torch.hub.load)
+            if "trust_repo" in sig.parameters:
+                kwargs["trust_repo"] = strategy["trust_repo"]
+
+        return kwargs
+
+    @classmethod
+    def _handle_onnx_model(cls, instance: Any, model_result: Any, strategy: dict[str, Any]) -> bool:
+        """Handle ONNX model result from torch.hub.load.
+
+        Args:
+            instance: SileroVAD instance to populate.
+            model_result: Result from torch.hub.load.
+            strategy: Strategy dictionary for logging.
+
+        Returns:
+            True if model was successfully loaded, False otherwise.
+        """
+        if not _ONNXRUNTIME_AVAILABLE:
+            raise ImportError("ONNX Runtime not available")
+
+        # Extract model from tuple if needed
+        onnx_model = model_result[0] if isinstance(model_result, tuple) else model_result
+
+        # Handle callable ONNX wrapper (most common case)
+        if callable(onnx_model):
+            cls._set_onnx_wrapper(instance, onnx_model, strategy)
+            return True
+
+        # Handle ONNX file path
+        if isinstance(onnx_model, str) and os.path.exists(onnx_model):
+            cls._load_onnx_session(instance, onnx_model, strategy)
+            return True
+
+        raise ValueError(f"ONNX model format not recognized: {type(onnx_model)}")
+
+    @classmethod
+    def _set_onnx_wrapper(cls, instance: Any, model: Any, strategy: dict[str, Any]) -> None:
+        """Set ONNX wrapper model on instance and cache.
+
+        Args:
+            instance: SileroVAD instance to populate.
+            model: Callable ONNX wrapper model.
+            strategy: Strategy dictionary for logging.
+        """
+        instance._model = model
+        cls._shared_model = model
+        instance._use_onnx = True
+        cls._shared_use_onnx = True
+        instance.available = True
+        cls._model_loaded = True
+        instance._load_error = None
+        log_model_loaded(strategy["name"], "callable wrapper")
+        cls.initialize_onnx_states(instance)
+
+    @classmethod
+    def _load_onnx_session(cls, instance: Any, model_path: str, strategy: dict[str, Any]) -> None:
+        """Load ONNX model from file path using ONNX Runtime.
+
+        Args:
+            instance: SileroVAD instance to populate.
+            model_path: Path to ONNX model file.
+            strategy: Strategy dictionary for logging.
+        """
+        providers = cls.get_providers()
+        log_onnx_providers(providers)
+        instance._onnx_session = onnxruntime.InferenceSession(model_path, providers=providers)
+        log_onnx_model_info(instance._onnx_session)
+        cls._shared_onnx_session = instance._onnx_session
+        instance._use_onnx = True
+        cls._shared_use_onnx = True
+        instance.available = True
+        cls._model_loaded = True
+        instance._load_error = None
+        log_model_loaded(strategy["name"], f"from path: {model_path}")
+        cls.initialize_onnx_states(instance)
+
+    @classmethod
+    def _handle_torchscript_model(cls, instance: Any, model_result: Any, strategy: dict[str, Any]) -> None:
+        """Handle TorchScript model result from torch.hub.load.
+
+        Args:
+            instance: SileroVAD instance to populate.
+            model_result: Result from torch.hub.load.
+            strategy: Strategy dictionary for logging.
+        """
+        # Extract model from tuple if needed
+        model = model_result[0] if isinstance(model_result, tuple) else model_result
+        assert model is not None
+
+        model.eval()
+        instance._model = model
+        cls._shared_model = model
+        instance._use_onnx = False
+        cls._shared_use_onnx = False
+        instance.available = True
+        cls._model_loaded = True
+        instance._load_error = None
+        log_model_loaded(strategy["name"], "TorchScript")
+
+    @classmethod
+    def _try_strategy(cls, instance: Any, strategy: dict[str, Any], strategy_idx: int, total: int) -> bool:
+        """Try loading model with a specific strategy.
+
+        Args:
+            instance: SileroVAD instance to populate.
+            strategy: Strategy dictionary with loading parameters.
+            strategy_idx: Zero-based index of current strategy.
+            total: Total number of strategies.
+
+        Returns:
+            True if loading succeeded, False otherwise.
+        """
+        log_model_loading_strategy(strategy_idx + 1, total, strategy["name"])
+
+        kwargs = cls._build_hub_kwargs(strategy)
+        model_result = torch.hub.load(**kwargs)
+
+        if strategy["onnx"]:
+            return cls._handle_onnx_model(instance, model_result, strategy)
+        else:
+            cls._handle_torchscript_model(instance, model_result, strategy)
+            return True
 
     @classmethod
     def load_model(cls, instance: Any) -> None:
@@ -229,117 +356,27 @@ class SileroModelLoader:
         if cls.try_reuse_cached_model(instance):
             return
 
-        # NOTE: Removed proactive cache clearing - cache should only be cleared
-        # reactively when encountering actual errors (e.g., _construct errors).
-        # The cache will be reused if it exists, avoiding unnecessary downloads.
-
-        # Try multiple loading strategies
-        strategies = cls.get_loading_strategies()
+        # Try loading strategies in order
+        strategies = cls._generate_strategies()
         last_error = None
         cache_cleared = False
 
-        for strategy_idx, strategy in enumerate(strategies):
+        for idx, strategy in enumerate(strategies):
             try:
-                log_model_loading_strategy(
-                    strategy_idx + 1, len(strategies), strategy["name"]
-                )
-
-                # If we hit a _construct error in previous attempt,
-                # try clearing cache once
+                # Clear cache if we hit a _construct error previously
                 if last_error and "_construct" in str(last_error) and not cache_cleared:
-                    cls.clear_cache_on_error()
+                    cls.clear_cache("(error recovery)")
                     cache_cleared = True
-                    # After clearing cache, force reload on this attempt
+                    # Force reload after clearing cache
                     strategy = strategy.copy()
                     strategy["force_reload"] = True
 
-                # Build kwargs for torch.hub.load
-                kwargs = {
-                    "repo_or_dir": "snakers4/silero-vad",
-                    "model": "silero_vad",
-                    "force_reload": strategy["force_reload"],
-                    "onnx": strategy["onnx"],
-                }
-                # trust_repo was added in PyTorch 1.13+, use it if available
-                if strategy.get("trust_repo") and hasattr(torch.hub, "load"):
-                    sig = inspect.signature(torch.hub.load)
-                    if "trust_repo" in sig.parameters:
-                        kwargs["trust_repo"] = strategy["trust_repo"]
-
-                model_result = torch.hub.load(**kwargs)
-
-                # Handle ONNX models differently
-                if strategy["onnx"]:
-                    if not _ONNXRUNTIME_AVAILABLE:
-                        log_model_loading_error(
-                            strategy_idx + 1,
-                            "ONNX Runtime not available, skipping ONNX strategy",
-                        )
-                        raise ImportError(
-                            "ONNX Runtime not available, skipping ONNX strategy"
-                        )
-
-                    # torch.hub.load with onnx=True returns (model, utils) tuple
-                    # where model is a callable ONNX wrapper
-                    if isinstance(model_result, tuple):
-                        onnx_model = model_result[0]
-                    else:
-                        onnx_model = model_result
-
-                    # Check if it's a callable ONNX wrapper FIRST (most common case)
-                    if callable(onnx_model):
-                        instance._model = onnx_model
-                        cls._shared_model = onnx_model
-                        instance._use_onnx = True
-                        cls._shared_use_onnx = True
-                        instance.available = True
-                        cls._model_loaded = True
-                        instance._load_error = None
-                        log_model_loaded(strategy["name"], "callable wrapper")
-                        cls.initialize_onnx_states(instance)
-                        return
-                    elif isinstance(onnx_model, str) and os.path.exists(onnx_model):
-                        # If it's a string path, load it with ONNX Runtime
-                        providers = cls.get_providers()
-                        log_onnx_providers(providers)
-                        instance._onnx_session = onnxruntime.InferenceSession(
-                            onnx_model, providers=providers
-                        )
-                        log_onnx_model_info(instance._onnx_session)
-                        cls._shared_onnx_session = instance._onnx_session
-                        instance._use_onnx = True
-                        cls._shared_use_onnx = True
-                        instance.available = True
-                        cls._model_loaded = True
-                        instance._load_error = None
-                        log_model_loaded(strategy["name"], f"from path: {onnx_model}")
-                        cls.initialize_onnx_states(instance)
-                        return
-                    else:
-                        raise ValueError(
-                            f"ONNX model result format not recognized: "
-                            f"{type(onnx_model)}"
-                        )
-                else:
-                    # Handle TorchScript models (original logic)
-                    if isinstance(model_result, tuple):
-                        instance._model = model_result[0]  # Extract model from tuple
-                    else:
-                        instance._model = model_result
-                    assert instance._model is not None
-                    instance._model.eval()
-                    cls._shared_model = instance._model
-                    instance._use_onnx = False
-                    cls._shared_use_onnx = False
-                    instance.available = True
-                    cls._model_loaded = True
-                    instance._load_error = None
-                    log_model_loaded(strategy["name"], "TorchScript")
+                if cls._try_strategy(instance, strategy, idx, len(strategies)):
                     return
+
             except Exception as e:
                 last_error = e
-                log_model_loading_error(strategy_idx + 1, f"{type(e).__name__}: {e}")
-                # Continue to next strategy
+                log_model_loading_error(idx + 1, f"{type(e).__name__}: {e}")
                 continue
 
         # All strategies failed
@@ -360,29 +397,26 @@ class SileroModelLoader:
         if instance._onnx_session is None:
             return
 
+        import numpy as np
+        from .silero_diagnostics import (
+            log_onnx_states_initialized,
+            log_onnx_unknown_state_format,
+        )
+
         input_names = [inp.name for inp in instance._onnx_session.get_inputs()]
+
         if "h" in input_names and "c" in input_names:
             # Separate h and c states (newer Silero VAD v4/v5)
             # Shape is typically (2, 1, 64) for 16kHz
-            import numpy as np
-
             instance._onnx_h = np.zeros((2, 1, 64), dtype=np.float32)
             instance._onnx_c = np.zeros((2, 1, 64), dtype=np.float32)
             instance._onnx_state = None
-            from .silero_diagnostics import log_onnx_states_initialized
-
             log_onnx_states_initialized("h/c", instance._onnx_h.shape)
         elif "state" in input_names:
             # Combined state (older versions)
-            import numpy as np
-
             instance._onnx_state = np.zeros((2, 1, 128), dtype=np.float32)
             instance._onnx_h = None
             instance._onnx_c = None
-            from .silero_diagnostics import log_onnx_states_initialized
-
             log_onnx_states_initialized("combined", instance._onnx_state.shape)
         else:
-            from .silero_diagnostics import log_onnx_unknown_state_format
-
             log_onnx_unknown_state_format(input_names)
