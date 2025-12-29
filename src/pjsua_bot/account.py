@@ -161,7 +161,6 @@ class Account(BaseAccount):
         info = self.getInfo()
         logger.info("RegStatus: active=%s code=%s", info.regIsActive, info.regStatus)
 
-        # Collect registration event
         # Accept any 2xx status code as success (200, 201, 202, etc.)
         is_success_2xx = info.regIsActive and 200 <= info.regStatus < 300
         event_type = "registration_success" if is_success_2xx else "registration_failed"
@@ -175,8 +174,6 @@ class Account(BaseAccount):
             reason=prm.reason,
         )
 
-        # Accept any 2xx status code as success (200, 201, 202, etc.)
-        is_success_2xx = info.regIsActive and 200 <= info.regStatus < 300
         if is_success_2xx:
             logger.info("Registered successfully")
 
@@ -196,6 +193,255 @@ class Account(BaseAccount):
 
         return len(active_calls) > 0
 
+    def _handle_call_answer(self, call: Any, op: Any, operation_name: str) -> None:
+        """Handle call answer operation with PJ_EPENDING error handling.
+
+        Args:
+            call: The call object to answer
+            op: CallOpParam with status code and reason
+            operation_name: Description of the operation (for logging)
+        """
+        try:
+            call.answer(op)
+        except pj.Error as answer_err:
+            # PJ_EPENDING (70002) means operation already in progress - not a real error
+            if answer_err.status == 70002:
+                logger.debug(
+                    "IncomingCall: %s already pending (PJ_EPENDING), continuing",
+                    operation_name,
+                )
+            else:
+                raise  # Re-raise other errors
+
+    def _reject_call(
+        self,
+        call: Any,
+        call_id: int,
+        status_code: int,
+        reason: str,
+        event_reason: str,
+        caller_id: Optional[str] = None,
+    ) -> None:
+        """Reject a call with the specified status code and reason.
+
+        Args:
+            call: The call object to reject
+            call_id: The call ID
+            status_code: SIP status code (e.g., 403, 486)
+            reason: Human-readable reason for rejection
+            event_reason: Event reason code for logging
+            caller_id: Optional caller ID for event logging
+        """
+        op = pj.CallOpParam()
+        op.statusCode = status_code
+        op.reason = reason
+        self._handle_call_answer(call, op, f"reject ({status_code})")
+
+        # Collect rejection event
+        event_data = {
+            "event_type": "incoming_call_rejected",
+            "call_id": str(call_id),
+            "call_state": "rejected",
+            "call_code": status_code,
+            "reason": event_reason,
+        }
+        if caller_id:
+            event_data["caller_id"] = caller_id
+        self._collect_event(**event_data)
+
+    def _validate_caller_id(self, caller_number: str) -> tuple[bool, Optional[str]]:
+        """Validate that caller ID is in allowed range.
+
+        Args:
+            caller_number: The caller number to validate
+
+        Returns:
+            Tuple of (is_valid, rejection_reason). If valid, rejection_reason is None.
+        """
+        try:
+            caller_id_int = int(caller_number)
+            if caller_id_int < 1001 or caller_id_int > 1010:
+                return False, "caller_id_not_allowed"
+            return True, None
+        except (ValueError, TypeError):
+            return False, "invalid_caller_id"
+
+    def _parse_caller_info(self, call: Any) -> str:
+        """Parse caller information from call object.
+
+        Args:
+            call: The call object
+
+        Returns:
+            The caller number, or "unknown" if parsing fails
+        """
+        try:
+            call_info = call.getInfo()
+            remote_uri = call_info.remoteUri
+            caller_number = parse_sip_user(remote_uri)
+            logger.info("IncomingCall: caller identified as %s", caller_number)
+            return caller_number
+        except Exception as e:
+            logger.warning("IncomingCall: could not parse caller info: %s", e)
+            return "unknown"
+
+    def _handle_busy_call(self, prm: Any) -> bool:
+        """Handle busy call rejection.
+
+        Args:
+            prm: Call parameter with callId
+
+        Returns:
+            True if call was rejected (busy), False otherwise
+        """
+        if not self._has_active_call():
+            return False
+
+        logger.info(
+            "IncomingCall: BUSY - already handling a call, rejecting with 486"
+        )
+
+        # Create a temporary call object just to reject it
+        from .calls import AnyCall
+
+        temp_call = AnyCall(self, prm.callId)
+        self._reject_call(
+            call=temp_call,
+            call_id=prm.callId,
+            status_code=486,
+            reason="Busy Here",
+            event_reason="busy",
+        )
+        return True
+
+    def _create_and_validate_call(self, prm: Any) -> Optional[Any]:
+        """Create call object and validate caller ID.
+
+        Args:
+            prm: Call parameter with callId
+
+        Returns:
+            The call object if valid, None if rejected
+        """
+        from .calls import AnyCall
+
+        # #region agent log
+        _before_construct = time.time()
+        _dbg_log(
+            "B",
+            "account.py:before_AnyCall",
+            "Before AnyCall constructor",
+            callId=prm.callId,
+        )
+        # #endregion
+
+        call = AnyCall(self, prm.callId)
+        self.calls[prm.callId] = call  # <-- keep it!
+
+        # #region agent log
+        _after_construct = time.time()
+        try:
+            _call_info = call.getInfo()
+            _call_state_after_construct = _call_info.stateText
+            _call_status_after_construct = _call_info.lastStatusCode
+        except Exception as _e:
+            _call_state_after_construct = f"error:{_e}"
+            _call_status_after_construct = -1
+        _dbg_log(
+            "B",
+            "account.py:after_AnyCall",
+            "After AnyCall constructor",
+            callId=prm.callId,
+            call_state=_call_state_after_construct,
+            call_status=_call_status_after_construct,
+            construct_time_ms=(_after_construct - _before_construct) * 1000,
+        )
+        # #endregion
+
+        # Parse and validate caller information
+        caller_number = self._parse_caller_info(call)
+        call._caller_number = caller_number
+
+        is_valid, rejection_reason = self._validate_caller_id(caller_number)
+        if not is_valid:
+            logger.warning(
+                "IncomingCall: REJECTED - caller ID '%s' validation failed: %s",
+                caller_number,
+                rejection_reason,
+            )
+            self._reject_call(
+                call=call,
+                call_id=prm.callId,
+                status_code=403,
+                reason="Caller ID not allowed" if rejection_reason == "caller_id_not_allowed" else "Invalid caller ID",
+                event_reason=rejection_reason,
+                caller_id=caller_number,
+            )
+            return None
+
+        return call
+
+    def _answer_call(self, call: Any, call_id: int, entry_time: float) -> None:
+        """Answer the call (auto-answer or ringing).
+
+        Args:
+            call: The call object
+            call_id: The call ID
+            entry_time: Entry time for debug logging
+        """
+        op = pj.CallOpParam()
+        if self.auto_answer:
+            op.statusCode = 200
+            # #region agent log
+            try:
+                _pre_answer_info = call.getInfo()
+                _pre_answer_state = _pre_answer_info.stateText
+                _pre_answer_status = _pre_answer_info.lastStatusCode
+            except Exception as _e:
+                _pre_answer_state = f"error:{_e}"
+                _pre_answer_status = -1
+            _dbg_log(
+                "C",
+                "account.py:before_answer",
+                "Before call.answer(200)",
+                callId=call_id,
+                state=_pre_answer_state,
+                status=_pre_answer_status,
+                elapsed_since_entry=(time.time() - entry_time) * 1000,
+            )
+            # #endregion
+
+            self._handle_call_answer(call, op, "answer (200)")
+            logger.info("IncomingCall: auto-answered 200 OK")
+
+            # #region agent log
+            _dbg_log(
+                "C",
+                "account.py:after_answer",
+                "After call.answer(200) SUCCESS",
+                callId=call_id,
+                elapsed_since_entry=(time.time() - entry_time) * 1000,
+            )
+            # #endregion
+
+            self._collect_event(
+                event_type="call_answered",
+                call_id=str(call_id),
+                call_state="answered",
+                call_code=200,
+            )
+        else:
+            op.statusCode = 180
+            self._handle_call_answer(call, op, "ringing (180)")
+            logger.info("IncomingCall: sent 180 Ringing")
+
+            self._collect_event(
+                event_type="call_ringing",
+                call_id=str(call_id),
+                call_state="ringing",
+                call_code=180,
+            )
+
     def onIncomingCall(self, prm: Any) -> None:  # noqa: N802 - pjsua2 callback name
         """Handle incoming call."""
         logger.info("IncomingCall: ringing")
@@ -209,140 +455,16 @@ class Account(BaseAccount):
             entry_time=_entry_time,
         )
         # #endregion
+
         try:
             # Check if we're already handling a call - reject if busy
-            if self._has_active_call():
-                logger.info(
-                    "IncomingCall: BUSY - already handling a call, rejecting with 486"
-                )
-
-                # Create a temporary call object just to reject it
-                from .calls import AnyCall
-
-                temp_call = AnyCall(self, prm.callId)
-                op = pj.CallOpParam()
-                op.statusCode = 486  # Busy Here
-                op.reason = "Busy Here"
-                try:
-                    temp_call.answer(op)
-                except pj.Error as reject_err:
-                    # PJ_EPENDING (70002) means operation already in progress
-                    if reject_err.status != 70002:
-                        logger.warning("IncomingCall: reject failed: %s", reject_err)
-
-                # Collect busy rejection event
-                self._collect_event(
-                    event_type="incoming_call_rejected",
-                    call_id=str(prm.callId),
-                    call_state="rejected",
-                    call_code=486,
-                    reason="busy",
-                )
+            if self._handle_busy_call(prm):
                 return
 
-            # Import here to avoid circular dependency
-            from .calls import AnyCall
-
-            # #region agent log
-            _before_construct = time.time()
-            _dbg_log(
-                "B",
-                "account.py:before_AnyCall",
-                "Before AnyCall constructor",
-                callId=prm.callId,
-                elapsed_since_entry=(time.time() - _entry_time) * 1000,
-            )
-            # #endregion
-            call = AnyCall(self, prm.callId)
-            # #region agent log
-            _after_construct = time.time()
-            try:
-                _call_info = call.getInfo()
-                _call_state_after_construct = _call_info.stateText
-                _call_status_after_construct = _call_info.lastStatusCode
-            except Exception as _e:
-                _call_state_after_construct = f"error:{_e}"
-                _call_status_after_construct = -1
-            _dbg_log(
-                "B",
-                "account.py:after_AnyCall",
-                "After AnyCall constructor",
-                callId=prm.callId,
-                call_state=_call_state_after_construct,
-                call_status=_call_status_after_construct,
-                construct_time_ms=(_after_construct - _before_construct) * 1000,
-            )
-            # #endregion
-            self.calls[prm.callId] = call  # <-- keep it!
-
-            # Parse caller information early
-            try:
-                call_info = call.getInfo()
-                remote_uri = call_info.remoteUri
-                call._caller_number = parse_sip_user(remote_uri)
-                logger.info(
-                    "IncomingCall: caller identified as %s", call._caller_number
-                )
-            except Exception as e:
-                logger.warning("IncomingCall: could not parse caller info: %s", e)
-                call._caller_number = "unknown"
-
-            # Check if caller ID is in allowed range (1001-1010)
-            try:
-                caller_id_int = int(call._caller_number)
-                if caller_id_int < 1001 or caller_id_int > 1010:
-                    logger.warning(
-                        "IncomingCall: REJECTED - caller ID %s not in "
-                        "allowed range (1001-1010)",
-                        call._caller_number,
-                    )
-                    op = pj.CallOpParam()
-                    op.statusCode = 403  # Forbidden
-                    op.reason = "Caller ID not allowed"
-                    try:
-                        call.answer(op)
-                    except pj.Error as reject_err:
-                        if reject_err.status != 70002:  # PJ_EPENDING
-                            logger.warning(
-                                "IncomingCall: reject failed: %s", reject_err
-                            )
-
-                    # Collect rejection event
-                    self._collect_event(
-                        event_type="incoming_call_rejected",
-                        call_id=str(prm.callId),
-                        call_state="rejected",
-                        call_code=403,
-                        reason="caller_id_not_allowed",
-                        caller_id=call._caller_number,
-                    )
-                    return
-            except (ValueError, TypeError):
-                # If caller ID is not numeric or parsing fails, reject the call
-                logger.warning(
-                    "IncomingCall: REJECTED - caller ID '%s' is not numeric "
-                    "or could not be parsed",
-                    call._caller_number,
-                )
-                op = pj.CallOpParam()
-                op.statusCode = 403  # Forbidden
-                op.reason = "Invalid caller ID"
-                try:
-                    call.answer(op)
-                except pj.Error as reject_err:
-                    if reject_err.status != 70002:  # PJ_EPENDING
-                        logger.warning("IncomingCall: reject failed: %s", reject_err)
-
-                # Collect rejection event
-                self._collect_event(
-                    event_type="incoming_call_rejected",
-                    call_id=str(prm.callId),
-                    call_state="rejected",
-                    call_code=403,
-                    reason="invalid_caller_id",
-                    caller_id=call._caller_number,
-                )
-                return
+            # Create call object and validate caller ID
+            call = self._create_and_validate_call(prm)
+            if call is None:
+                return  # Call was rejected due to invalid caller ID
 
             # Collect incoming call event
             self._collect_event(
@@ -352,86 +474,9 @@ class Account(BaseAccount):
                 auto_answer=self.auto_answer,
             )
 
-            op = pj.CallOpParam()
-            if self.auto_answer:
-                op.statusCode = 200
-                # #region agent log
-                try:
-                    _pre_answer_info = call.getInfo()
-                    _pre_answer_state = _pre_answer_info.stateText
-                    _pre_answer_status = _pre_answer_info.lastStatusCode
-                except Exception as _e:
-                    _pre_answer_state = f"error:{_e}"
-                    _pre_answer_status = -1
-                _dbg_log(
-                    "C",
-                    "account.py:before_answer",
-                    "Before call.answer(200)",
-                    callId=prm.callId,
-                    state=_pre_answer_state,
-                    status=_pre_answer_status,
-                    elapsed_since_entry=(time.time() - _entry_time) * 1000,
-                )
-                # #endregion
-                try:
-                    call.answer(op)
-                    # #region agent log
-                    _dbg_log(
-                        "C",
-                        "account.py:after_answer",
-                        "After call.answer(200) SUCCESS",
-                        callId=prm.callId,
-                        elapsed_since_entry=(time.time() - _entry_time) * 1000,
-                    )
-                    # #endregion
-                    logger.info("IncomingCall: auto-answered 200 OK")
-                except pj.Error as answer_err:
-                    # PJ_EPENDING (70002) means operation already in progress
-                    # - not a real error
-                    if answer_err.status == 70002:
-                        logger.debug(
-                            "IncomingCall: answer already pending "
-                            "(PJ_EPENDING), continuing"
-                        )
-                        _dbg_log(
-                            "C",
-                            "account.py:answer_pending",
-                            "call.answer returned PJ_EPENDING - operation in progress",
-                            callId=prm.callId,
-                        )
-                    else:
-                        raise  # Re-raise other errors
+            # Answer the call (auto-answer or ringing)
+            self._answer_call(call, prm.callId, _entry_time)
 
-                # Collect call answered event
-                self._collect_event(
-                    event_type="call_answered",
-                    call_id=str(prm.callId),
-                    call_state="answered",
-                    call_code=200,
-                )
-            else:
-                op.statusCode = 180
-                try:
-                    call.answer(op)
-                    logger.info("IncomingCall: sent 180 Ringing")
-                except pj.Error as answer_err:
-                    # PJ_EPENDING (70002) means operation already in progress
-                    # - not a real error
-                    if answer_err.status == 70002:
-                        logger.debug(
-                            "IncomingCall: ringing already pending "
-                            "(PJ_EPENDING), continuing"
-                        )
-                    else:
-                        raise  # Re-raise other errors
-
-                # Collect call ringing event
-                self._collect_event(
-                    event_type="call_ringing",
-                    call_id=str(prm.callId),
-                    call_state="ringing",
-                    call_code=180,
-                )
         except Exception as e:
             # #region agent log
             _dbg_log(
