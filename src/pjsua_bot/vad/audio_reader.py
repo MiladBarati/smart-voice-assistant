@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+import logging
 import os
 import time
 import wave
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Any, BinaryIO, Optional, Tuple
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
 class WavInfo:
     """WAV file metadata."""
+
     channels: int
     sampwidth: int
     framerate: int
@@ -44,17 +48,15 @@ class ManualWavParser:
             return None
 
     @staticmethod
-    def _validate_riff_header(f) -> bool:
+    def _validate_riff_header(f: BinaryIO) -> bool:
         """Validate RIFF WAVE header."""
         header = f.read(12)
         return (
-            len(header) >= 12
-            and header.startswith(b"RIFF")
-            and header[8:12] == b"WAVE"
+            len(header) >= 12 and header.startswith(b"RIFF") and header[8:12] == b"WAVE"
         )
 
     @staticmethod
-    def _find_fmt_chunk(f) -> Optional[Tuple[int, int, int]]:
+    def _find_fmt_chunk(f: BinaryIO) -> Optional[Tuple[int, int, int]]:
         """Find and parse fmt chunk."""
         while True:
             chunk_id = f.read(4)
@@ -81,7 +83,7 @@ class ManualWavParser:
                 f.read(chunk_size)
 
     @staticmethod
-    def _find_data_chunk(f) -> Optional[int]:
+    def _find_data_chunk(f: BinaryIO) -> Optional[int]:
         """Find data chunk and return its offset."""
         while True:
             chunk_id = f.read(4)
@@ -91,7 +93,7 @@ class ManualWavParser:
             chunk_size = int.from_bytes(f.read(4), "little")
 
             if chunk_id == b"data":
-                return f.tell()
+                return int(f.tell())
             else:
                 f.read(chunk_size)
 
@@ -193,9 +195,11 @@ class StreamingWavReader:
         if self._wait_log_throttle.should_log():
             try:
                 size = os.path.getsize(self.wav_path)
-                print(f"***VAD: waiting for WAV file to be ready (size={size} bytes)")
+                logger.debug(
+                    f"VAD: waiting for WAV file to be ready (size={size} bytes)"
+                )
             except Exception:
-                print("***VAD: waiting for WAV file to be ready")
+                logger.debug("VAD: waiting for WAV file to be ready")
 
     def _read_with_wave_module(self) -> Optional[Tuple[np.ndarray, int]]:
         """Read new frames using the wave module."""
@@ -217,7 +221,9 @@ class StreamingWavReader:
                 raw = wf.readframes(frames_to_read)
                 self._last_frame_idx = n_frames
 
-                return self._convert_to_mono_float32(raw, n_channels, sampwidth, framerate)
+                return self._convert_to_mono_float32(
+                    raw, n_channels, sampwidth, framerate
+                )
         except (wave.Error, Exception):
             return None
 
@@ -227,34 +233,43 @@ class StreamingWavReader:
             self._manual_wav_info = ManualWavParser.parse(self.wav_path)
 
         if self._manual_wav_info is None:
-            print("***VAD: WAV read error - cannot parse WAV header (trying manual parsing)")
+            logger.warning(
+                "VAD: WAV read error - cannot parse WAV header "
+                "(trying manual parsing)"
+            )
             return None, None
 
         info = self._manual_wav_info
-        self._initialize_sample_rate(info.framerate, info.channels, info.sampwidth, None)
+        self._initialize_sample_rate(
+            info.framerate, info.channels, info.sampwidth, None
+        )
 
         try:
             raw = self._read_raw_bytes_manually(info)
             if raw is None:
                 return None, None
 
-            result = self._convert_to_mono_float32(raw, info.channels, info.sampwidth, info.framerate)
+            result = self._convert_to_mono_float32(
+                raw, info.channels, info.sampwidth, info.framerate
+            )
             return result
         except Exception as e:
-            print(f"***VAD: manual read error: {e}")
+            logger.error(f"VAD: manual read error: {e}")
             return None, None
 
     def _read_raw_bytes_manually(self, info: WavInfo) -> Optional[bytes]:
         """Read raw audio bytes manually from file."""
         with open(self.wav_path, "rb") as f:
             bytes_per_frame = info.channels * info.sampwidth
-            current_data_pos = info.data_offset + (self._last_frame_idx * bytes_per_frame)
+            current_data_pos = info.data_offset + (
+                self._last_frame_idx * bytes_per_frame
+            )
             file_size = os.path.getsize(self.wav_path)
             available_bytes = file_size - current_data_pos
 
             if available_bytes < bytes_per_frame:
                 if self._manual_wait_log_throttle.should_log():
-                    print("***VAD: waiting for new audio (manual read)")
+                    logger.debug("VAD: waiting for new audio (manual read)")
                 return None
 
             f.seek(current_data_pos)
@@ -270,21 +285,21 @@ class StreamingWavReader:
         if self._wav_sample_rate is None:
             self._wav_sample_rate = framerate
             if n_frames is not None:
-                print(
-                    f"***VAD: WAV file opened - {n_channels}ch, "
+                logger.info(
+                    f"VAD: WAV file opened - {n_channels}ch, "
                     f"{sampwidth}byte/sample, {framerate}Hz, {n_frames} frames"
                 )
             else:
-                print(
-                    f"***VAD: WAV file parsed manually - {n_channels}ch, "
+                logger.info(
+                    f"VAD: WAV file parsed manually - {n_channels}ch, "
                     f"{sampwidth * 8}bit/sample, {framerate}Hz"
                 )
 
     def _log_waiting_for_audio(self, n_frames: int) -> None:
         """Log that we're waiting for new audio data."""
         if self._wait_log_throttle.should_log():
-            print(
-                f"***VAD: waiting for new audio "
+            logger.debug(
+                f"VAD: waiting for new audio "
                 f"(last_idx={self._last_frame_idx}, total={n_frames})"
             )
 
@@ -292,7 +307,11 @@ class StreamingWavReader:
         self, raw: bytes, n_channels: int, sampwidth: int, framerate: int
     ) -> Tuple[np.ndarray, int]:
         """Convert raw audio bytes to mono float32 PCM."""
-        dtype_map = {1: np.int8, 2: np.int16, 4: np.int32}
+        dtype_map: dict[int, type[np.integer[Any]]] = {
+            1: np.int8,
+            2: np.int16,
+            4: np.int32,
+        }
         dtype = dtype_map.get(sampwidth)
         if dtype is None:
             raise ValueError(f"Unsupported sample width: {sampwidth}")

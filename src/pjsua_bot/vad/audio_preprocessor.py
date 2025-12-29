@@ -20,7 +20,7 @@ import numpy as np
 try:
     import torch as _torch
 except Exception:  # pragma: no cover
-    _torch = None
+    _torch = None  # type: ignore[assignment]
 
 try:
     import torchaudio
@@ -30,10 +30,10 @@ except Exception:  # pragma: no cover
 
 class AudioPreprocessor:
     """Handles audio preprocessing: resampling and gain adjustment.
-    
+
     Prepares audio for VAD inference by converting to tensors, applying
     gain boost for telephony audio, and resampling to the target rate.
-    
+
     Example:
         preprocessor = AudioPreprocessor(
             target_sample_rate=16000,
@@ -75,11 +75,14 @@ class AudioPreprocessor:
         waveform = (waveform * self.gain).clamp(-1.0, 1.0)
 
         # Resample if needed
-        actual_sr = input_sr
+        actual_sr: int = input_sr
         if input_sr != self.target_sample_rate:
-            waveform, actual_sr = self._resample(waveform, input_sr)
-            if waveform is None:
+            resample_result = self._resample(waveform, input_sr)
+            resampled_waveform, resampled_sr = resample_result
+            if resampled_waveform is None or resampled_sr is None:
                 return None, None
+            waveform = resampled_waveform
+            actual_sr = resampled_sr
 
         return waveform, actual_sr
 
@@ -148,4 +151,3 @@ class AudioPreprocessor:
             return 512
         else:
             return None
-

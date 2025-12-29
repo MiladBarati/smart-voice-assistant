@@ -62,7 +62,7 @@ from .types import VoiceChunk
 try:
     import torch as _torch
 except Exception:  # pragma: no cover - optional dependency at runtime
-    _torch = None
+    _torch = None  # type: ignore[assignment]
 
 # Import StreamingWavReader from audio_reader
 from .audio_reader import StreamingWavReader
@@ -97,7 +97,7 @@ class SileroVAD:
             # In event loop:
             while call_active:
                 vad.process_new_audio(lambda: time.time())
-                
+
                 # Check for silence timeout
                 if vad.last_speech_time_monotonic:
                     silence = time.time() - vad.last_speech_time_monotonic
@@ -336,8 +336,9 @@ class SileroVAD:
         try:
             return self._inference_engine.infer(frame, sample_rate)
         except Exception as e:
+            error_msg = str(e)
             self._loggers["model_error"].log_if_ready(
-                lambda: log_model_call_error(str(e))
+                lambda: log_model_call_error(error_msg)
             )
             return None
 

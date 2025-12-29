@@ -5,6 +5,8 @@ initializer `init_goodbye_state` to set up internal state used by these
 methods. Intended to be used as a mixin alongside a `pj.Call` subclass.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import time
@@ -37,7 +39,7 @@ class GoodbyePlaybackMixin:
         """Check if the call is still active, handling exceptions gracefully."""
         try:
             if hasattr(self, "isActive"):
-                return self.isActive()
+                return bool(self.isActive())
         except Exception:
             # Call might be destroyed, assume inactive
             pass
@@ -91,9 +93,7 @@ class GoodbyePlaybackMixin:
             except Exception as e:  # pragma: no cover - defensive
                 logger.warning("VAD: error notifying goodbye playback stop: %s", e)
 
-    def _collect_goodbye_event(
-        self: Any, event_type: str, **kwargs: Any
-    ) -> None:
+    def _collect_goodbye_event(self: Any, event_type: str, **kwargs: Any) -> None:
         """Collect goodbye-related events, handling errors gracefully."""
         try:
             self._collect_event(event_type=event_type, media_type="audio", **kwargs)
@@ -152,9 +152,7 @@ class GoodbyePlaybackMixin:
                 self._goodbye_player.startTransmit(mixed_recorder)
                 logger.debug("Goodbye: transmitting to mixed recorder")
             except Exception as e:
-                logger.warning(
-                    "Goodbye: error transmitting to mixed recorder: %s", e
-                )
+                logger.warning("Goodbye: error transmitting to mixed recorder: %s", e)
 
         # Monitor on local speakers
         adm = pj.Endpoint.instance().audDevManager()

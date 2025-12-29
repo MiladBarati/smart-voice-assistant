@@ -17,10 +17,10 @@ from typing import Callable
 
 class ThrottledLogger:
     """Helper to throttle log messages based on time intervals.
-    
+
     Prevents log spam by only allowing log messages to be emitted
     after a minimum time interval has passed since the last log.
-    
+
     Example:
         logger = ThrottledLogger(interval_seconds=5.0)
         # Only logs if 5+ seconds have passed since last log
@@ -48,4 +48,3 @@ class ThrottledLogger:
         """Call log function only if enough time has passed."""
         if self.should_log():
             log_fn()
-

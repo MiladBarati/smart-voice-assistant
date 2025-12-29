@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import logging
 import os
-import time
 import wave
-from typing import List, Optional, Tuple, cast
+from typing import List, Optional
 
 from ..utils import convert_wav_to_mp3
 from .audio_reader import StreamingWavReader
 from .config import VADConfig
 from .types import VoiceChunk
+
+logger = logging.getLogger(__name__)
 
 
 class ChunkManager:
@@ -149,11 +151,14 @@ class ChunkManager:
             return None
 
         if not force and duration < self.cfg.min_chunk_duration_sec:
-            print(
+            logger.info(
                 (
-                    f"***VAD: chunk too short "
-                    f"({duration:.2f}s < {self.cfg.min_chunk_duration_sec}s minimum), "
-                    f"waiting for more speech"
+                    "***VAD: chunk too short "
+                    "({duration:.2f}s < {min_duration}s minimum), "
+                    "waiting for more speech"
+                ).format(
+                    duration=duration,
+                    min_duration=self.cfg.min_chunk_duration_sec,
                 )
             )
             return None
@@ -178,10 +183,14 @@ class ChunkManager:
         self._current_chunk_end_sample = None
         self._silence_start_time = None
 
-        print(
+        logger.info(
             (
-                f"***VAD: chunk finalized - duration={duration:.2f}s, "
-                f"samples={start_sample}-{end_sample}"
+                "***VAD: chunk finalized - duration={duration:.2f}s, "
+                "samples={start_sample}-{end_sample}"
+            ).format(
+                duration=duration,
+                start_sample=start_sample,
+                end_sample=end_sample,
             )
         )
         return chunk
@@ -194,7 +203,7 @@ class ChunkManager:
         try:
             os.makedirs(self._chunks_output_dir, exist_ok=True)
         except Exception as e:
-            print(f"***VAD: error creating chunks directory: {e}")
+            logger.error("***VAD: error creating chunks directory: %s", e)
             return None
 
         self._chunk_counter += 1
@@ -218,11 +227,10 @@ class ChunkManager:
                 wf_in.setpos(start_sample)
                 num_samples = end_sample - start_sample
                 if num_samples <= 0:
-                    print(
-                        (
-                            f"***VAD: invalid chunk sample range "
-                            f"({start_sample}-{end_sample})"
-                        )
+                    logger.warning(
+                        "***VAD: invalid chunk sample range (%s-%s)",
+                        start_sample,
+                        end_sample,
                     )
                     return None
                 raw_audio = wf_in.readframes(num_samples)
@@ -235,11 +243,11 @@ class ChunkManager:
                     wf_out.setsampwidth(sampwidth)
                     wf_out.setframerate(framerate)
                     wf_out.writeframes(raw_audio)
-                print(
-                    (
-                        f"***VAD: saved chunk {self._chunk_counter} to {chunk_path} "
-                        f"({duration:.2f}s)"
-                    )
+                logger.info(
+                    ("***VAD: saved chunk %s to %s " "(%0.2fs)"),
+                    self._chunk_counter,
+                    chunk_path,
+                    duration,
                 )
                 # Keep WAV file if ASR is enabled (ASR needs WAV format)
                 if getattr(self.cfg, "keep_wav_for_asr", False):
@@ -249,13 +257,13 @@ class ChunkManager:
         except wave.Error:
             return self._save_chunk_audio_manual(start_sample, end_sample, chunk_path)
         except Exception as e:
-            print(f"***VAD: error saving chunk: {e}")
+            logger.error("***VAD: error saving chunk: %s", e)
             try:
                 return self._save_chunk_audio_manual(
                     start_sample, end_sample, chunk_path
                 )
             except Exception as e2:
-                print(f"***VAD: error saving chunk manually: {e2}")
+                logger.error("***VAD: error saving chunk manually: %s", e2)
                 return None
 
     def _save_chunk_audio_manual(
@@ -269,7 +277,8 @@ class ChunkManager:
 
         info = self.reader.manual_wav_info
         assert info is not None
-        # WavInfo is a dataclass, not iterable. Access attributes directly instead of unpacking as tuple.
+        # WavInfo is a dataclass, not iterable. Access attributes directly
+        # instead of unpacking as tuple.
         n_channels = info.channels
         sampwidth = info.sampwidth
         framerate = info.framerate
@@ -287,33 +296,33 @@ class ChunkManager:
             if end_byte_pos > file_size:
                 available_bytes = max(0, file_size - start_byte_pos)
                 if available_bytes == 0:
-                    print(
+                    logger.info(
                         (
-                            f"***VAD: chunk data not available yet "
-                            f"(file_size={file_size}, needed={end_byte_pos})"
-                        )
+                            "***VAD: chunk data not available yet "
+                            "(file_size=%s, needed=%s)"
+                        ),
+                        file_size,
+                        end_byte_pos,
                     )
                     return None
                 num_bytes = available_bytes
                 num_samples = available_bytes // bytes_per_frame
                 if num_samples == 0:
                     return None
-                print(
-                    (
-                        f"***VAD: warning - chunk file incomplete, "
-                        f"reading {num_bytes}/{end_sample - start_sample} bytes"
-                    )
+                logger.warning(
+                    ("***VAD: warning - chunk file incomplete, " "reading %s/%s bytes"),
+                    num_bytes,
+                    end_sample - start_sample,
                 )
 
             with open(self.reader.wav_path, "rb") as f_in:
                 f_in.seek(start_byte_pos)
                 raw_audio = f_in.read(num_bytes)
                 if len(raw_audio) != num_bytes:
-                    print(
-                        (
-                            f"***VAD: warning - read {len(raw_audio)} bytes, "
-                            f"expected {num_bytes}"
-                        )
+                    logger.warning(
+                        ("***VAD: warning - read %s bytes, " "expected %s"),
+                        len(raw_audio),
+                        num_bytes,
                     )
                     if len(raw_audio) == 0:
                         return None
@@ -328,5 +337,5 @@ class ChunkManager:
             mp3_path = convert_wav_to_mp3(chunk_path, delete_source=True)
             return mp3_path or chunk_path
         except Exception as e:
-            print(f"***VAD: error in manual chunk save: {e}")
+            logger.error("***VAD: error in manual chunk save: %s", e)
             return None

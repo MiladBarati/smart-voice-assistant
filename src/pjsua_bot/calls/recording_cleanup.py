@@ -4,12 +4,25 @@ Provides `_cleanup_recording` implementation extracted from the monolithic
 `AnyCall` to keep responsibilities smaller.
 """
 
+from __future__ import annotations
+
+import logging
 import os
 import time
 from datetime import datetime
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Callable
 
 from ..utils import convert_wav_to_mp3
+
+logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    import pjsua2 as pj
+else:
+    try:
+        import pjsua2 as pj  # pragma: no cover - depends on runtime env
+    except ModuleNotFoundError:  # pragma: no cover - depends on runtime env
+        pj = None
 
 
 class RecordingCleanupMixin:
@@ -17,36 +30,40 @@ class RecordingCleanupMixin:
 
     # Host-provided attributes (declared for type-checkers)
     _cleanup_done: bool
-    _vad: Optional[Any]
-    _asr: Optional[Any]
+    _vad: Any | None
+    _asr: Any | None
     _asr_chunk_texts: list[str]
     _last_transcribed_chunk_count: int
-    _collect_event: Any
+    _collect_event: Callable[..., None]
 
-    _recorder: Optional[Any]
-    _recording_call_media: Optional[Any]
-    _recording_start_time: Optional[datetime]
+    _recorder: Any | None
+    _recording_call_media: Any | None
+    _recording_start_time: datetime | None
     _recording_duration: float
     _recording_file: str
 
-    _outgoing_recorder: Optional[Any]
-    _outgoing_recording_call_media: Optional[Any]
-    _outgoing_recording_start_time: Optional[datetime]
+    _outgoing_recorder: Any | None
+    _outgoing_recording_call_media: Any | None
+    _outgoing_recording_start_time: datetime | None
     _outgoing_recording_duration: float
     _outgoing_recording_file: str
 
-    _mixed_recorder: Optional[Any]
-    _mixed_recording_start_time: Optional[datetime]
+    _mixed_recorder: Any | None
+    _mixed_recording_start_time: datetime | None
     _mixed_recording_duration: float
     _mixed_recording_file: str
-    _call_media: Optional[Any]
-    _player: Optional[Any]
+    _call_media: Any | None
+    _player: Any | None
+
+    if TYPE_CHECKING:
+
+        def isActive(self) -> bool: ...  # noqa: N802
 
     def _cleanup_recording(self) -> None:
         """Clean up recording resources safely."""
         # Prevent double cleanup
         if getattr(self, "_cleanup_done", False):
-            print("***Recording: cleanup already done, skipping")
+            logger.info("Recording: cleanup already done, skipping")
             return
         self._cleanup_done = True
 
@@ -89,21 +106,23 @@ class RecordingCleanupMixin:
             vad.finalize_all_chunks(time.time)
             chunks = vad.get_chunks()
             if chunks:
-                print(f"***VAD: finalized {len(chunks)} voice chunk(s) at call end")
+                logger.info("VAD: finalized %d voice chunk(s) at call end", len(chunks))
                 for i, chunk in enumerate(chunks):
                     file_info = (
                         f", saved to {chunk.file_path}"
                         if chunk.file_path
                         else ", file not saved"
                     )
-                    print(
-                        "***VAD: chunk "
-                        f"{i + 1} - duration={chunk.duration_seconds:.2f}s, "
-                        f"samples={chunk.start_sample_idx}-{chunk.end_sample_idx}"
-                        f"{file_info}"
+                    logger.info(
+                        "VAD: chunk %d - duration=%.2fs, samples=%d-%d%s",
+                        i + 1,
+                        chunk.duration_seconds,
+                        chunk.start_sample_idx,
+                        chunk.end_sample_idx,
+                        file_info,
                     )
         except Exception as e:
-            print(f"***VAD: error finalizing chunks: {e}")
+            logger.warning("VAD: error finalizing chunks: %s", e)
 
     def _finalize_asr_transcription(self) -> None:
         """Finalize ASR transcription at call end."""
@@ -125,11 +144,11 @@ class RecordingCleanupMixin:
                 self._wait_for_transcription_tasks()
                 full_text = self._get_final_transcription_text()
 
-            print(
-                f"***ASR: full transcription: {full_text if full_text else '[empty]'}"
+            logger.info(
+                "ASR: full transcription: %s", full_text if full_text else "[empty]"
             )
         except Exception as e:
-            print(f"***ASR: error during final transcription: {e}")
+            logger.warning("ASR: error during final transcription: %s", e)
 
     def _update_asr_availability(self) -> None:
         """Update ASR availability and start thread if needed."""
@@ -146,10 +165,8 @@ class RecordingCleanupMixin:
         # Update ASR state
         self._asr = asr_service
         self._asr_available = asr_available
-        if asr_available and not getattr(
-            self, "_asr_available_was_false", False
-        ):
-            print("***ASR: service became available during call")
+        if asr_available and not getattr(self, "_asr_available_was_false", False):
+            logger.info("ASR: service became available during call")
             # Start worker thread if not already started
             start_asr_thread = getattr(self, "_start_asr_thread", None)
             if start_asr_thread:
@@ -183,19 +200,18 @@ class RecordingCleanupMixin:
             timeout = 30.0  # Maximum wait time in seconds
             start_wait = time.time()
             # Wait for queue to be empty and all tasks to complete
-            while (
-                not asr_queue.empty() or asr_queue.unfinished_tasks > 0
-            ) and (time.time() - start_wait) < timeout:
+            while (not asr_queue.empty() or asr_queue.unfinished_tasks > 0) and (
+                time.time() - start_wait
+            ) < timeout:
                 time.sleep(0.1)
             # Warn if tasks remain after the timeout.
             if asr_queue.unfinished_tasks > 0:
-                print(
-                    "***ASR:",
-                    f"{asr_queue.unfinished_tasks} transcription task(s)",
-                    "still pending after timeout",
+                logger.warning(
+                    "ASR: %d transcription task(s) still pending after timeout",
+                    asr_queue.unfinished_tasks,
                 )
         except Exception as e:
-            print(f"***ASR: error waiting for transcription tasks: {e}")
+            logger.warning("ASR: error waiting for transcription tasks: %s", e)
 
     def _get_final_transcription_text(self) -> str:
         """Get final transcription text (thread-safe)."""
@@ -211,7 +227,7 @@ class RecordingCleanupMixin:
         """Check if call is still active."""
         try:
             if hasattr(self, "isActive"):
-                return self.isActive()
+                return bool(self.isActive())
         except Exception:
             # Call might be destroyed, assume inactive
             pass
@@ -219,7 +235,7 @@ class RecordingCleanupMixin:
 
     def _convert_recording_to_mp3(
         self, file_path: str, recording_type: str
-    ) -> Optional[str]:
+    ) -> str | None:
         """Convert recording file to MP3, with retry if file not found.
 
         Returns the MP3 path if successful, None otherwise.
@@ -229,43 +245,43 @@ class RecordingCleanupMixin:
 
         # Try immediate conversion
         if os.path.exists(file_path):
-            print(
-                f"***Recording: {recording_type} file confirmed to exist at {file_path}"
+            logger.info(
+                "Recording: %s file confirmed to exist at %s", recording_type, file_path
             )
             return self._attempt_mp3_conversion(file_path, recording_type)
 
         # File not found, wait and retry
-        print(
-            f"***Recording: WARNING - {recording_type} file not found at {file_path}"
-        )
+        logger.warning("Recording: %s file not found at %s", recording_type, file_path)
         time.sleep(0.5)
         if os.path.exists(file_path):
-            print(
-                f"***Recording: {recording_type} file found after delay at {file_path}"
+            logger.info(
+                "Recording: %s file found after delay at %s", recording_type, file_path
             )
             return self._attempt_mp3_conversion(file_path, recording_type)
         else:
-            print(f"***Recording: {recording_type} file still not found after delay")
+            logger.warning(
+                "Recording: %s file still not found after delay", recording_type
+            )
             return None
 
     def _attempt_mp3_conversion(
         self, file_path: str, recording_type: str
-    ) -> Optional[str]:
+    ) -> str | None:
         """Attempt to convert WAV file to MP3.
 
         Returns the MP3 path if successful, None otherwise.
         """
-        print(f"***Recording: attempting to convert {recording_type} WAV to MP3...")
+        logger.info("Recording: attempting to convert %s WAV to MP3...", recording_type)
         mp3_path = convert_wav_to_mp3(file_path, delete_source=True)
         if mp3_path:
-            print(
-                f"***Recording: {recording_type} file converted to MP3 at {mp3_path}"
+            logger.info(
+                "Recording: %s file converted to MP3 at %s", recording_type, mp3_path
             )
             return mp3_path
         else:
-            print(
-                "***Recording: MP3 conversion failed "
-                "(ffmpeg not available?), keeping WAV file"
+            logger.warning(
+                "Recording: MP3 conversion failed (ffmpeg not available?), "
+                "keeping WAV file"
             )
             return None
 
@@ -303,14 +319,15 @@ class RecordingCleanupMixin:
             if start_time is not None:
                 duration = (datetime.utcnow() - start_time).total_seconds()
                 setattr(self, duration_attr, duration)
-                print(
-                    f"***Recording: {recording_type} audio captured for "
-                    f"{duration:.2f} seconds"
+                logger.info(
+                    "Recording: %s audio captured for %.2f seconds",
+                    recording_type,
+                    duration,
                 )
 
             file_path = getattr(self, file_attr, None)
-            print(
-                f"***Recording: {recording_type} audio stopped and saved to {file_path}"
+            logger.info(
+                "Recording: %s audio stopped and saved to %s", recording_type, file_path
             )
 
             # Convert to MP3 if file exists
@@ -320,7 +337,9 @@ class RecordingCleanupMixin:
                     setattr(self, file_attr, mp3_path)
 
         except Exception as e:
-            print(f"***{recording_type.capitalize()} recording cleanup error: {e}")
+            logger.error(
+                "%s recording cleanup error: %s", recording_type.capitalize(), e
+            )
             # Collect recording cleanup error event
             try:
                 self._collect_event(
@@ -364,14 +383,12 @@ class RecordingCleanupMixin:
             if start_time is not None:
                 duration = (datetime.utcnow() - start_time).total_seconds()
                 self._mixed_recording_duration = duration
-                print(
-                    f"***Recording: mixed audio captured for {duration:.2f} seconds"
+                logger.info(
+                    "Recording: mixed audio captured for %.2f seconds", duration
                 )
 
             file_path = getattr(self, "_mixed_recording_file", None)
-            print(
-                f"***Recording: mixed audio stopped and saved to {file_path}"
-            )
+            logger.info("Recording: mixed audio stopped and saved to %s", file_path)
 
             # Convert to MP3 if file exists
             if file_path:
@@ -380,7 +397,7 @@ class RecordingCleanupMixin:
                     self._mixed_recording_file = mp3_path
 
         except Exception as e:
-            print(f"***Mixed recording cleanup error: {e}")
+            logger.error("Mixed recording cleanup error: %s", e)
             # Collect mixed recording cleanup error event
             try:
                 self._collect_event(

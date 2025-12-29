@@ -38,7 +38,7 @@ Simple keyword-based intent classification using pattern matching. Fast, lightwe
 #### Files Modified
 - `src/pjsua_bot/calls/any_call.py` - Added IntentHandlerMixin
 - `src/pjsua_bot/calls/mixins/__init__.py` - Export IntentHandlerMixin
-- `src/pjsua_bot/calls/mixins/playback_monitor.py` - Integrated intent classification
+- `src/pjsua_bot/calls/mixins/playback_monitor.py` - Integrated intent classification (refactored with state management classes for improved maintainability)
 - `src/pjsua_bot/account.py` - Added intent attributes
 - `src/pjsua_bot/register_bot.py` - Added CLI arguments
 

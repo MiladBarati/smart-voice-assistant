@@ -20,7 +20,7 @@ State Management:
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Callable, Optional, Union
 
 import numpy as np
 
@@ -28,21 +28,25 @@ import numpy as np
 try:
     import torch as _torch
 except Exception:  # pragma: no cover
-    _torch = None
+    _torch = None  # type: ignore[assignment]
 
 try:
     import onnxruntime
 except Exception:  # pragma: no cover
     onnxruntime = None
 
+if TYPE_CHECKING:
+    import torch
+    from onnxruntime import InferenceSession
+
 
 class VADInferenceEngine:
     """Handles VAD inference for both TorchScript and ONNX models.
-    
+
     Provides a unified interface for running VAD inference regardless of
     the underlying model format. Automatically handles state management
     for stateful ONNX models.
-    
+
     Example:
         engine = VADInferenceEngine(
             model=torchscript_model,
@@ -53,8 +57,13 @@ class VADInferenceEngine:
 
     def __init__(
         self,
-        model: Any = None,
-        onnx_session: Any = None,
+        model: Optional[
+            Union[
+                "torch.jit.ScriptModule",
+                Callable[[Union[np.ndarray, "torch.Tensor"], int], "torch.Tensor"],
+            ]
+        ] = None,
+        onnx_session: Optional["InferenceSession"] = None,
         use_onnx: bool = False,
     ):
         """Initialize inference engine.
@@ -94,9 +103,7 @@ class VADInferenceEngine:
         if self._onnx_session is None:
             return
 
-        self._onnx_input_names = [
-            inp.name for inp in self._onnx_session.get_inputs()
-        ]
+        self._onnx_input_names = [inp.name for inp in self._onnx_session.get_inputs()]
 
         if "h" in self._onnx_input_names and "c" in self._onnx_input_names:
             # Separate h and c states (Silero VAD v4/v5)
@@ -106,7 +113,9 @@ class VADInferenceEngine:
             # Combined state (older versions)
             self._onnx_state = np.zeros((2, 1, 128), dtype=np.float32)
 
-    def infer(self, frame: Any, sample_rate: int) -> float:
+    def infer(
+        self, frame: Union[np.ndarray, "torch.Tensor"], sample_rate: int
+    ) -> float:
         """Run VAD inference on a single frame.
 
         Args:
@@ -124,23 +133,29 @@ class VADInferenceEngine:
         else:
             return self._infer_torchscript(frame, sample_rate)
 
-    def _infer_torchscript(self, frame: Any, sample_rate: int) -> float:
+    def _infer_torchscript(
+        self, frame: Union[np.ndarray, "torch.Tensor"], sample_rate: int
+    ) -> float:
         """Run TorchScript model inference."""
         if self._model is None:
             raise RuntimeError("TorchScript model not initialized")
-        return self._model(frame, sample_rate).item()
+        return float(self._model(frame, sample_rate).item())
 
-    def _infer_onnx(self, frame: Any, sample_rate: int) -> float:
+    def _infer_onnx(
+        self, frame: Union[np.ndarray, "torch.Tensor"], sample_rate: int
+    ) -> float:
         """Run ONNX model inference."""
         if self._onnx_session is not None:
             return self._infer_onnx_session(frame, sample_rate)
         elif self._model is not None and callable(self._model):
             # ONNX callable wrapper
-            return self._model(frame, sample_rate).item()
+            return float(self._model(frame, sample_rate).item())
         else:
             raise RuntimeError("ONNX model not properly initialized")
 
-    def _infer_onnx_session(self, frame: Any, sample_rate: int) -> float:
+    def _infer_onnx_session(
+        self, frame: Union[np.ndarray, "torch.Tensor"], sample_rate: int
+    ) -> float:
         """Run inference using ONNX Runtime session."""
         if self._onnx_session is None:
             raise RuntimeError("ONNX session not initialized")
@@ -176,7 +191,7 @@ class VADInferenceEngine:
 
     def _build_onnx_inputs(
         self, frame_np: np.ndarray, sr_np: np.ndarray
-    ) -> dict[str, Any]:
+    ) -> dict[str, np.ndarray]:
         """Build ONNX input dictionary based on model requirements."""
         if self._onnx_input_names is None:
             raise RuntimeError("ONNX input names not initialized")
@@ -205,7 +220,7 @@ class VADInferenceEngine:
                 "sr": sr_np,
             }
 
-    def _update_onnx_states(self, outputs: list[Any]) -> None:
+    def _update_onnx_states(self, outputs: list[np.ndarray]) -> None:
         """Update ONNX hidden states from model outputs."""
         if self._onnx_input_names is None:
             return
@@ -220,4 +235,3 @@ class VADInferenceEngine:
             # Combined state output
             if len(outputs) > 1:
                 self._onnx_state = outputs[1]
-

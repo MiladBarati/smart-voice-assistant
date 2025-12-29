@@ -167,9 +167,11 @@ class ElasticsearchLogger:
         return self.client
 
     def _prepare_document(
-        self, base_fields: Dict[str, Any], additional_data: Optional[Dict[str, Any]] = None
+        self,
+        base_fields: Dict[str, Any],
+        additional_data: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Prepare document for indexing by adding common fields and removing None values."""
+        """Prepare document for indexing by adding common fields and removing None values."""  # noqa: E501
         doc = {
             "@timestamp": datetime.utcnow().isoformat() + "Z",
             "host": self.host,
@@ -265,9 +267,7 @@ class ElasticsearchLogger:
                     if "error" in item.get("index", {})
                 ]
                 if error_items:
-                    self.logger.error(
-                        f"Bulk operation had {len(error_items)} errors"
-                    )
+                    self.logger.error(f"Bulk operation had {len(error_items)} errors")
                     return False
 
             self.logger.debug(f"Successfully logged {len(events)} events in batch")

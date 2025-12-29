@@ -16,6 +16,7 @@ and easy to follow.
 
 from __future__ import annotations
 
+import logging
 import os
 import socket
 import time
@@ -32,6 +33,8 @@ else:
 
 from ...elasticsearch_client import es_logger
 from ...utils import convert_recording_path_to_url, generate_unique_id, parse_sip_user
+
+logger = logging.getLogger(__name__)
 
 
 class CallStateHandlerMixin:
@@ -160,9 +163,11 @@ class CallStateHandlerMixin:
         for direction, metadata in recording_metadata.items():
             file_path = str(metadata.get("file_path", ""))
             file_ext = os.path.splitext(file_path)[1]
-            print(
-                f"***Elasticsearch: sending {direction} recording as "
-                f"{file_ext.upper()} format: {file_path}"
+            logger.info(
+                "Elasticsearch: sending %s recording as %s format: %s",
+                direction,
+                file_ext.upper(),
+                file_path,
             )
 
     def _collect_vad_metrics(self) -> tuple[dict[str, Any] | None, float | None]:
@@ -183,7 +188,7 @@ class CallStateHandlerMixin:
             bot_talk_duration = self._vad.get_bot_playback_duration(time.time)
             return vad_metrics, bot_talk_duration
         except Exception as exc:
-            print(f"***Error calculating VAD metrics: {exc}")
+            logger.error("Error calculating VAD metrics: %s", exc, exc_info=True)
             return None, None
 
     def _get_bot_talk_duration(self) -> float:
@@ -198,9 +203,10 @@ class CallStateHandlerMixin:
             try:
                 self._stop_bot_playback_tracking()
             except Exception as exc:
-                print(
-                    "***Bot tracking: error finalizing "
-                    f"playback tracking: {exc}"
+                logger.error(
+                    "Bot tracking: error finalizing playback tracking: %s",
+                    exc,
+                    exc_info=True,
                 )
 
         # Fall back to manually tracked duration
@@ -208,7 +214,9 @@ class CallStateHandlerMixin:
             try:
                 return self._get_total_bot_talk_duration()
             except Exception as exc:
-                print(f"***Bot tracking: error getting total duration: {exc}")
+                logger.error(
+                    "Bot tracking: error getting total duration: %s", exc, exc_info=True
+                )
 
         return 0.0
 
@@ -226,7 +234,9 @@ class CallStateHandlerMixin:
             # Get transcription text thread-safely
             if asr_lock is not None:
                 with asr_lock:
-                    transcription_text = " ".join(t for t in asr_chunk_texts if t).strip()
+                    transcription_text = " ".join(
+                        t for t in asr_chunk_texts if t
+                    ).strip()
                     transcription_chunks = asr_chunk_texts.copy()
             else:
                 transcription_text = " ".join(t for t in asr_chunk_texts if t).strip()
@@ -234,14 +244,13 @@ class CallStateHandlerMixin:
 
             if transcription_text:
                 truncated = transcription_text[:100]
-                print(
-                    f"***ASR: including transcription in call record: "
-                    f"{truncated}..."
+                logger.info(
+                    "ASR: including transcription in call record: %s...", truncated
                 )
 
             return transcription_text, transcription_chunks
         except Exception as exc:
-            print(f"***Error collecting transcription: {exc}")
+            logger.error("Error collecting transcription: %s", exc, exc_info=True)
             return None, None
 
     def _collect_intent_data(self) -> dict[str, Any] | None:
@@ -264,7 +273,9 @@ class CallStateHandlerMixin:
             if intent_response_finished_time:
                 try:
                     finished_time_iso = (
-                        datetime.utcfromtimestamp(intent_response_finished_time).isoformat()
+                        datetime.utcfromtimestamp(
+                            intent_response_finished_time
+                        ).isoformat()
                         + "Z"
                     )
                 except Exception:
@@ -274,7 +285,9 @@ class CallStateHandlerMixin:
                 "classified": intent_classified,
                 "intent_name": classified_intent,
                 "confidence": (
-                    round(intent_confidence, 3) if intent_confidence is not None else None
+                    round(intent_confidence, 3)
+                    if intent_confidence is not None
+                    else None
                 ),
                 "response_played": intent_response_played,
                 "response_duration": (
@@ -286,15 +299,16 @@ class CallStateHandlerMixin:
             }
 
             if classified_intent:
-                print(
-                    f"***Intent: including intent classification "
-                    f"in call record: '{classified_intent}' "
-                    f"(confidence: {intent_confidence:.2f})"
+                logger.info(
+                    "Intent: including intent classification in call record: "
+                    "'%s' (confidence: %.2f)",
+                    classified_intent,
+                    intent_confidence,
                 )
 
             return intent_data
         except Exception as exc:
-            print(f"***Error collecting intent data: {exc}")
+            logger.error("Error collecting intent data: %s", exc, exc_info=True)
             return None
 
     def _calculate_call_timing(self) -> tuple[str | None, str, int | None]:
@@ -318,11 +332,10 @@ class CallStateHandlerMixin:
     ) -> tuple[bool, str | None, float]:
         """Calculate voice capture status, audio file path, and total duration."""
         has_incoming = self._recording_file and os.path.exists(self._recording_file)
-        has_outgoing = (
+        has_outgoing = self._outgoing_recording_file and os.path.exists(
             self._outgoing_recording_file
-            and os.path.exists(self._outgoing_recording_file)
         )
-        voice_captured = has_incoming or has_outgoing
+        voice_captured = bool(has_incoming or has_outgoing)
 
         # Get primary audio file path (prefer incoming, fallback to outgoing)
         primary_local_path = (
@@ -331,7 +344,9 @@ class CallStateHandlerMixin:
             else (self._outgoing_recording_file if has_outgoing else None)
         )
         audio_file_path = (
-            convert_recording_path_to_url(primary_local_path) if primary_local_path else None
+            convert_recording_path_to_url(primary_local_path)
+            if primary_local_path
+            else None
         )
 
         # Calculate total capture duration
@@ -395,7 +410,9 @@ class CallStateHandlerMixin:
                 {
                     "text": transcription_text,
                     "chunks": transcription_chunks,
-                    "chunk_count": len(transcription_chunks) if transcription_chunks else 0,
+                    "chunk_count": (
+                        len(transcription_chunks) if transcription_chunks else 0
+                    ),
                 }
                 if transcription_text
                 else None
@@ -416,18 +433,21 @@ class CallStateHandlerMixin:
             intent_events = [
                 event
                 for event in collected_events
-                if event.get("event_type") in ("intent_classified", "intent_response_played")
+                if event.get("event_type")
+                in ("intent_classified", "intent_response_played")
             ]
             if intent_events:
-                print(
-                    f"***Elasticsearch: sending {len(intent_events)} "
-                    f"intent events in batch"
+                logger.info(
+                    "Elasticsearch: sending %d intent events in batch",
+                    len(intent_events),
                 )
 
             es_logger.log_batch_events(collected_events)
-            print(f"***Elasticsearch: sent {len(collected_events)} collected events")
+            logger.info(
+                "Elasticsearch: sent %d collected events", len(collected_events)
+            )
         except Exception as exc:
-            print(f"***Error sending collected events: {exc}")
+            logger.error("Error sending collected events: %s", exc, exc_info=True)
 
     def _cleanup_call_references(self, ci: Any) -> None:
         """Remove call from account's call dictionary."""
@@ -454,7 +474,7 @@ class CallStateHandlerMixin:
             }
         except Exception as exc:
             # Safe fallback: clear everything if unknown
-            print(f"***Warning: error removing call from dict: {exc}")
+            logger.warning("Error removing call from dict: %s", exc, exc_info=True)
             self._acc_ref.calls = {
                 k: v for k, v in self._acc_ref.calls.items() if v is not self
             }
@@ -481,7 +501,9 @@ class CallStateHandlerMixin:
             vad_metrics, _ = self._collect_vad_metrics()
             bot_talk_duration = self._get_bot_talk_duration()
 
-            transcription_text, transcription_chunks = self._collect_transcription_data()
+            transcription_text, transcription_chunks = (
+                self._collect_transcription_data()
+            )
             intent_data = self._collect_intent_data()
 
             call_record = self._build_call_record(
@@ -503,7 +525,7 @@ class CallStateHandlerMixin:
             self._send_collected_events()
 
         except Exception as exc:
-            print(f"***Error sending single call record: {exc}")
+            logger.error("Error sending single call record: %s", exc, exc_info=True)
 
         # Cleanup: drop strong reference so GC can collect safely now
         self._cleanup_call_references(ci)
@@ -536,12 +558,14 @@ class CallStateHandlerMixin:
             ci = self.getInfo()
         except Exception as exc:
             # Call might already be destroyed, skip processing
-            print(
-                f"***CallState: error getting call info (call may be destroyed): {exc}"
+            logger.error(
+                "CallState: error getting call info (call may be destroyed): %s",
+                exc,
+                exc_info=True,
             )
             return
 
-        print(f"***CallState: state={ci.stateText} code={ci.lastStatusCode}")
+        logger.info("CallState: state=%s code=%s", ci.stateText, ci.lastStatusCode)
 
         # Collect call state change event
         self._collect_event(

@@ -128,30 +128,45 @@ class SileroModelLoader:
 
         # ONNX strategies (preferred for PyTorch 2.5+)
         for force_reload in [False, True]:
-            strategies.append({
-                "force_reload": force_reload,
-                "trust_repo": True,
-                "onnx": True,
-                "name": f"ONNX via torch.hub ({'force_reload' if force_reload else 'normal'})",
-            })
+            strategies.append(
+                {
+                    "force_reload": force_reload,
+                    "trust_repo": True,
+                    "onnx": True,
+                    "name": (
+                        f"ONNX via torch.hub "
+                        f"({'force_reload' if force_reload else 'normal'})"
+                    ),
+                }
+            )
 
         # TorchScript strategies with trust_repo
         for force_reload in [True, False]:
-            strategies.append({
-                "force_reload": force_reload,
-                "trust_repo": True,
-                "onnx": False,
-                "name": f"TorchScript {'force_reload' if force_reload else 'normal'} with trust_repo",
-            })
+            strategies.append(
+                {
+                    "force_reload": force_reload,
+                    "trust_repo": True,
+                    "onnx": False,
+                    "name": (
+                        f"TorchScript {'force_reload' if force_reload else 'normal'} "
+                        f"with trust_repo"
+                    ),
+                }
+            )
 
         # TorchScript fallback strategies (original behavior)
         for force_reload in [True, False]:
-            strategies.append({
-                "force_reload": force_reload,
-                "trust_repo": False,
-                "onnx": False,
-                "name": f"TorchScript {'force_reload' if force_reload else 'normal'} (fallback)",
-            })
+            strategies.append(
+                {
+                    "force_reload": force_reload,
+                    "trust_repo": False,
+                    "onnx": False,
+                    "name": (
+                        f"TorchScript {'force_reload' if force_reload else 'normal'} "
+                        f"(fallback)"
+                    ),
+                }
+            )
 
         return strategies
 
@@ -222,7 +237,9 @@ class SileroModelLoader:
         return kwargs
 
     @classmethod
-    def _handle_onnx_model(cls, instance: Any, model_result: Any, strategy: dict[str, Any]) -> bool:
+    def _handle_onnx_model(
+        cls, instance: Any, model_result: Any, strategy: dict[str, Any]
+    ) -> bool:
         """Handle ONNX model result from torch.hub.load.
 
         Args:
@@ -237,7 +254,9 @@ class SileroModelLoader:
             raise ImportError("ONNX Runtime not available")
 
         # Extract model from tuple if needed
-        onnx_model = model_result[0] if isinstance(model_result, tuple) else model_result
+        onnx_model = (
+            model_result[0] if isinstance(model_result, tuple) else model_result
+        )
 
         # Handle callable ONNX wrapper (most common case)
         if callable(onnx_model):
@@ -252,7 +271,9 @@ class SileroModelLoader:
         raise ValueError(f"ONNX model format not recognized: {type(onnx_model)}")
 
     @classmethod
-    def _set_onnx_wrapper(cls, instance: Any, model: Any, strategy: dict[str, Any]) -> None:
+    def _set_onnx_wrapper(
+        cls, instance: Any, model: Any, strategy: dict[str, Any]
+    ) -> None:
         """Set ONNX wrapper model on instance and cache.
 
         Args:
@@ -271,7 +292,9 @@ class SileroModelLoader:
         cls.initialize_onnx_states(instance)
 
     @classmethod
-    def _load_onnx_session(cls, instance: Any, model_path: str, strategy: dict[str, Any]) -> None:
+    def _load_onnx_session(
+        cls, instance: Any, model_path: str, strategy: dict[str, Any]
+    ) -> None:
         """Load ONNX model from file path using ONNX Runtime.
 
         Args:
@@ -281,7 +304,9 @@ class SileroModelLoader:
         """
         providers = cls.get_providers()
         log_onnx_providers(providers)
-        instance._onnx_session = onnxruntime.InferenceSession(model_path, providers=providers)
+        instance._onnx_session = onnxruntime.InferenceSession(
+            model_path, providers=providers
+        )
         log_onnx_model_info(instance._onnx_session)
         cls._shared_onnx_session = instance._onnx_session
         instance._use_onnx = True
@@ -293,7 +318,9 @@ class SileroModelLoader:
         cls.initialize_onnx_states(instance)
 
     @classmethod
-    def _handle_torchscript_model(cls, instance: Any, model_result: Any, strategy: dict[str, Any]) -> None:
+    def _handle_torchscript_model(
+        cls, instance: Any, model_result: Any, strategy: dict[str, Any]
+    ) -> None:
         """Handle TorchScript model result from torch.hub.load.
 
         Args:
@@ -316,7 +343,9 @@ class SileroModelLoader:
         log_model_loaded(strategy["name"], "TorchScript")
 
     @classmethod
-    def _try_strategy(cls, instance: Any, strategy: dict[str, Any], strategy_idx: int, total: int) -> bool:
+    def _try_strategy(
+        cls, instance: Any, strategy: dict[str, Any], strategy_idx: int, total: int
+    ) -> bool:
         """Try loading model with a specific strategy.
 
         Args:
@@ -398,6 +427,7 @@ class SileroModelLoader:
             return
 
         import numpy as np
+
         from .silero_diagnostics import (
             log_onnx_states_initialized,
             log_onnx_unknown_state_format,

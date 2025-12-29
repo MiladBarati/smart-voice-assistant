@@ -2,18 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Callable
-
-if TYPE_CHECKING:
-    import pjsua2 as pj
-else:
-    try:
-        import pjsua2 as pj  # pragma: no cover - depends on runtime env
-    except ModuleNotFoundError:  # pragma: no cover - depends on runtime env
-        pj = None
 
 from ...utils import (
     DEFAULT_RECORDING_PATH,
@@ -22,6 +15,16 @@ from ...utils import (
     parse_sip_user,
 )
 from ...vad import SileroVAD, VADConfig
+
+logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    import pjsua2 as pj
+else:
+    try:
+        import pjsua2 as pj  # pragma: no cover - depends on runtime env
+    except ModuleNotFoundError:  # pragma: no cover - depends on runtime env
+        pj = None
 
 
 class CallMediaHandlerMixin:
@@ -83,14 +86,12 @@ class CallMediaHandlerMixin:
                 remote_uri = call_info.remoteUri
                 caller_id = parse_sip_user(remote_uri) or "unknown"
                 self._caller_number = caller_id
-                print(f"***Recording: caller identified as {caller_id}")
+                logger.info(f"Recording: caller identified as {caller_id}")
             except Exception as exc:
-                print(f"***Recording: could not parse caller info: {exc}")
+                logger.warning(f"Recording: could not parse caller info: {exc}")
 
         # Create call-specific directory using timestamp and caller ID
-        call_dir_name = (
-            f"call_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{caller_id}"
-        )
+        call_dir_name = f"call_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{caller_id}"
         self._call_recording_dir = ensure_recording_directory(
             getattr(
                 self._acc_ref,
@@ -106,15 +107,20 @@ class CallMediaHandlerMixin:
         try:
             # Try with WAV format explicitly
             recorder.createRecorder(file_path, 0, 0)
-            print(f"***Recording: createRecorder succeeded for {file_path}")
+            logger.debug(f"Recording: createRecorder succeeded for {file_path}")
         except Exception as exc:
-            print(f"***Recording: createRecorder failed: {exc}")
+            logger.debug(f"Recording: createRecorder failed: {exc}")
             # Try fallback approach
             try:
                 recorder.createRecorder(file_path, 0, "")
-                print(f"***Recording: createRecorder succeeded with fallback for {file_path}")
+                logger.debug(
+                    f"Recording: createRecorder succeeded with fallback "
+                    f"for {file_path}"
+                )
             except Exception as exc_fallback:
-                print(f"***Recording: createRecorder failed with fallback: {exc_fallback}")
+                logger.error(
+                    f"Recording: createRecorder failed with fallback: {exc_fallback}"
+                )
                 raise exc_fallback
         return recorder
 
@@ -127,23 +133,23 @@ class CallMediaHandlerMixin:
             self._recording_file = os.path.join(
                 self._call_recording_dir, "incoming.wav"
             )
-            print(f"***Recording: full file path: {self._recording_file}")
+            logger.debug(f"Recording: full file path: {self._recording_file}")
 
             self._recorder = self._create_recorder(self._recording_file)
             call_media.startTransmit(self._recorder)  # remote → recorder
             self._recording_call_media = call_media
             self._recording_start_time = datetime.utcnow()
 
-            print(f"***Recording: started capturing to {self._recording_file}")
+            logger.info(f"Recording: started capturing to {self._recording_file}")
 
             # Initialize VAD when recording starts
             self._initialize_vad()
 
             # Verify recorder was created successfully
             if self._recorder:
-                print("***Recording: AudioMediaRecorder created successfully")
+                logger.debug("Recording: AudioMediaRecorder created successfully")
             else:
-                print("***Recording: ERROR - AudioMediaRecorder creation failed")
+                logger.error("Recording: ERROR - AudioMediaRecorder creation failed")
 
             # Collect recording started event
             self._collect_event(
@@ -156,7 +162,7 @@ class CallMediaHandlerMixin:
                 ),
             )
         except Exception as exc:
-            print(f"***Recording setup error: {exc}")
+            logger.error(f"Recording setup error: {exc}")
             self._collect_event(
                 event_type="recording_error",
                 media_type="audio",
@@ -181,8 +187,8 @@ class CallMediaHandlerMixin:
             self._outgoing_recorder = recorder
             self._outgoing_recording_start_time = datetime.utcnow()
 
-            print(
-                f"***Recording: started capturing outgoing audio to "
+            logger.info(
+                f"Recording: started capturing outgoing audio to "
                 f"{self._outgoing_recording_file}"
             )
 
@@ -197,7 +203,7 @@ class CallMediaHandlerMixin:
                 ),
             )
         except Exception as exc:
-            print(f"***Outgoing recording setup error: {exc}")
+            logger.error(f"Outgoing recording setup error: {exc}")
             self._collect_event(
                 event_type="outgoing_recording_error",
                 media_type="audio",
@@ -222,8 +228,8 @@ class CallMediaHandlerMixin:
             self._mixed_recorder = mixed_recorder
             self._mixed_recording_start_time = datetime.utcnow()
 
-            print(
-                f"***Recording: started capturing mixed audio to "
+            logger.info(
+                f"Recording: started capturing mixed audio to "
                 f"{self._mixed_recording_file} (incoming + outgoing)"
             )
 
@@ -238,7 +244,7 @@ class CallMediaHandlerMixin:
                 ),
             )
         except Exception as exc:
-            print(f"***Mixed recording setup error: {exc}")
+            logger.error(f"Mixed recording setup error: {exc}")
             self._collect_event(
                 event_type="mixed_recording_error",
                 media_type="audio",
@@ -265,12 +271,12 @@ class CallMediaHandlerMixin:
             )
 
             if self._vad.available:
-                print(f"***VAD: Silero initialized (threshold={vad_threshold})")
+                logger.info(f"VAD: Silero initialized (threshold={vad_threshold})")
             else:
                 error_msg = getattr(self._vad, "_load_error", "unknown error")
-                print(f"***VAD: unavailable - {error_msg}")
+                logger.warning(f"VAD: unavailable - {error_msg}")
         except Exception as exc:
-            print(f"***VAD init error: {exc}")
+            logger.error(f"VAD init error: {exc}")
 
     def _initialize_asr(self) -> None:
         """Initialize ASR (Automatic Speech Recognition) if enabled."""
@@ -286,10 +292,10 @@ class CallMediaHandlerMixin:
         )
 
         if self._asr_available:
-            print("***ASR: using account service (already loaded)")
+            logger.info("ASR: using account service (already loaded)")
             self._start_asr_thread()
         else:
-            print("***ASR: service not available (still loading or failed)")
+            logger.warning("ASR: service not available (still loading or failed)")
 
     def _setup_playback(self, call_media: Any, playback: Any) -> None:
         """Set up audio playback to remote side."""
@@ -300,7 +306,7 @@ class CallMediaHandlerMixin:
         try:
             # Verify file exists before attempting to play
             if not os.path.exists(play_file):
-                print(f"***Media player error: file not found: {play_file}")
+                logger.error(f"Media player error: file not found: {play_file}")
                 self._collect_event(
                     event_type="media_error",
                     media_type="audio",
@@ -311,9 +317,9 @@ class CallMediaHandlerMixin:
             player = pj.AudioMediaPlayer()
             try:
                 player.createPlayer(play_file, pj.PJMEDIA_FILE_NO_LOOP)
-                print(f"***Media: player created successfully for: {play_file}")
+                logger.debug(f"Media: player created successfully for: {play_file}")
             except Exception as exc:
-                print(f"***Media player error: failed to create player: {exc}")
+                logger.error(f"Media player error: failed to create player: {exc}")
                 self._collect_event(
                     event_type="media_error",
                     media_type="audio",
@@ -325,7 +331,7 @@ class CallMediaHandlerMixin:
             try:
                 player.startTransmit(call_media)  # file → remote
                 call_media.startTransmit(playback)  # remote → local speakers
-                print(f"***Media: playing file to remote: {play_file}")
+                logger.info(f"Media: playing file to remote: {play_file}")
                 self._player = player
 
                 # Set up recordings if enabled
@@ -336,15 +342,16 @@ class CallMediaHandlerMixin:
                 # Mark playback as started
                 if not self._playback_started:
                     self._playback_started = True
-                    print("***Welcome message playback started")
+                    logger.info("Welcome message playback started")
 
                     # Start tracking bot talk duration
                     if hasattr(self, "_start_bot_playback_tracking"):
                         try:
                             self._start_bot_playback_tracking()
                         except Exception as exc:
-                            print(
-                                f"***Bot tracking: error starting playback tracking: {exc}"
+                            logger.error(
+                                f"Bot tracking: error starting playback "
+                                f"tracking: {exc}"
                             )
 
                     # Notify VAD that bot playback started
@@ -352,7 +359,9 @@ class CallMediaHandlerMixin:
                         try:
                             self._vad.set_bot_playback_state(True, time.time)
                         except Exception as exc:
-                            print(f"***VAD: error notifying bot playback start: {exc}")
+                            logger.error(
+                                f"VAD: error notifying bot playback start: {exc}"
+                            )
 
                     # Collect playback started event
                     self._collect_event(
@@ -362,12 +371,10 @@ class CallMediaHandlerMixin:
                     )
 
                     # Set a timer to stop the player transmission
-                    message_duration = getattr(
-                        self._acc_ref, "message_duration", 5
-                    )
+                    message_duration = getattr(self._acc_ref, "message_duration", 5)
                     self._schedule_player_stop(message_duration)
-                    print(
-                        f"***Will stop player after {message_duration:.2f} seconds"
+                    logger.debug(
+                        f"Will stop player after {message_duration:.2f} seconds"
                     )
                     self._call_media = call_media
 
@@ -375,14 +382,14 @@ class CallMediaHandlerMixin:
                     self._initialize_asr()
 
             except Exception as exc:
-                print(f"***Media player error: failed to start transmission: {exc}")
+                logger.error(f"Media player error: failed to start transmission: {exc}")
                 self._collect_event(
                     event_type="media_error",
                     media_type="audio",
                     error=f"startTransmit failed: {exc}",
                 )
         except Exception as exc:
-            print(f"***Media player error: {exc}")
+            logger.error(f"Media player error: {exc}")
             self._collect_event(
                 event_type="media_error",
                 media_type="audio",
@@ -417,10 +424,10 @@ class CallMediaHandlerMixin:
                     capture = adm.getCaptureDevMedia()
                     call_media.startTransmit(playback)
                     capture.startTransmit(call_media)
-                    print("***Media: audio bridged to sound device")
+                    logger.info("Media: audio bridged to sound device")
 
                     # Start ASR worker thread if enabled
                     self._initialize_asr()
 
             except Exception as exc:
-                print(f"***Media error: {exc}")
+                logger.error(f"Media error: {exc}")
