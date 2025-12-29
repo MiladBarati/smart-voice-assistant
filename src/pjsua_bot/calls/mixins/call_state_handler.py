@@ -1,4 +1,18 @@
-"""`onCallState` handler extracted from the monolithic `AnyCall`."""
+"""`onCallState` handler extracted from the monolithic `AnyCall`.
+
+This module implements the PJSUA `onCallState` callback handler, which manages
+call state transitions and assembles comprehensive call records for Elasticsearch.
+
+The module has been refactored into focused helper methods for improved maintainability:
+- Recording metadata collection (incoming/outgoing/mixed)
+- VAD metrics and bot talk duration tracking
+- Transcription and intent data collection
+- Call record assembly and Elasticsearch logging
+- Call cleanup and reference management
+
+The main `onCallState` method orchestrates these helpers, keeping the logic simple
+and easy to follow.
+"""
 
 from __future__ import annotations
 
@@ -21,7 +35,26 @@ from ...utils import convert_recording_path_to_url, generate_unique_id, parse_si
 
 
 class CallStateHandlerMixin:
-    """Implements the PJSUA `onCallState` callback."""
+    """Implements the PJSUA `onCallState` callback.
+
+    This mixin handles call state changes and orchestrates the collection of call
+    metadata when calls disconnect. It's responsible for:
+
+    - Tracking call state transitions and emitting events
+    - Collecting recording metadata (incoming/outgoing/mixed)
+    - Gathering VAD metrics and bot talk duration
+    - Collecting transcription and intent classification data
+    - Building and sending comprehensive call records to Elasticsearch
+    - Cleaning up call references when calls end
+
+    The implementation is organized into focused helper methods:
+    - `_build_recording_metadata()`: Consolidates recording metadata collection
+    - `_collect_vad_metrics()`: Gathers VAD metrics and bot talk duration
+    - `_collect_transcription_data()`: Collects ASR transcription text
+    - `_collect_intent_data()`: Collects intent classification results
+    - `_build_call_record()`: Assembles the complete call record dictionary
+    - `_handle_call_disconnected()`: Orchestrates disconnection handling
+    """
 
     _acc_ref: Any
     _collect_event: Callable[..., None]
@@ -55,6 +88,448 @@ class CallStateHandlerMixin:
 
         def _cleanup_recording(self) -> None: ...
 
+    def _add_recording_metadata(
+        self,
+        recording_metadata: dict[str, Any],
+        file_path: str,
+        duration: float,
+        direction: str,
+        event_type: str,
+    ) -> None:
+        """Add recording metadata for a single recording direction."""
+        if not file_path or not os.path.exists(file_path):
+            return
+
+        file_size = os.path.getsize(file_path)
+        file_url = convert_recording_path_to_url(file_path)
+        capture_duration = round(duration, 2) if duration else 0
+
+        recording_metadata[direction] = {
+            "file_path": file_url,
+            "file_size_bytes": file_size,
+            "recorded": True,
+            "voice_captured": True,
+            "capture_duration": capture_duration,
+        }
+
+        self._collect_event(
+            event_type=event_type,
+            media_type="audio",
+            recording_file=file_url,
+            file_size_bytes=file_size,
+            direction=direction,
+            capture_duration=capture_duration,
+        )
+
+    def _build_recording_metadata(self) -> dict[str, Any]:
+        """Build recording metadata for all recording types."""
+        recording_metadata: dict[str, Any] = {}
+
+        self._add_recording_metadata(
+            recording_metadata,
+            self._recording_file,
+            self._recording_duration,
+            "incoming",
+            "recording_finished",
+        )
+
+        self._add_recording_metadata(
+            recording_metadata,
+            self._outgoing_recording_file,
+            self._outgoing_recording_duration,
+            "outgoing",
+            "outgoing_recording_finished",
+        )
+
+        self._add_recording_metadata(
+            recording_metadata,
+            self._mixed_recording_file,
+            self._mixed_recording_duration,
+            "mixed",
+            "mixed_recording_finished",
+        )
+
+        if recording_metadata:
+            self._recording_metadata = recording_metadata
+            self._log_recording_formats(recording_metadata)
+
+        return recording_metadata
+
+    def _log_recording_formats(self, recording_metadata: dict[str, Any]) -> None:
+        """Log file formats being sent to Elasticsearch."""
+        for direction, metadata in recording_metadata.items():
+            file_path = str(metadata.get("file_path", ""))
+            file_ext = os.path.splitext(file_path)[1]
+            print(
+                f"***Elasticsearch: sending {direction} recording as "
+                f"{file_ext.upper()} format: {file_path}"
+            )
+
+    def _collect_vad_metrics(self) -> tuple[dict[str, Any] | None, float | None]:
+        """Collect VAD metrics and bot talk duration."""
+        if not (self._vad and self._vad.available):
+            return None, None
+
+        try:
+            self._vad.finalize_silence_tracking(time.time)
+
+            vad_metrics = {
+                "speech_duration": self._vad.get_speech_duration(),
+                "chunk_count": self._vad.get_chunk_count(),
+                "vad_confidence": self._vad.get_vad_confidence(),
+                "silence_duration": self._vad.get_silence_duration(time.time),
+            }
+
+            bot_talk_duration = self._vad.get_bot_playback_duration(time.time)
+            return vad_metrics, bot_talk_duration
+        except Exception as exc:
+            print(f"***Error calculating VAD metrics: {exc}")
+            return None, None
+
+    def _get_bot_talk_duration(self) -> float:
+        """Get bot talk duration from VAD or fallback to manual tracking."""
+        # Try VAD first (preferred, more accurate)
+        _, bot_talk_duration = self._collect_vad_metrics()
+        if bot_talk_duration is not None:
+            return bot_talk_duration
+
+        # Finalize any ongoing bot playback session
+        if hasattr(self, "_stop_bot_playback_tracking"):
+            try:
+                self._stop_bot_playback_tracking()
+            except Exception as exc:
+                print(
+                    "***Bot tracking: error finalizing "
+                    f"playback tracking: {exc}"
+                )
+
+        # Fall back to manually tracked duration
+        if hasattr(self, "_get_total_bot_talk_duration"):
+            try:
+                return self._get_total_bot_talk_duration()
+            except Exception as exc:
+                print(f"***Bot tracking: error getting total duration: {exc}")
+
+        return 0.0
+
+    def _collect_transcription_data(
+        self,
+    ) -> tuple[str | None, list[str] | None]:
+        """Collect transcription text and chunks if ASR was enabled."""
+        try:
+            asr_chunk_texts = getattr(self, "_asr_chunk_texts", [])
+            asr_lock = getattr(self, "_asr_lock", None)
+
+            if not asr_chunk_texts:
+                return None, None
+
+            # Get transcription text thread-safely
+            if asr_lock is not None:
+                with asr_lock:
+                    transcription_text = " ".join(t for t in asr_chunk_texts if t).strip()
+                    transcription_chunks = asr_chunk_texts.copy()
+            else:
+                transcription_text = " ".join(t for t in asr_chunk_texts if t).strip()
+                transcription_chunks = asr_chunk_texts.copy()
+
+            if transcription_text:
+                truncated = transcription_text[:100]
+                print(
+                    f"***ASR: including transcription in call record: "
+                    f"{truncated}..."
+                )
+
+            return transcription_text, transcription_chunks
+        except Exception as exc:
+            print(f"***Error collecting transcription: {exc}")
+            return None, None
+
+    def _collect_intent_data(self) -> dict[str, Any] | None:
+        """Collect intent classification data if available."""
+        try:
+            intent_classified = getattr(self, "_intent_classified", False)
+            if not intent_classified:
+                return None
+
+            classified_intent = getattr(self, "_classified_intent", None)
+            intent_confidence = getattr(self, "_intent_confidence", None)
+            intent_response_played = getattr(self, "_intent_response_played", False)
+            intent_response_duration = getattr(self, "_intent_response_duration", None)
+            intent_response_finished_time = getattr(
+                self, "_intent_response_finished_time", None
+            )
+
+            # Convert finished time from float timestamp to ISO format
+            finished_time_iso = None
+            if intent_response_finished_time:
+                try:
+                    finished_time_iso = (
+                        datetime.utcfromtimestamp(intent_response_finished_time).isoformat()
+                        + "Z"
+                    )
+                except Exception:
+                    pass  # If conversion fails, leave as None
+
+            intent_data = {
+                "classified": intent_classified,
+                "intent_name": classified_intent,
+                "confidence": (
+                    round(intent_confidence, 3) if intent_confidence is not None else None
+                ),
+                "response_played": intent_response_played,
+                "response_duration": (
+                    round(intent_response_duration, 2)
+                    if intent_response_duration is not None
+                    else None
+                ),
+                "response_finished_time": finished_time_iso,
+            }
+
+            if classified_intent:
+                print(
+                    f"***Intent: including intent classification "
+                    f"in call record: '{classified_intent}' "
+                    f"(confidence: {intent_confidence:.2f})"
+                )
+
+            return intent_data
+        except Exception as exc:
+            print(f"***Error collecting intent data: {exc}")
+            return None
+
+    def _calculate_call_timing(self) -> tuple[str | None, str, int | None]:
+        """Calculate call start, end, and duration."""
+        self._end_time_utc = datetime.utcnow()
+        start_iso = (
+            self._start_time_utc.isoformat() + "Z" if self._start_time_utc else None
+        )
+        end_iso = self._end_time_utc.isoformat() + "Z"
+
+        duration_sec = None
+        if self._start_time_utc:
+            duration_sec = int(
+                (self._end_time_utc - self._start_time_utc).total_seconds()
+            )
+
+        return start_iso, end_iso, duration_sec
+
+    def _calculate_voice_capture_info(
+        self, duration_sec: int | None
+    ) -> tuple[bool, str | None, float]:
+        """Calculate voice capture status, audio file path, and total duration."""
+        has_incoming = self._recording_file and os.path.exists(self._recording_file)
+        has_outgoing = (
+            self._outgoing_recording_file
+            and os.path.exists(self._outgoing_recording_file)
+        )
+        voice_captured = has_incoming or has_outgoing
+
+        # Get primary audio file path (prefer incoming, fallback to outgoing)
+        primary_local_path = (
+            self._recording_file
+            if has_incoming
+            else (self._outgoing_recording_file if has_outgoing else None)
+        )
+        audio_file_path = (
+            convert_recording_path_to_url(primary_local_path) if primary_local_path else None
+        )
+
+        # Calculate total capture duration
+        total_capture_duration = 0.0
+        if has_incoming and self._recording_duration:
+            total_capture_duration += self._recording_duration
+        if has_outgoing and self._outgoing_recording_duration:
+            total_capture_duration += self._outgoing_recording_duration
+
+        # Cap capture duration to not exceed call duration
+        if duration_sec and total_capture_duration > duration_sec:
+            total_capture_duration = duration_sec
+
+        return voice_captured, audio_file_path, total_capture_duration
+
+    def _build_call_record(
+        self,
+        start_iso: str | None,
+        end_iso: str,
+        duration_sec: int | None,
+        recording_metadata: dict[str, Any],
+        voice_captured: bool,
+        audio_file_path: str | None,
+        total_capture_duration: float,
+        vad_metrics: dict[str, Any] | None,
+        bot_talk_duration: float,
+        transcription_text: str | None,
+        transcription_chunks: list[str] | None,
+        intent_data: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Build the complete call record dictionary."""
+        return {
+            "event_type": "call_record",
+            "call_id": generate_unique_id(),
+            "caller_number": self._caller_number,
+            "callee_ext": self._callee_ext,
+            "start_time": start_iso,
+            "end_time": end_iso,
+            "duration_sec": duration_sec,
+            "status": "disconnected",
+            "direction": self._direction or "inbound",
+            "media": {
+                "file_played": getattr(self._acc_ref, "play_file", None),
+                "playback_started": self._playback_started,
+                "playback_finished": self._playback_finished,
+            },
+            "recording": recording_metadata if recording_metadata else None,
+            "voice_captured": voice_captured,
+            "audio_file_path": audio_file_path,
+            "capture_duration": (
+                round(total_capture_duration, 2) if total_capture_duration > 0 else 0
+            ),
+            "vad": vad_metrics,
+            "bot": {
+                "auto_answer": getattr(self._acc_ref, "auto_answer", False),
+                "domain": getattr(self._acc_ref, "domain", None),
+                "user": getattr(self._acc_ref, "username", None),
+                "talk_duration": round(bot_talk_duration, 2),
+            },
+            "transcription": (
+                {
+                    "text": transcription_text,
+                    "chunks": transcription_chunks,
+                    "chunk_count": len(transcription_chunks) if transcription_chunks else 0,
+                }
+                if transcription_text
+                else None
+            ),
+            "intent": intent_data if intent_data else None,
+            "host": socket.gethostname(),
+            "ingest_ts": datetime.utcnow().isoformat() + "Z",
+        }
+
+    def _send_collected_events(self) -> None:
+        """Send collected events to Elasticsearch."""
+        try:
+            collected_events = getattr(self, "_collected_events", [])
+            if not collected_events:
+                return
+
+            # Filter for intent-related events for logging
+            intent_events = [
+                event
+                for event in collected_events
+                if event.get("event_type") in ("intent_classified", "intent_response_played")
+            ]
+            if intent_events:
+                print(
+                    f"***Elasticsearch: sending {len(intent_events)} "
+                    f"intent events in batch"
+                )
+
+            es_logger.log_batch_events(collected_events)
+            print(f"***Elasticsearch: sent {len(collected_events)} collected events")
+        except Exception as exc:
+            print(f"***Error sending collected events: {exc}")
+
+    def _cleanup_call_references(self, ci: Any) -> None:
+        """Remove call from account's call dictionary."""
+        try:
+            call_id_to_remove = getattr(self, "_pjsua_call_id", None)
+            if (
+                call_id_to_remove is not None
+                and call_id_to_remove in self._acc_ref.calls
+            ):
+                del self._acc_ref.calls[call_id_to_remove]
+                return
+
+            # Fallback: try to get ID from call info if still valid
+            try:
+                if hasattr(ci, "id") and ci.id in self._acc_ref.calls:
+                    del self._acc_ref.calls[ci.id]
+                    return
+            except Exception:
+                pass
+
+            # Final fallback: remove by object reference
+            self._acc_ref.calls = {
+                k: v for k, v in self._acc_ref.calls.items() if v is not self
+            }
+        except Exception as exc:
+            # Safe fallback: clear everything if unknown
+            print(f"***Warning: error removing call from dict: {exc}")
+            self._acc_ref.calls = {
+                k: v for k, v in self._acc_ref.calls.items() if v is not self
+            }
+
+    def _handle_call_disconnected(self, ci: Any) -> None:
+        """Handle call disconnection: collect data and send call record."""
+        # Stop ASR worker thread (cleanup_recording will wait for pending tasks)
+        self._stop_asr_thread()
+        # Clean up recording early to avoid media disconnect issues
+        self._cleanup_recording()
+
+        # Build recording metadata FIRST, before sending call record
+        recording_metadata = self._build_recording_metadata()
+
+        # Build call record and send as a single log
+        try:
+            start_iso, end_iso, duration_sec = self._calculate_call_timing()
+
+            voice_captured, audio_file_path, total_capture_duration = (
+                self._calculate_voice_capture_info(duration_sec)
+            )
+
+            # Collect VAD metrics (this also gets bot_talk_duration from VAD)
+            vad_metrics, _ = self._collect_vad_metrics()
+            bot_talk_duration = self._get_bot_talk_duration()
+
+            transcription_text, transcription_chunks = self._collect_transcription_data()
+            intent_data = self._collect_intent_data()
+
+            call_record = self._build_call_record(
+                start_iso=start_iso,
+                end_iso=end_iso,
+                duration_sec=duration_sec,
+                recording_metadata=recording_metadata,
+                voice_captured=voice_captured,
+                audio_file_path=audio_file_path,
+                total_capture_duration=total_capture_duration,
+                vad_metrics=vad_metrics,
+                bot_talk_duration=bot_talk_duration,
+                transcription_text=transcription_text,
+                transcription_chunks=transcription_chunks,
+                intent_data=intent_data,
+            )
+
+            es_logger.log_call_record(call_record)
+            self._send_collected_events()
+
+        except Exception as exc:
+            print(f"***Error sending single call record: {exc}")
+
+        # Cleanup: drop strong reference so GC can collect safely now
+        self._cleanup_call_references(ci)
+        # Also release any active player
+        self._player = None
+
+    def _update_call_timing(self, ci: Any) -> None:
+        """Update call start time if not already set."""
+        if self._start_time_utc is None and ci.connectDuration.sec == 0:
+            self._start_time_utc = datetime.utcnow()
+
+        if ci.state == pj.PJSIP_INV_STATE_CONFIRMED and self._start_time_utc is None:
+            self._start_time_utc = datetime.utcnow()
+
+    def _update_call_identifiers(self, ci: Any) -> None:
+        """Fill caller/callee and direction from call info."""
+        try:
+            remote_uri = ci.remoteUri
+            local_uri = ci.localUri
+            self._caller_number = parse_sip_user(remote_uri)
+            self._callee_ext = parse_sip_user(local_uri)
+            # If this account auto-answers incoming -> inbound
+            self._direction = "inbound"
+        except Exception:
+            pass
+
     def onCallState(self, prm: Any) -> None:  # noqa: N802 - PJSUA2 callback name
         """Handle call state changes."""
         try:
@@ -65,6 +540,7 @@ class CallStateHandlerMixin:
                 f"***CallState: error getting call info (call may be destroyed): {exc}"
             )
             return
+
         print(f"***CallState: state={ci.stateText} code={ci.lastStatusCode}")
 
         # Collect call state change event
@@ -77,448 +553,10 @@ class CallStateHandlerMixin:
             last_status_code=ci.lastStatusCode,
         )
 
-        # Mark start when early state observed
-        if self._start_time_utc is None and ci.connectDuration.sec == 0:
-            self._start_time_utc = datetime.utcnow()
+        # Update call timing and identifiers
+        self._update_call_timing(ci)
+        self._update_call_identifiers(ci)
 
-        if ci.state == pj.PJSIP_INV_STATE_CONFIRMED and self._start_time_utc is None:
-            self._start_time_utc = datetime.utcnow()
-
-        # Fill caller/callee and direction from call info
-        try:
-            remote_uri = ci.remoteUri
-            local_uri = ci.localUri
-            self._caller_number = parse_sip_user(remote_uri)
-            self._callee_ext = parse_sip_user(local_uri)
-            # If this account auto-answers incoming -> inbound
-            self._direction = "inbound"
-        except Exception:
-            pass
-
+        # Handle disconnection
         if ci.state == pj.PJSIP_INV_STATE_DISCONNECTED:
-            # Stop ASR worker thread (cleanup_recording will wait for pending tasks)
-            self._stop_asr_thread()
-            # Clean up recording early to avoid media disconnect issues
-            self._cleanup_recording()
-
-            # Build recording metadata FIRST, before sending call record
-            recording_metadata: dict[str, Any] = {}
-
-            # Add incoming recording metadata
-            if self._recording_file and os.path.exists(self._recording_file):
-                incoming_file_size = os.path.getsize(self._recording_file)
-                # Convert local path to URL for logs
-                incoming_file_url = convert_recording_path_to_url(self._recording_file)
-                recording_metadata["incoming"] = {
-                    "file_path": incoming_file_url,
-                    "file_size_bytes": incoming_file_size,
-                    "recorded": True,
-                    "voice_captured": True,
-                    "capture_duration": (
-                        round(self._recording_duration, 2)
-                        if self._recording_duration
-                        else 0
-                    ),
-                }
-
-                # Collect incoming recording finished event
-                self._collect_event(
-                    event_type="recording_finished",
-                    media_type="audio",
-                    recording_file=incoming_file_url,
-                    file_size_bytes=incoming_file_size,
-                    direction="incoming",
-                    capture_duration=(
-                        round(self._recording_duration, 2)
-                        if self._recording_duration
-                        else 0
-                    ),
-                )
-
-            # Add outgoing recording metadata
-            if self._outgoing_recording_file and os.path.exists(
-                self._outgoing_recording_file
-            ):
-                outgoing_file_size = os.path.getsize(self._outgoing_recording_file)
-                # Convert local path to URL for logs
-                outgoing_file_url = convert_recording_path_to_url(
-                    self._outgoing_recording_file
-                )
-                recording_metadata["outgoing"] = {
-                    "file_path": outgoing_file_url,
-                    "file_size_bytes": outgoing_file_size,
-                    "recorded": True,
-                    "voice_captured": True,
-                    "capture_duration": (
-                        round(self._outgoing_recording_duration, 2)
-                        if self._outgoing_recording_duration
-                        else 0
-                    ),
-                }
-
-                # Collect outgoing recording finished event
-                self._collect_event(
-                    event_type="outgoing_recording_finished",
-                    media_type="audio",
-                    recording_file=outgoing_file_url,
-                    file_size_bytes=outgoing_file_size,
-                    direction="outgoing",
-                    capture_duration=(
-                        round(self._outgoing_recording_duration, 2)
-                        if self._outgoing_recording_duration
-                        else 0
-                    ),
-                )
-
-            # Add mixed recording metadata (incoming + outgoing combined)
-            if self._mixed_recording_file and os.path.exists(
-                self._mixed_recording_file
-            ):
-                mixed_file_size = os.path.getsize(self._mixed_recording_file)
-                # Convert local path to URL for logs
-                mixed_file_url = convert_recording_path_to_url(
-                    self._mixed_recording_file
-                )
-                recording_metadata["mixed"] = {
-                    "file_path": mixed_file_url,
-                    "file_size_bytes": mixed_file_size,
-                    "recorded": True,
-                    "voice_captured": True,
-                    "capture_duration": (
-                        round(self._mixed_recording_duration, 2)
-                        if self._mixed_recording_duration
-                        else 0
-                    ),
-                }
-
-                # Collect mixed recording finished event
-                self._collect_event(
-                    event_type="mixed_recording_finished",
-                    media_type="audio",
-                    recording_file=mixed_file_url,
-                    file_size_bytes=mixed_file_size,
-                    direction="mixed",
-                    capture_duration=(
-                        round(self._mixed_recording_duration, 2)
-                        if self._mixed_recording_duration
-                        else 0
-                    ),
-                )
-
-            # Store recording metadata for call record
-            if recording_metadata:
-                self._recording_metadata = recording_metadata
-
-            # Log what file formats are being sent to Elasticsearch
-            if recording_metadata:
-                for direction, metadata in recording_metadata.items():
-                    file_path = str(metadata.get("file_path", ""))
-                    file_ext = os.path.splitext(file_path)[1]
-                    print(
-                        (
-                            f"***Elasticsearch: sending {direction} recording as "
-                            f"{file_ext.upper()} format: {file_path}"
-                        )
-                    )
-
-            # Build call record and send as a single log
-            try:
-                self._end_time_utc = datetime.utcnow()
-                start_iso = (
-                    self._start_time_utc.isoformat() + "Z"
-                    if self._start_time_utc
-                    else None
-                )
-                end = self._end_time_utc
-                assert end is not None
-                end_iso = end.isoformat() + "Z"
-                duration_sec = None
-                if self._start_time_utc:
-                    duration_sec = int(
-                        (self._end_time_utc - self._start_time_utc).total_seconds()
-                    )
-
-                # Determine voice capture status and details
-                has_incoming_recording = self._recording_file and os.path.exists(
-                    self._recording_file
-                )
-                has_outgoing_recording = (
-                    self._outgoing_recording_file
-                    and os.path.exists(self._outgoing_recording_file)
-                )
-                voice_captured = has_incoming_recording or has_outgoing_recording
-
-                # Get primary audio file path (prefer incoming, fallback to outgoing)
-                # Convert local paths to URLs for logs
-                primary_local_path = (
-                    self._recording_file
-                    if has_incoming_recording
-                    else (
-                        self._outgoing_recording_file
-                        if has_outgoing_recording
-                        else None
-                    )
-                )
-                audio_file_path = (
-                    convert_recording_path_to_url(primary_local_path)
-                    if primary_local_path
-                    else None
-                )
-
-                # Calculate total capture duration
-                total_capture_duration = 0.0
-                if has_incoming_recording and self._recording_duration:
-                    total_capture_duration += self._recording_duration
-                if has_outgoing_recording and self._outgoing_recording_duration:
-                    total_capture_duration += self._outgoing_recording_duration
-
-                # Cap capture duration to not exceed call duration
-                if duration_sec and total_capture_duration > duration_sec:
-                    total_capture_duration = duration_sec
-
-                # Collect VAD metrics if VAD was enabled and available
-                vad_metrics = None
-                bot_talk_duration = None
-                if self._vad and self._vad.available:
-                    try:
-                        # Finalize silence tracking at call end
-                        self._vad.finalize_silence_tracking(time.time)
-
-                        speech_duration = self._vad.get_speech_duration()
-                        chunk_count = self._vad.get_chunk_count()
-                        vad_confidence = self._vad.get_vad_confidence()
-                        silence_duration = self._vad.get_silence_duration(time.time)
-                        bot_talk_duration = self._vad.get_bot_playback_duration(
-                            time.time
-                        )
-
-                        vad_metrics = {
-                            "speech_duration": speech_duration,
-                            "chunk_count": chunk_count,
-                            "vad_confidence": vad_confidence,
-                            "silence_duration": silence_duration,
-                        }
-                    except Exception as exc:
-                        print(f"***Error calculating VAD metrics: {exc}")
-
-                # Finalize any ongoing bot playback session
-                if hasattr(self, "_stop_bot_playback_tracking"):
-                    try:
-                        self._stop_bot_playback_tracking()
-                    except Exception as exc:
-                        print(
-                            "***Bot tracking: error finalizing "
-                            f"playback tracking: {exc}"
-                        )
-
-                # Use VAD's bot talk duration if available (preferred, more accurate),
-                # otherwise fall back to manually tracked duration
-                if bot_talk_duration is None:
-                    if hasattr(self, "_get_total_bot_talk_duration"):
-                        try:
-                            bot_talk_duration = self._get_total_bot_talk_duration()
-                        except Exception as exc:
-                            print(
-                                f"***Bot tracking: error getting total duration: {exc}"
-                            )
-                            bot_talk_duration = 0.0
-                    else:
-                        bot_talk_duration = 0.0
-
-                # Ensure bot_talk_duration is always a number (never None)
-                if bot_talk_duration is None:
-                    bot_talk_duration = 0.0
-
-                # Collect transcription text if ASR was enabled
-                transcription_text = None
-                transcription_chunks = None
-                try:
-                    asr_chunk_texts = getattr(self, "_asr_chunk_texts", [])
-                    asr_lock = getattr(self, "_asr_lock", None)
-
-                    # Get transcription text thread-safely
-                    if asr_lock is not None:
-                        with asr_lock:
-                            if asr_chunk_texts:
-                                transcription_text = " ".join(
-                                    t for t in asr_chunk_texts if t
-                                ).strip()
-                                transcription_chunks = asr_chunk_texts.copy()
-                    else:
-                        if asr_chunk_texts:
-                            transcription_text = " ".join(
-                                t for t in asr_chunk_texts if t
-                            ).strip()
-                            transcription_chunks = asr_chunk_texts.copy()
-
-                    if transcription_text:
-                        truncated = transcription_text[:100]
-                        print(
-                            f"***ASR: including transcription in call record: "
-                            f"{truncated}..."
-                        )
-                except Exception as exc:
-                    print(f"***Error collecting transcription: {exc}")
-
-                # Collect intent classification data if available
-                intent_data = None
-                try:
-                    intent_classified = getattr(self, "_intent_classified", False)
-                    if intent_classified:
-                        classified_intent = getattr(self, "_classified_intent", None)
-                        intent_confidence = getattr(self, "_intent_confidence", None)
-                        intent_response_played = getattr(
-                            self, "_intent_response_played", False
-                        )
-                        intent_response_duration = getattr(
-                            self, "_intent_response_duration", None
-                        )
-                        intent_response_finished_time = getattr(
-                            self, "_intent_response_finished_time", None
-                        )
-
-                        # Convert finished time from float timestamp to ISO format
-                        finished_time_iso = None
-                        if intent_response_finished_time:
-                            try:
-                                finished_time_iso = (
-                                    datetime.utcfromtimestamp(
-                                        intent_response_finished_time
-                                    ).isoformat()
-                                    + "Z"
-                                )
-                            except Exception:
-                                pass  # If conversion fails, leave as None
-
-                        intent_data = {
-                            "classified": intent_classified,
-                            "intent_name": classified_intent,
-                            "confidence": (
-                                round(intent_confidence, 3)
-                                if intent_confidence is not None
-                                else None
-                            ),
-                            "response_played": intent_response_played,
-                            "response_duration": (
-                                round(intent_response_duration, 2)
-                                if intent_response_duration is not None
-                                else None
-                            ),
-                            "response_finished_time": finished_time_iso,
-                        }
-
-                        if classified_intent:
-                            print(
-                                f"***Intent: including intent classification "
-                                f"in call record: '{classified_intent}' "
-                                f"(confidence: {intent_confidence:.2f})"
-                            )
-                except Exception as exc:
-                    print(f"***Error collecting intent data: {exc}")
-
-                call_record = {
-                    "event_type": "call_record",
-                    "call_id": generate_unique_id(),
-                    "caller_number": self._caller_number,
-                    "callee_ext": self._callee_ext,
-                    "start_time": start_iso,
-                    "end_time": end_iso,
-                    "duration_sec": duration_sec,
-                    "status": "disconnected",
-                    "direction": self._direction or "inbound",
-                    "media": {
-                        "file_played": getattr(self._acc_ref, "play_file", None),
-                        "playback_started": self._playback_started,
-                        "playback_finished": self._playback_finished,
-                    },
-                    "recording": (
-                        self._recording_metadata if recording_metadata else None
-                    ),
-                    "voice_captured": voice_captured,
-                    "audio_file_path": audio_file_path,
-                    "capture_duration": (
-                        round(total_capture_duration, 2)
-                        if total_capture_duration > 0
-                        else 0
-                    ),
-                    "vad": vad_metrics,  # Add VAD metrics to call record
-                    "bot": {
-                        "auto_answer": getattr(self._acc_ref, "auto_answer", False),
-                        "domain": getattr(self._acc_ref, "domain", None),
-                        "user": getattr(self._acc_ref, "username", None),
-                        "talk_duration": round(bot_talk_duration, 2),
-                    },
-                    "transcription": (
-                        {
-                            "text": transcription_text,
-                            "chunks": transcription_chunks,
-                            "chunk_count": (
-                                len(transcription_chunks) if transcription_chunks else 0
-                            ),
-                        }
-                        if transcription_text
-                        else None
-                    ),
-                    "intent": intent_data if intent_data else None,
-                    "host": socket.gethostname(),
-                    "ingest_ts": datetime.utcnow().isoformat() + "Z",
-                }
-                es_logger.log_call_record(call_record)
-
-                # Send collected events (including intent events) to Elasticsearch
-                try:
-                    collected_events = getattr(self, "_collected_events", [])
-                    if collected_events:
-                        # Filter for intent-related events if needed, or send all events
-                        intent_events = [
-                            event
-                            for event in collected_events
-                            if event.get("event_type")
-                            in ("intent_classified", "intent_response_played")
-                        ]
-                        if intent_events:
-                            print(
-                                f"***Elasticsearch: sending {len(intent_events)} "
-                                f"intent events in batch"
-                            )
-                        if collected_events:
-                            es_logger.log_batch_events(collected_events)
-                            print(
-                                f"***Elasticsearch: sent {len(collected_events)} "
-                                f"collected events"
-                            )
-                except Exception as exc:
-                    print(f"***Error sending collected events: {exc}")
-
-            except Exception as exc:
-                print(f"***Error sending single call record: {exc}")
-
-            # cleanup: drop strong reference so GC can collect safely now
-            # Use stored call_id instead of ci.id to avoid assertion failure
-            # when call is already destroyed
-            try:
-                call_id_to_remove = getattr(self, "_pjsua_call_id", None)
-                if (
-                    call_id_to_remove is not None
-                    and call_id_to_remove in self._acc_ref.calls
-                ):
-                    del self._acc_ref.calls[call_id_to_remove]
-                else:
-                    # Fallback: try to get ID from call info if still valid
-                    try:
-                        if hasattr(ci, "id") and ci.id in self._acc_ref.calls:
-                            del self._acc_ref.calls[ci.id]
-                    except Exception:
-                        pass
-                    # Final fallback: remove by object reference
-                    self._acc_ref.calls = {
-                        k: v for k, v in self._acc_ref.calls.items() if v is not self
-                    }
-            except Exception as exc:
-                # Safe fallback: clear everything if unknown
-                print(f"***Warning: error removing call from dict: {exc}")
-                self._acc_ref.calls = {
-                    k: v for k, v in self._acc_ref.calls.items() if v is not self
-                }
-            # also release any active player
-            self._player = None
+            self._handle_call_disconnected(ci)
