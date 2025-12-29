@@ -88,21 +88,16 @@ class ElasticsearchLogger:
     def _connect(self) -> bool:
         """Establish connection to Elasticsearch."""
         try:
-            # Try different connection methods
             connection_url = (
                 f"{'https' if self.use_ssl else 'http'}://{self.host}:{self.port}"
             )
 
-            # Configure client for Elasticsearch 7.x/8.x servers
-            # Using elasticsearch-py 7.17.x which defaults to API version 7/8
             auth = (
                 (self.username, self.password)
                 if self.username and self.password
                 else None
             )
 
-            # Simple configuration - elasticsearch-py 7.17.x should work with
-            # ES 7.x/8.x servers
             self.client = Elasticsearch(
                 [connection_url],
                 http_auth=auth,
@@ -112,58 +107,108 @@ class ElasticsearchLogger:
                 max_retries=1,
             )
 
-            # Test connection with cluster info instead of ping
-            try:
-                # Try to get cluster info instead of ping (more reliable)
-                if self.client is None:
-                    raise RuntimeError("Elasticsearch client not initialized")
-                cluster_info = self.client.info()
-                if cluster_info:
-                    self.connected = True
-                    cluster_name = cluster_info.get("cluster_name", "unknown")
-                    version = cluster_info.get("version", {}).get("number", "unknown")
-                    self.logger.info(
-                        (
-                            "Connected to Elasticsearch cluster "
-                            f"'{cluster_name}' (v{version}) at {self.host}:{self.port}"
-                        )
-                    )
-                    return True
-                else:
-                    self.logger.error("Failed to get cluster info from Elasticsearch")
-                    return False
-            except Exception as info_error:
-                self.logger.error(f"Cluster info failed with error: {info_error}")
-                # Fallback to ping if info() fails
-                try:
-                    if self.client is None:
-                        return False
-                    ping_result = self.client.ping()
-                    if ping_result:
-                        self.connected = True
-                        self.logger.info(
-                            "Connected to Elasticsearch at %s:%s (via ping)",
-                            self.host,
-                            self.port,
-                        )
-                        return True
-                    else:
-                        self.logger.error("Both cluster info and ping failed")
-                        return False
-                except Exception as ping_error:
-                    self.logger.error(
-                        f"Both cluster info and ping failed: {info_error}, {ping_error}"
-                    )
-                    return False
+            # Try cluster info first, fallback to ping
+            if self._test_connection():
+                return True
+            return False
 
         except Exception as e:
             self.logger.error(f"Failed to create Elasticsearch client: {e}")
             self.connected = False
             return False
 
-    def _get_index_name(self, doc_type: str = "call") -> str:
+    def _test_connection(self) -> bool:
+        """Test connection using cluster info, with ping fallback."""
+        if self.client is None:
+            return False
+
+        # Try cluster info first (more reliable)
+        try:
+            cluster_info = self.client.info()
+            if cluster_info:
+                self.connected = True
+                cluster_name = cluster_info.get("cluster_name", "unknown")
+                version = cluster_info.get("version", {}).get("number", "unknown")
+                self.logger.info(
+                    f"Connected to Elasticsearch cluster '{cluster_name}' "
+                    f"(v{version}) at {self.host}:{self.port}"
+                )
+                return True
+        except Exception as info_error:
+            self.logger.error(f"Cluster info failed: {info_error}")
+
+        # Fallback to ping
+        try:
+            if self.client.ping():
+                self.connected = True
+                self.logger.info(
+                    f"Connected to Elasticsearch at {self.host}:{self.port} (via ping)"
+                )
+                return True
+        except Exception as ping_error:
+            self.logger.error(f"Ping failed: {ping_error}")
+
+        return False
+
+    def _get_index_name(self) -> str:
         """Generate unified index name for all logs."""
         return self.index_prefix
+
+    def _ensure_connected(self) -> bool:
+        """Ensure connection to Elasticsearch is established."""
+        if not self.connected:
+            return self._connect()
+        return True
+
+    def _get_client(self) -> Optional[Elasticsearch]:
+        """Get Elasticsearch client, ensuring connection is established."""
+        if not self._ensure_connected():
+            return None
+        return self.client
+
+    def _prepare_document(
+        self, base_fields: Dict[str, Any], additional_data: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Prepare document for indexing by adding common fields and removing None values."""
+        doc = {
+            "@timestamp": datetime.utcnow().isoformat() + "Z",
+            "host": self.host,
+            "service": "pjsua2",
+            **base_fields,
+        }
+
+        if additional_data:
+            doc.update(additional_data)
+
+        # Remove None values
+        return {k: v for k, v in doc.items() if v is not None}
+
+    def _log_event(
+        self, doc: Dict[str, Any], event_type: str, error_context: str = "event"
+    ) -> bool:
+        """Generic method to log an event to Elasticsearch."""
+        client = self._get_client()
+        if client is None:
+            return False
+
+        try:
+            response = client.index(
+                index=self._get_index_name(),
+                document=doc,
+                refresh=False,
+            )
+            self.logger.debug(f"Logged {event_type} event: {response['_id']}")
+            return True
+        except ConnectionError as e:
+            self.logger.error(f"Elasticsearch connection error: {e}")
+            self.connected = False
+            return False
+        except RequestError as e:
+            self.logger.error(f"Elasticsearch request error: {e}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Error logging {error_context}: {e}")
+            return False
 
     def log_call_record(self, call_record: Dict[str, Any]) -> bool:
         """Index a structured call record document matching the requested schema.
@@ -172,24 +217,17 @@ class ElasticsearchLogger:
         - call_id, caller_number, callee_ext, start_time, end_time,
           duration_sec, status, direction, media, bot, host, ingest_ts
         """
-        if not self.connected:
-            if not self._connect():
-                return False
+        client = self._get_client()
+        if client is None:
+            return False
 
         try:
-            # Ensure timestamps and ingest_ts are ISO8601 and present
             doc = dict(call_record) if call_record else {}
             if "ingest_ts" not in doc:
                 doc["ingest_ts"] = datetime.utcnow().isoformat() + "Z"
-            # Provide host if missing
             doc.setdefault("host", self.host)
 
-            # Use unified index for all logs
-            index_name = self._get_index_name()
-            client = self.client
-            if client is None:
-                return False
-            client.index(index=index_name, document=doc, refresh=False)
+            client.index(index=self._get_index_name(), document=doc, refresh=False)
             return True
         except Exception as e:
             self.logger.error(f"Error logging call record: {e}")
@@ -197,55 +235,42 @@ class ElasticsearchLogger:
 
     def log_batch_events(self, events: list) -> bool:
         """Log multiple events in a single batch operation for better performance."""
-        if not self.connected:
-            if not self._connect():
-                return False
-
         if not events:
             return True
 
-        try:
-            # Prepare bulk operations
-            bulk_operations = []
-            for event in events:
-                doc_type = event.get("doc_type", "call")
+        client = self._get_client()
+        if client is None:
+            return False
 
-                # Ensure timestamp is present
+        try:
+            bulk_operations = []
+            index_name = self._get_index_name()
+            for event in events:
                 if "@timestamp" not in event:
                     event["@timestamp"] = datetime.utcnow().isoformat() + "Z"
-
-                # Add host if missing
                 event.setdefault("host", self.host)
 
-                # Create bulk operation
-                bulk_operations.append(
-                    {"index": {"_index": self._get_index_name(doc_type)}}
-                )
+                bulk_operations.append({"index": {"_index": index_name}})
                 bulk_operations.append(event)
 
-            # Execute bulk operation
-            if bulk_operations:
-                client = self.client
-                if client is None:
-                    return False
-                response = client.bulk(body=bulk_operations, refresh=False)
-
-                # Check for errors
-                if response.get("errors"):
-                    error_items = [
-                        item
-                        for item in response["items"]
-                        if "error" in item.get("index", {})
-                    ]
-                    if error_items:
-                        self.logger.error(
-                            f"Bulk operation had {len(error_items)} errors"
-                        )
-                        return False
-
-                self.logger.debug(f"Successfully logged {len(events)} events in batch")
+            if not bulk_operations:
                 return True
 
+            response = client.bulk(body=bulk_operations, refresh=False)
+
+            if response.get("errors"):
+                error_items = [
+                    item
+                    for item in response["items"]
+                    if "error" in item.get("index", {})
+                ]
+                if error_items:
+                    self.logger.error(
+                        f"Bulk operation had {len(error_items)} errors"
+                    )
+                    return False
+
+            self.logger.debug(f"Successfully logged {len(events)} events in batch")
             return True
 
         except Exception as e:
@@ -280,56 +305,17 @@ class ElasticsearchLogger:
         Returns:
             True if successfully logged, False otherwise
         """
-        if not self.connected:
-            if not self._connect():
-                return False
-
-        try:
-            # Prepare document
-            doc = {
-                "@timestamp": datetime.utcnow().isoformat() + "Z",
-                "event_type": event_type,
-                "call_id": call_id,
-                "call_state": call_state,
-                "call_code": call_code,
-                "remote_uri": remote_uri,
-                "local_uri": local_uri,
-                "duration": duration,
-                "host": self.host,
-                "service": "pjsua2",
-            }
-
-            # Add additional data if provided
-            if additional_data:
-                doc.update(additional_data)
-
-            # Remove None values
-            doc = {k: v for k, v in doc.items() if v is not None}
-
-            # Index the document in unified index
-            index_name = self._get_index_name()
-            client = self.client
-            if client is None:
-                return False
-            response = client.index(
-                index=index_name,
-                document=doc,
-                refresh=False,  # Don't wait for refresh for better performance
-            )
-
-            self.logger.debug(f"Logged {event_type} event: {response['_id']}")
-            return True
-
-        except ConnectionError as e:
-            self.logger.error(f"Elasticsearch connection error: {e}")
-            self.connected = False
-            return False
-        except RequestError as e:
-            self.logger.error(f"Elasticsearch request error: {e}")
-            return False
-        except Exception as e:
-            self.logger.error(f"Unexpected error logging to Elasticsearch: {e}")
-            return False
+        base_fields = {
+            "event_type": event_type,
+            "call_id": call_id,
+            "call_state": call_state,
+            "call_code": call_code,
+            "remote_uri": remote_uri,
+            "local_uri": local_uri,
+            "duration": duration,
+        }
+        doc = self._prepare_document(base_fields, additional_data)
+        return self._log_event(doc, event_type, "call event")
 
     def log_registration_event(
         self,
@@ -355,43 +341,15 @@ class ElasticsearchLogger:
         Returns:
             True if successfully logged, False otherwise
         """
-        if not self.connected:
-            if not self._connect():
-                return False
-
-        try:
-            # Prepare document
-            doc = {
-                "@timestamp": datetime.utcnow().isoformat() + "Z",
-                "event_type": event_type,
-                "user": user,
-                "domain": domain,
-                "status": status,
-                "code": code,
-                "host": self.host,
-                "service": "pjsua2",
-            }
-
-            # Add additional data if provided
-            if additional_data:
-                doc.update(additional_data)
-
-            # Remove None values
-            doc = {k: v for k, v in doc.items() if v is not None}
-
-            # Index the document in unified index
-            index_name = self._get_index_name()
-            client = self.client
-            if client is None:
-                return False
-            response = client.index(index=index_name, document=doc, refresh=False)
-
-            self.logger.debug(f"Logged {event_type} event: {response['_id']}")
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error logging registration event: {e}")
-            return False
+        base_fields = {
+            "event_type": event_type,
+            "user": user,
+            "domain": domain,
+            "status": status,
+            "code": code,
+        }
+        doc = self._prepare_document(base_fields, additional_data)
+        return self._log_event(doc, event_type, "registration event")
 
     def log_media_event(
         self,
@@ -417,43 +375,15 @@ class ElasticsearchLogger:
         Returns:
             True if successfully logged, False otherwise
         """
-        if not self.connected:
-            if not self._connect():
-                return False
-
-        try:
-            # Prepare document
-            doc = {
-                "@timestamp": datetime.utcnow().isoformat() + "Z",
-                "event_type": event_type,
-                "call_id": call_id,
-                "media_type": media_type,
-                "media_status": media_status,
-                "file_played": file_played,
-                "host": self.host,
-                "service": "pjsua2",
-            }
-
-            # Add additional data if provided
-            if additional_data:
-                doc.update(additional_data)
-
-            # Remove None values
-            doc = {k: v for k, v in doc.items() if v is not None}
-
-            # Index the document in unified index
-            index_name = self._get_index_name()
-            client = self.client
-            if client is None:
-                return False
-            response = client.index(index=index_name, document=doc, refresh=False)
-
-            self.logger.debug(f"Logged {event_type} event: {response['_id']}")
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error logging media event: {e}")
-            return False
+        base_fields = {
+            "event_type": event_type,
+            "call_id": call_id,
+            "media_type": media_type,
+            "media_status": media_status,
+            "file_played": file_played,
+        }
+        doc = self._prepare_document(base_fields, additional_data)
+        return self._log_event(doc, event_type, "media event")
 
     def log_voice_capture_event(
         self,
@@ -479,43 +409,15 @@ class ElasticsearchLogger:
         Returns:
             True if successfully logged, False otherwise
         """
-        if not self.connected:
-            if not self._connect():
-                return False
-
-        try:
-            # Prepare document
-            doc = {
-                "@timestamp": datetime.utcnow().isoformat() + "Z",
-                "event_type": event_type,
-                "call_id": call_id,
-                "voice_captured": voice_captured,
-                "audio_file_path": audio_file_path,
-                "capture_duration": capture_duration,
-                "host": self.host,
-                "service": "pjsua2",
-            }
-
-            # Add additional data if provided
-            if additional_data:
-                doc.update(additional_data)
-
-            # Remove None values
-            doc = {k: v for k, v in doc.items() if v is not None}
-
-            # Index the document in unified index
-            index_name = self._get_index_name()
-            client = self.client
-            if client is None:
-                return False
-            response = client.index(index=index_name, document=doc, refresh=False)
-
-            self.logger.debug(f"Logged {event_type} event: {response['_id']}")
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error logging voice capture event: {e}")
-            return False
+        base_fields = {
+            "event_type": event_type,
+            "call_id": call_id,
+            "voice_captured": voice_captured,
+            "audio_file_path": audio_file_path,
+            "capture_duration": capture_duration,
+        }
+        doc = self._prepare_document(base_fields, additional_data)
+        return self._log_event(doc, event_type, "voice capture event")
 
     def log_intent_event(
         self,
@@ -543,70 +445,31 @@ class ElasticsearchLogger:
         Returns:
             True if successfully logged, False otherwise
         """
-        if not self.connected:
-            if not self._connect():
-                return False
-
-        try:
-            # Prepare document
-            doc = {
-                "@timestamp": datetime.utcnow().isoformat() + "Z",
-                "event_type": event_type,
-                "call_id": call_id,
-                "intent": intent,
-                "confidence": confidence,
-                "audio_file": audio_file,
-                "transcription_length": transcription_length,
-                "host": self.host,
-                "service": "pjsua2",
-            }
-
-            # Add additional data if provided
-            if additional_data:
-                doc.update(additional_data)
-
-            # Remove None values
-            doc = {k: v for k, v in doc.items() if v is not None}
-
-            # Index the document in unified index
-            index_name = self._get_index_name()
-            client = self.client
-            if client is None:
-                return False
-            response = client.index(index=index_name, document=doc, refresh=False)
-
-            self.logger.debug(f"Logged {event_type} event: {response['_id']}")
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error logging intent event: {e}")
-            return False
+        base_fields = {
+            "event_type": event_type,
+            "call_id": call_id,
+            "intent": intent,
+            "confidence": confidence,
+            "audio_file": audio_file,
+            "transcription_length": transcription_length,
+        }
+        doc = self._prepare_document(base_fields, additional_data)
+        return self._log_event(doc, event_type, "intent event")
 
     def health_check(self) -> Dict[str, Any]:
         """Check Elasticsearch cluster health."""
-        if not self.connected:
-            # Try to reconnect
-            if self._connect():
-                pass  # Connection successful, continue with health check
-            else:
-                return {
-                    "status": "disconnected",
-                    "error": "Not connected to Elasticsearch",
-                }
+        client = self._get_client()
+        if client is None:
+            return {
+                "status": "disconnected",
+                "error": "Not connected to Elasticsearch",
+            }
 
         try:
-            # Get cluster info first
-            client = self.client
-            if client is None:
-                return {
-                    "status": "disconnected",
-                    "error": "Not connected to Elasticsearch",
-                }
             cluster_info = client.info()
             cluster_name = cluster_info.get("cluster_name", "unknown")
             version = cluster_info.get("version", {}).get("number", "unknown")
 
-            # Get cluster health
             health = client.cluster.health()
             return {
                 "status": "connected",
