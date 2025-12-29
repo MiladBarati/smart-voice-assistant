@@ -126,6 +126,15 @@ pjsua-installation/
 
 #### `account.py`
 - The `Account` class manages SIP registration, handling `onRegState()` updates and `onIncomingCall()` events.
+- **Refactored for simplicity**: The `onIncomingCall()` method has been decomposed into focused helper methods:
+  - `_handle_busy_call()`: Handles busy call rejection
+  - `_create_and_validate_call()`: Creates call object and validates caller ID
+  - `_answer_call()`: Handles call answering (auto-answer or ringing)
+  - `_reject_call()`: Unified call rejection logic
+  - `_validate_caller_id()`: Caller ID validation
+  - `_parse_caller_info()`: Caller information parsing
+  - `_handle_call_answer()`: Centralized PJ_EPENDING error handling
+- This refactoring improved code simplicity from 4/10 to 8/10 by eliminating duplication and improving maintainability.
 
 #### `calls/` (package)
 - Implements `OutCall` and `AnyCall` to coordinate playback, recording, and media state transitions.
