@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 import wave
 from typing import List, Optional, Tuple, cast
 
@@ -268,12 +269,11 @@ class ChunkManager:
 
         info = self.reader.manual_wav_info
         assert info is not None
-        if any(x is None for x in info):
-            return None
-
-        n_channels, sampwidth, framerate, data_offset = cast(
-            Tuple[int, int, int, int], info
-        )
+        # WavInfo is a dataclass, not iterable. Access attributes directly instead of unpacking as tuple.
+        n_channels = info.channels
+        sampwidth = info.sampwidth
+        framerate = info.framerate
+        data_offset = info.data_offset
 
         try:
             file_size = os.path.getsize(self.reader.wav_path)
