@@ -1,9 +1,15 @@
-# Fixes Applied for Docker Container Issues
+# Fixes Applied
 
 ## Problems Identified
 
+### Docker Container Issues
+
 1. **Recording Directory Permissions**: Container couldn't write to `./artifacts/recordings` directory
 2. **ASR Model Loading Failure**: Model checkpoint couldn't be loaded after download
+
+### VAD WavInfo Iteration Bug
+
+3. **WavInfo Iteration Error**: `'WavInfo' object is not iterable` error in VAD chunk processing
 
 ## Fixes Applied
 
@@ -72,4 +78,32 @@ docker logs -f sipbot
 2. Verify cache permissions: `ls -ld ./cache` (should show owner 1000)
 3. Clear cache and restart (see step 2 above)
 4. Check available disk space: `df -h`
+
+## VAD WavInfo Iteration Bug Fix
+
+### Problem
+The `ChunkManager._save_chunk_audio_manual()` method attempted to iterate over a `WavInfo` dataclass and unpack it as a tuple, causing `'WavInfo' object is not iterable` errors during VAD processing.
+
+### Root Cause
+- `WavInfo` is a dataclass (not iterable) defined in `src/pjsua_bot/vad/audio_reader.py`
+- Code incorrectly tried: `if any(x is None for x in info):` (iteration)
+- Code incorrectly tried: `n_channels, sampwidth, framerate, data_offset = cast(Tuple[int, int, int, int], info)` (tuple unpacking)
+
+### Fix Applied (`src/pjsua_bot/vad/chunk_manager.py`)
+- Removed iteration attempt
+- Replaced tuple unpacking with direct attribute access:
+  ```python
+  n_channels = info.channels
+  sampwidth = info.sampwidth
+  framerate = info.framerate
+  data_offset = info.data_offset
+  ```
+
+### Impact
+- ✅ Resolves `'WavInfo' object is not iterable` errors
+- ✅ VAD chunk processing works correctly with manual WAV parsing
+- ✅ No functional changes, only corrects dataclass usage
+
+### Files Modified
+- `src/pjsua_bot/vad/chunk_manager.py` (lines 270-276)
 
