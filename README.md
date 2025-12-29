@@ -390,10 +390,15 @@ pjsua-installation/
 │       │   └── ollama_classifier.py # LLM-based classifier using Ollama
 │       └── vad/                     # Voice Activity Detection modules
 │           ├── __init__.py          # VAD package exports
-│           ├── silero.py            # Silero VAD implementation
-│           ├── audio_reader.py      # Audio stream reading
-│           ├── chunk_manager.py     # Voice chunk management
-│           ├── silence.py           # Silence tracking
+│           ├── silero.py            # Main Silero VAD orchestrator
+│           ├── silero_model_loader.py # Model loading with fallback strategies
+│           ├── inference_engine.py   # VAD inference (TorchScript/ONNX)
+│           ├── audio_preprocessor.py # Audio preprocessing (resampling, gain)
+│           ├── audio_reader.py      # Streaming WAV file reading
+│           ├── chunk_manager.py     # Voice chunk detection and management
+│           ├── silence.py           # Silence tracking and bot playback
+│           ├── throttled_logger.py  # Time-based log throttling utility
+│           ├── silero_diagnostics.py # Diagnostic logging functions
 │           ├── types.py             # VAD type definitions
 │           └── config.py            # VAD configuration
 ├── examples/                    # Usage examples
@@ -462,6 +467,14 @@ pjsua-installation/
   - `Account` class with registration and incoming call handling
   - Event-driven callback system for call state changes
   - Busy call rejection and caller ID validation
+  - **Refactored architecture**: Modular helper methods for improved maintainability:
+    - `_handle_busy_call()`: Busy call handling
+    - `_create_and_validate_call()`: Call creation and validation
+    - `_answer_call()`: Call answering logic
+    - `_reject_call()`: Unified rejection handling
+    - `_validate_caller_id()`: Caller ID validation
+    - `_parse_caller_info()`: Caller information parsing
+    - `_handle_call_answer()`: Error handling for call operations
 
 - **`register_bot.py`** (~300 lines): Main entry point and CLI
   - Comprehensive CLI argument parsing with 35+ options
@@ -557,12 +570,19 @@ pjsua-installation/
 
 #### Voice Activity Detection Package (`src/pjsua_bot/vad/`)
 
-- **`silero.py`**: Silero VAD implementation
-- **`audio_reader.py`**: Audio stream processing
-- **`chunk_manager.py`**: Voice chunk management
-- **`silence.py`**: Silence tracking
-- **`config.py`**: VAD configuration
-- **`types.py`**: VAD type definitions
+The VAD package provides a modular architecture for voice activity detection:
+
+- **`silero.py`**: Main Silero VAD orchestrator - coordinates all components
+- **`silero_model_loader.py`**: Model loading with multiple fallback strategies (TorchScript/ONNX)
+- **`inference_engine.py`**: VAD inference engine supporting both TorchScript and ONNX backends
+- **`audio_preprocessor.py`**: Audio preprocessing (tensor conversion, gain adjustment, resampling)
+- **`audio_reader.py`**: Streaming WAV file reading with incremental frame processing
+- **`chunk_manager.py`**: Voice chunk detection, boundary management, and file saving
+- **`silence.py`**: Silence tracking and bot playback state management
+- **`throttled_logger.py`**: Time-based log throttling utility to reduce spam
+- **`silero_diagnostics.py`**: Structured diagnostic logging functions
+- **`config.py`**: VAD configuration (thresholds, sample rates, chunk durations)
+- **`types.py`**: VAD type definitions (VoiceChunk, etc.)
 
 ### Importing and Using Modules
 
@@ -600,6 +620,7 @@ main()
 ### Features
 - **[Audio Playback](docs/AUDIO_PLAYBACK.md)** - Playing WAV files and automatic duration detection
 - **[Voice Recording](docs/VOICE_CAPTURE_IMPLEMENTATION.md)** - Recording incoming/outgoing audio streams
+- **[Voice Activity Detection](docs/VAD_ARCHITECTURE.md)** - VAD architecture and implementation details
 - **[Intent Classification](docs/INTENT_CLASSIFICATION_IMPLEMENTATION_GUIDE.md)** - AI-powered FAQ response system (NEW!)
 
 ### Integration & Testing
