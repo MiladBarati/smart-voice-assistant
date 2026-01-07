@@ -73,6 +73,11 @@ class PlaybackMonitorMixin:
 
     _asr_complete: bool
 
+    # Time tracking attributes - must be Optional[float] for mixin compatibility
+    _hangup_time: float | None
+    _welcome_finished_time: float | None
+    _stop_player_time: float | None
+
     if TYPE_CHECKING:
 
         def check_goodbye_status(self) -> None: ...
@@ -105,7 +110,7 @@ class PlaybackMonitorMixin:
         self._intent_state = IntentState()
         self._goodbye_state = GoodbyeState()
         self._time_state = TimeState()
-        
+
         # ASR State
         self._asr_chunk_offset = 0
 
@@ -184,13 +189,18 @@ class PlaybackMonitorMixin:
                 last_asr_wait_log_time=getattr(self, "_last_asr_wait_log_time", 0.0),
             )
         else:
-            # Sync from attributes in case they were updated externally
-            # Only sync if attribute exists and state object value is None (to avoid overwriting state object values)
+            # Sync from attributes if updated externally (avoid overwriting)
             if hasattr(self, "_hangup_time") and self._time_state.hangup_time is None:
                 self._time_state.hangup_time = self._hangup_time
-            if hasattr(self, "_stop_player_time") and self._time_state.stop_player_time is None:
+            if (
+                hasattr(self, "_stop_player_time")
+                and self._time_state.stop_player_time is None
+            ):
                 self._time_state.stop_player_time = self._stop_player_time
-            if hasattr(self, "_welcome_finished_time") and self._time_state.welcome_finished_time is None:
+            if (
+                hasattr(self, "_welcome_finished_time")
+                and self._time_state.welcome_finished_time is None
+            ):
                 self._time_state.welcome_finished_time = self._welcome_finished_time
             if hasattr(self, "_last_asr_wait_log_time"):
                 self._time_state.last_asr_wait_log_time = getattr(
@@ -399,9 +409,8 @@ class PlaybackMonitorMixin:
         target = self._vad.last_speech_time_monotonic + self._silence_after_speech_sec
         time_state = self._get_time_state()
 
-        # CRITICAL: Ignore stale speech events from previous turns
-        # If we have a known start time for the current listening period (welcome_finished_time),
-        # make sure the speech occurred AFTER that time.
+        # CRITICAL: Ignore stale speech events from previous turns.
+        # Only process speech that occurred AFTER current listening period.
         if (
             time_state.welcome_finished_time is not None
             and self._vad.last_speech_time_monotonic < time_state.welcome_finished_time
@@ -420,22 +429,15 @@ class PlaybackMonitorMixin:
                     self._vad.last_speech_time_monotonic,
                     target,
                 )
-        
-        # Ensure hangup_time is relevant for the current turn
-        # If the hangup_time is BEFORE the welcome/prompt finished, it means it belongs
-        # to a previous turn or interrupted speech, so we should essentially ignore it
-        # for the purpose of "post-prompt silence".
+
+        # Ensure hangup_time is relevant for the current turn. If it's
+        # BEFORE the prompt finished, it belongs to a previous turn.
         if (
             time_state.hangup_time
             and time_state.welcome_finished_time
             and time_state.hangup_time < time_state.welcome_finished_time
         ):
-            # If the calculated hangup_time is in the past relative to when the bot finished speaking,
-            # it means the speech ended before the bot finished.
-            # We might want to keep it if we support barge-in, but if we are strict about "listening after prompt",
-            # we should update it or treat it carefully.
-            # For now, let's just log it.
-            # logger.debug("VAD: hangup_time %.3f is before prompt finish %.3f", time_state.hangup_time, time_state.welcome_finished_time)
+            # Speech ended before bot finished. In strict mode, we ignore it.
             pass
 
     def _finalize_chunks_on_silence(self, current_time: float) -> None:
@@ -586,16 +588,17 @@ class PlaybackMonitorMixin:
             else 0.0
         )
 
-        # Extra grace period after hangup_time for chunk finalization
-        # Make sure hangup_time is valid for this turn (must be AFTER welcome_finished_time)
+        # Extra grace period after hangup_time for chunk finalization.
+        # hangup_time must be AFTER welcome_finished_time to be valid.
         hangup_valid_for_turn = (
             time_state.hangup_time is not None
             and time_state.welcome_finished_time is not None
             and time_state.hangup_time >= time_state.welcome_finished_time
         )
-        
-        hangup_grace_passed = (
+
+        hangup_grace_passed = bool(
             hangup_valid_for_turn
+            and time_state.hangup_time is not None
             and current_time >= time_state.hangup_time + 2.0
         )
 

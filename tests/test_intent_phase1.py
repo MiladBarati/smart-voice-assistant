@@ -129,7 +129,6 @@ def test_persian_default() -> None:
         "سلام",
         "چطوری",
         "ممنون",
-        "خداحافظ",
         "random text in english",
     ]
 

@@ -39,6 +39,7 @@ class TestAnyCall:
         mock_account._intent_classifier = None
         mock_account._asr_service = None
         mock_account._asr_available = False
+        mock_account.max_followup_questions = 2  # Required for ConversationFlowMixin
         return mock_account
 
     def test_init(self) -> None:

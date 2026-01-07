@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
@@ -106,12 +106,17 @@ class ConversationFlowMixin:
     _classified_intent: Optional[str]
     _intent_confidence: float
     _intent_response_finished: bool
+    # Time tracking attributes - must be Optional[float] for mixin compatibility
+    _hangup_time: Optional[float]
+    _welcome_finished_time: Optional[float]
+    _stop_player_time: Optional[float]
 
     if TYPE_CHECKING:
+
         def _play_goodbye_message(self) -> None: ...
         def _start_bot_playback_tracking(self) -> None: ...
         def _stop_bot_playback_tracking(self) -> None: ...
-        def isActive(self) -> bool: ...
+        def is_active(self) -> bool: ...
 
     # ------------------------------------------------------------------#
     # Initialization
@@ -120,9 +125,9 @@ class ConversationFlowMixin:
     def _init_conversation_flow_state(self) -> None:
         """Initialize conversation flow state."""
         self._flow_state = ConversationFlowState()
-        self._flow_state.max_questions = getattr(
-            self._acc_ref, "max_followup_questions", 2
-        ) + 1  # +1 for initial question
+        self._flow_state.max_questions = (
+            getattr(self._acc_ref, "max_followup_questions", 2) + 1
+        )  # +1 for initial question
 
         # Get project root for audio file paths
         self._project_root = self._get_project_root()
@@ -186,7 +191,7 @@ class ConversationFlowMixin:
         intent = getattr(self, "_classified_intent", None)
         if not intent:
             return False
-        return intent != "default"
+        return bool(intent != "default")
 
     def _increment_question_count(self) -> bool:
         """Increment question count and check if max reached.
@@ -217,7 +222,7 @@ class ConversationFlowMixin:
             UserResponse enum indicating the detected response type.
         """
         intent = getattr(self, "_classified_intent", None)
-        
+
         if not intent:
             # Try text detection even if intent is None
             return self._detect_response_from_text()
@@ -249,26 +254,60 @@ class ConversationFlowMixin:
 
         # Persian and English YES patterns
         yes_patterns = [
-            "بله", "آره", "آری", "بلی", "yes", "yeah", "yep", "sure", "ok", "okay",
-            "درسته", "صحیح", "موافقم",
+            "بله",
+            "آره",
+            "آری",
+            "بلی",
+            "yes",
+            "yeah",
+            "yep",
+            "sure",
+            "ok",
+            "okay",
+            "درسته",
+            "صحیح",
+            "موافقم",
         ]
 
         # Persian and English NO patterns
         no_patterns = [
-            "نه", "خیر", "نخیر", "no", "nope", "نمیخوام", "نمی‌خوام",
-            "نمیخواهم", "نمی‌خواهم", "بی‌خیال",
+            "نه",
+            "خیر",
+            "نخیر",
+            "no",
+            "nope",
+            "نمیخوام",
+            "نمی‌خوام",
+            "نمیخواهم",
+            "نمی‌خواهم",
+            "بی‌خیال",
         ]
 
         # Persian and English REPEAT patterns
         repeat_patterns = [
-            "تکرار", "دوباره", "مجدد", "repeat", "again", "سوالم رو تکرار",
-            "یکبار دیگه", "یک‌بار دیگه",
+            "تکرار",
+            "دوباره",
+            "مجدد",
+            "repeat",
+            "again",
+            "سوالم رو تکرار",
+            "یکبار دیگه",
+            "یک‌بار دیگه",
         ]
 
         # Persian and English SUPPORT patterns
         support_patterns = [
-            "پشتیبانی", "پشتیبان", "کمک", "اپراتور", "نیروی انسانی",
-            "support", "help", "operator", "human", "agent", "انتقال",
+            "پشتیبانی",
+            "پشتیبان",
+            "کمک",
+            "اپراتور",
+            "نیروی انسانی",
+            "support",
+            "help",
+            "operator",
+            "human",
+            "agent",
+            "انتقال",
         ]
 
         for pattern in yes_patterns:
@@ -288,7 +327,7 @@ class ConversationFlowMixin:
                 return UserResponse.SUPPORT
 
         # Default to QUESTION if text is long enough (likely a new question)
-        if len(text) > 10:
+        if len(text) > 20:
             return UserResponse.QUESTION
 
         return UserResponse.UNKNOWN
@@ -326,9 +365,11 @@ class ConversationFlowMixin:
         """
         # Prevent duplicate playback if prompt is already playing
         if self._flow_state.prompt_player is not None:
-            logger.debug("ConversationFlow: prompt player already active, skipping playback of %s", audio_key)
+            logger.debug(
+                "ConversationFlow: prompt already active, skipping %s", audio_key
+            )
             return False
-        
+
         audio_path = self._get_audio_path(audio_key)
         if not audio_path:
             return False
@@ -519,7 +560,7 @@ class ConversationFlowMixin:
             return True
 
         # Increment question count
-        can_continue = self._increment_question_count()
+        self._increment_question_count()
 
         if self._is_known_answer():
             # Bot knows the answer - play it
@@ -560,7 +601,7 @@ class ConversationFlowMixin:
 
         # Prompt finished, wait for user response
         self._reset_asr_for_new_input()
-        
+
         # Explicitly set the listening start time
         try:
             current_time = time.time()
@@ -570,7 +611,7 @@ class ConversationFlowMixin:
             self._welcome_finished_time = current_time
         except Exception:
             pass
-            
+
         self._transition_to(ConversationState.WAITING_FOR_FOLLOWUP_RESPONSE)
         self._flow_state.waiting_for_user_since = time.time()
         return True
@@ -599,7 +640,7 @@ class ConversationFlowMixin:
             # Check if it's the same question as before (likely ASR issue)
             current_intent = getattr(self, "_classified_intent", None)
             last_intent = getattr(self._flow_state, "last_intent", None)
-            
+
             if current_intent and last_intent and current_intent == last_intent:
                 # Same question detected - likely ASR didn't capture new speech
                 # Treat as UNKNOWN/NO to end the call gracefully
@@ -636,7 +677,7 @@ class ConversationFlowMixin:
 
         # Prompt finished, wait for user response
         self._reset_asr_for_new_input()
-        
+
         # Explicitly set the listening start time
         try:
             current_time = time.time()
@@ -646,7 +687,7 @@ class ConversationFlowMixin:
             self._welcome_finished_time = current_time
         except Exception:
             pass
-            
+
         self._transition_to(ConversationState.WAITING_FOR_FALLBACK_RESPONSE)
         self._flow_state.waiting_for_user_since = time.time()
         return True
@@ -693,7 +734,7 @@ class ConversationFlowMixin:
 
         # Prompt finished, wait for next question
         self._reset_asr_for_new_input()
-        
+
         # Explicitly set the listening start time
         try:
             current_time = time.time()
@@ -703,7 +744,7 @@ class ConversationFlowMixin:
             self._welcome_finished_time = current_time
         except Exception:
             pass
-            
+
         self._transition_to(ConversationState.WAITING_FOR_QUESTION)
         return True
 
@@ -739,7 +780,10 @@ class ConversationFlowMixin:
         # per user turn (question / follow‑up), not cached for the whole call.
         # Safely reset intent flags so that the next ASR completion can be
         # classified independently based on the new utterance.
-        if hasattr(self, "_is_conversation_flow_enabled") and self._is_conversation_flow_enabled():
+        if (
+            hasattr(self, "_is_conversation_flow_enabled")
+            and self._is_conversation_flow_enabled()
+        ):
             # Preserve last intent on the flow state for analytics if needed
             if hasattr(self, "_flow_state"):
                 try:
@@ -757,6 +801,10 @@ class ConversationFlowMixin:
                 self._classified_intent = None
                 self._intent_confidence = 0.0
                 # Keep _classified_faq_config for call record if present
+
+                # Reset intent response flags for next turn
+                self._intent_response_played = False
+                self._intent_response_finished = False
             except Exception:
                 # If any attribute is missing, ignore – this is best‑effort
                 pass
@@ -785,7 +833,7 @@ class ConversationFlowMixin:
             self, "_last_transcribed_chunk_count"
         ):
             self._asr_chunk_offset = self._last_transcribed_chunk_count
-            
+
         # Reset TimeState to ensure we don't accidentally use old hangup times
         # from the previous turn.
         # We also reset welcome_finished_time so that it gets re-initialized
@@ -795,7 +843,7 @@ class ConversationFlowMixin:
             self._hangup_time = None
             self._welcome_finished_time = None
             self._stop_player_time = None
-            
+
             time_state = getattr(self, "_time_state", None)
             if time_state:
                 time_state.hangup_time = None
@@ -804,11 +852,9 @@ class ConversationFlowMixin:
         except Exception:
             pass
 
-        # NOTE: Do NOT reset intent classification here. Intent classification is historical
-        # call data that must be preserved for the call record. It should only be reset
-        # at the start of a new call, not when resetting ASR for new input within the same call.
-        # The intent classification represents what the user asked during this call and should
-        # be included in the final call record even if we're preparing for additional input.
+        # NOTE: Do NOT reset intent classification here. It is historical
+        # call data preserved for the call record. Only reset at new call
+        # start, not when resetting ASR for new input within the same call.
 
         # Reset VAD chunks if available
         if self._vad and hasattr(self._vad, "reset_chunks"):
@@ -824,9 +870,7 @@ class ConversationFlowMixin:
         transfer_extension = getattr(self._acc_ref, "support_transfer_extension", None)
 
         if not transfer_extension:
-            logger.warning(
-                "ConversationFlow: no support transfer extension configured"
-            )
+            logger.warning("ConversationFlow: no support transfer extension configured")
             return
 
         logger.info(
@@ -855,7 +899,9 @@ class ConversationFlowMixin:
             # Perform the transfer (assumes self is a pj.Call)
             if hasattr(self, "xfer"):
                 self.xfer(dest_uri, prm)
-                logger.info("ConversationFlow: blind transfer initiated to %s", dest_uri)
+                logger.info(
+                    "ConversationFlow: blind transfer initiated to %s", dest_uri
+                )
             else:
                 logger.warning("ConversationFlow: xfer method not available")
 

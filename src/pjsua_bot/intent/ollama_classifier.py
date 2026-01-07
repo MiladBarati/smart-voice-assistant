@@ -384,7 +384,10 @@ class OllamaClassifier(IntentClassifier):
             )
             response.raise_for_status()
 
-            logger.info("Ollama: model '%s' preloaded and KV cache primed successfully", self.model)
+            logger.info(
+                "Ollama: model '%s' preloaded and KV cache primed successfully",
+                self.model,
+            )
 
         except requests.exceptions.Timeout:
             logger.warning(

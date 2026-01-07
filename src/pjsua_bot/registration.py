@@ -135,7 +135,7 @@ def run_main_loop(ep: Any, acc: Account, stopping: dict) -> None:
                 if hasattr(call, "should_hangup") and call.should_hangup():
                     try:
                         if call.isActive():
-                            logger.info("Auto-hanging up after welcome message")
+                            logger.info("Auto-hanging up based on conversation state")
                             op = pj.CallOpParam()
                             call.hangup(op)
                     except Exception as e:
