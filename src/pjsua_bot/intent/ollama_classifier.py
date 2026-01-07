@@ -144,6 +144,7 @@ class OllamaClassifier(IntentClassifier):
                 "messages": messages,
                 "stream": False,  # Get complete response, not streamed
                 "format": "json",  # Request JSON format for structured output
+                "keep_alive": -1,  # Keep loaded indefinitely
                 "options": options,
             }
             # By default, Ollama will use GPU if available (no options needed)
@@ -351,11 +352,10 @@ class OllamaClassifier(IntentClassifier):
         try:
             logger.info("Ollama: preloading model '%s'...", self.model)
 
-            # Make a minimal request to trigger model loading
-            # Use a very simple prompt to minimize processing time
+            # Use the actual system prompt to prime the KV cache
+            # This ensures the first real user query is fast
             options: Dict[str, Any] = {
                 "num_predict": 1,  # Only generate 1 token to minimize time
-                # Disable thinking mode for faster preload
                 "enable_thinking": False,
             }
             # Add CPU hint if requested
@@ -365,13 +365,15 @@ class OllamaClassifier(IntentClassifier):
             payload = {
                 "model": self.model,
                 "messages": [
-                    {"role": "user", "content": "test"},
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": "preload_test"},
                 ],
                 "stream": False,
+                "keep_alive": -1,  # Keep loaded indefinitely
                 "options": options,
             }
 
-            # Use a longer timeout for preloading (model loading can take time)
+            # Use a longer timeout for preloading (model loading + prompt processing)
             preload_timeout = max(
                 self.timeout, 120
             )  # At least 2 minutes for first load
@@ -382,7 +384,7 @@ class OllamaClassifier(IntentClassifier):
             )
             response.raise_for_status()
 
-            logger.info("Ollama: model '%s' preloaded successfully", self.model)
+            logger.info("Ollama: model '%s' preloaded and KV cache primed successfully", self.model)
 
         except requests.exceptions.Timeout:
             logger.warning(

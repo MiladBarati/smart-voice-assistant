@@ -2201,6 +2201,137 @@ FAQS: Dict[str, Dict[str, Any]] = {
         "response_audio": "assets/audio/faq_system_not_booting.wav",
         "priority": 58,
     },
+    # Conversation flow control intents
+    "yes_response": {
+        "keywords": [
+            # Persian affirmative responses
+            "بله",
+            "آره",
+            "آری",
+            "بلی",
+            "باشه",
+            "باشد",
+            "درسته",
+            "صحیح",
+            "موافقم",
+            "حتما",
+            "حتماً",
+            "خب",
+            "اوکی",
+            # English affirmative responses
+            "yes",
+            "yeah",
+            "yep",
+            "sure",
+            "ok",
+            "okay",
+            "alright",
+            "right",
+        ],
+        "questions": [
+            "بله",
+            "آره",
+            "yes",
+        ],
+        "response_text": "",  # No response needed - this is a control intent
+        "response_audio": None,
+        "priority": 100,  # High priority for quick detection
+        "is_control_intent": True,
+    },
+    "no_response": {
+        "keywords": [
+            # Persian negative responses
+            "نه",
+            "خیر",
+            "نخیر",
+            "نمیخوام",
+            "نمی‌خوام",
+            "نمیخواهم",
+            "نمی‌خواهم",
+            "بی‌خیال",
+            "بیخیال",
+            "ممنون نه",
+            "خداحافظ",
+            "لازم نیست",
+            # English negative responses
+            "no",
+            "nope",
+            "nah",
+            "no thanks",
+            "goodbye",
+            "bye",
+        ],
+        "questions": [
+            "نه",
+            "خیر",
+            "no",
+        ],
+        "response_text": "",  # No response needed - this is a control intent
+        "response_audio": None,
+        "priority": 100,  # High priority for quick detection
+        "is_control_intent": True,
+    },
+    "repeat_question": {
+        "keywords": [
+            # Persian repeat patterns
+            "تکرار",
+            "دوباره",
+            "مجدد",
+            "یکبار دیگه",
+            "یک‌بار دیگه",
+            "سوالم رو تکرار",
+            "دوباره سوال",
+            "بذار دوباره بپرسم",
+            # English repeat patterns
+            "repeat",
+            "again",
+            "let me ask again",
+            "one more time",
+        ],
+        "questions": [
+            "تکرار",
+            "دوباره",
+            "repeat",
+        ],
+        "response_text": "",  # No response needed - this is a control intent
+        "response_audio": None,
+        "priority": 100,
+        "is_control_intent": True,
+    },
+    "human_support": {
+        "keywords": [
+            # Persian support patterns
+            "پشتیبانی",
+            "پشتیبان",
+            "کمک",
+            "اپراتور",
+            "نیروی انسانی",
+            "انتقال",
+            "وصلم کن",
+            "وصل کن",
+            "می‌خوام با یه نفر صحبت کنم",
+            "میخوام با یه نفر صحبت کنم",
+            "با یه نفر صحبت کنم",
+            # English support patterns
+            "support",
+            "help",
+            "operator",
+            "human",
+            "agent",
+            "transfer",
+            "connect me",
+            "talk to someone",
+        ],
+        "questions": [
+            "پشتیبانی",
+            "کمک میخوام",
+            "support",
+        ],
+        "response_text": "",  # No response needed - this is a control intent
+        "response_audio": None,
+        "priority": 100,
+        "is_control_intent": True,
+    },
     "default": {
         "keywords": [],
         "questions": [],

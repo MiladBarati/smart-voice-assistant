@@ -105,6 +105,9 @@ class PlaybackMonitorMixin:
         self._intent_state = IntentState()
         self._goodbye_state = GoodbyeState()
         self._time_state = TimeState()
+        
+        # ASR State
+        self._asr_chunk_offset = 0
 
         # Sync state objects with individual attributes for backward compatibility
         self._sync_state_to_attributes()
@@ -264,6 +267,15 @@ class PlaybackMonitorMixin:
                     exc_info=True,
                 )
 
+        # Skip goodbye trigger if conversation flow is enabled - the state machine
+        # will handle playing follow-up prompts or goodbye as appropriate
+        conversation_flow_enabled = (
+            hasattr(self, "_is_conversation_flow_enabled")
+            and self._is_conversation_flow_enabled()
+        )
+        if conversation_flow_enabled:
+            return intent_finished
+
         if intent_finished and self._should_trigger_goodbye_after_intent():
             try:
                 logger.info(
@@ -387,6 +399,16 @@ class PlaybackMonitorMixin:
         target = self._vad.last_speech_time_monotonic + self._silence_after_speech_sec
         time_state = self._get_time_state()
 
+        # CRITICAL: Ignore stale speech events from previous turns
+        # If we have a known start time for the current listening period (welcome_finished_time),
+        # make sure the speech occurred AFTER that time.
+        if (
+            time_state.welcome_finished_time is not None
+            and self._vad.last_speech_time_monotonic < time_state.welcome_finished_time
+        ):
+            # Speech is from before the current prompt finished - ignore it
+            return
+
         if not time_state.hangup_time or time_state.hangup_time < target:
             old_hangup_time = time_state.hangup_time
             time_state.hangup_time = target
@@ -398,6 +420,23 @@ class PlaybackMonitorMixin:
                     self._vad.last_speech_time_monotonic,
                     target,
                 )
+        
+        # Ensure hangup_time is relevant for the current turn
+        # If the hangup_time is BEFORE the welcome/prompt finished, it means it belongs
+        # to a previous turn or interrupted speech, so we should essentially ignore it
+        # for the purpose of "post-prompt silence".
+        if (
+            time_state.hangup_time
+            and time_state.welcome_finished_time
+            and time_state.hangup_time < time_state.welcome_finished_time
+        ):
+            # If the calculated hangup_time is in the past relative to when the bot finished speaking,
+            # it means the speech ended before the bot finished.
+            # We might want to keep it if we support barge-in, but if we are strict about "listening after prompt",
+            # we should update it or treat it carefully.
+            # For now, let's just log it.
+            # logger.debug("VAD: hangup_time %.3f is before prompt finish %.3f", time_state.hangup_time, time_state.welcome_finished_time)
+            pass
 
     def _finalize_chunks_on_silence(self, current_time: float) -> None:
         """Finalize VAD chunks when silence is confirmed."""
@@ -534,7 +573,7 @@ class PlaybackMonitorMixin:
         if self._playback_state != PlaybackState.FINISHED:
             return False
 
-        has_chunks = len(chunks) > 0
+        has_chunks = len(chunks) > self._asr_chunk_offset
         chunks_submitted = self._last_transcribed_chunk_count == len(chunks)
 
         time_state = self._get_time_state()
@@ -548,8 +587,15 @@ class PlaybackMonitorMixin:
         )
 
         # Extra grace period after hangup_time for chunk finalization
-        hangup_grace_passed = (
+        # Make sure hangup_time is valid for this turn (must be AFTER welcome_finished_time)
+        hangup_valid_for_turn = (
             time_state.hangup_time is not None
+            and time_state.welcome_finished_time is not None
+            and time_state.hangup_time >= time_state.welcome_finished_time
+        )
+        
+        hangup_grace_passed = (
+            hangup_valid_for_turn
             and current_time >= time_state.hangup_time + 2.0
         )
 
@@ -635,7 +681,7 @@ class PlaybackMonitorMixin:
             )
 
     def _handle_asr_completion(self, chunks: list, current_time: float) -> None:
-        """Handle ASR completion: classify intent and trigger goodbye."""
+        """Handle ASR completion: classify intent and trigger conversation flow."""
         asr_queue = getattr(self, "_asr_queue", None)
         if asr_queue is None:
             return
@@ -653,7 +699,21 @@ class PlaybackMonitorMixin:
         self._asr_complete = True
         logger.info("ASR: transcription complete")
 
-        # Classify intent and play response
+        # Check if conversation flow is enabled
+        conversation_flow_enabled = (
+            hasattr(self, "_is_conversation_flow_enabled")
+            and self._is_conversation_flow_enabled()
+        )
+
+        if conversation_flow_enabled:
+            # Let conversation flow handle the rest
+            logger.debug("ASR: delegating to conversation flow state machine")
+            # Classify intent (conversation flow will use this)
+            self._classify_and_play_intent()
+            # Conversation flow will be processed in check_playback_status
+            return
+
+        # Legacy behavior: classify intent and play response directly
         self._classify_and_play_intent()
 
         # Trigger goodbye if no intent response is playing
@@ -678,10 +738,26 @@ class PlaybackMonitorMixin:
     # ------------------------------------------------------------------#
 
     def _should_skip_vad_processing(self) -> bool:
-        """Check if VAD processing should be skipped."""
+        """Check if VAD processing should be skipped.
+
+        NOTE: When conversation flow is enabled, we must continue running VAD/ASR
+        even after an intent response has finished so that follow-up prompts
+        (e.g. \"Any other questions?\", YES/NO replies) can be recognised.
+        """
         intent = self._get_intent_state()
         goodbye = self._get_goodbye_state()
 
+        # If conversation flow is enabled, only skip VAD once goodbye has started
+        # or been explicitly requested. Intent completion alone is not enough,
+        # because the state machine may still be waiting for follow-up input.
+        conversation_flow_enabled = (
+            hasattr(self, "_is_conversation_flow_enabled")
+            and self._is_conversation_flow_enabled()
+        )
+        if conversation_flow_enabled:
+            return goodbye.requested or goodbye.playback_started
+
+        # Legacy behaviour when conversation flow is disabled
         return intent.finished or goodbye.requested or goodbye.playback_started
 
     def _should_skip_further_processing(self) -> bool:
@@ -786,8 +862,24 @@ class PlaybackMonitorMixin:
         # Process VAD and ASR
         self._process_vad_and_asr(current_time)
 
-        # Check for late goodbye trigger
-        self._check_late_goodbye_trigger(current_time)
+        # Process conversation flow if enabled
+        if hasattr(self, "_handle_conversation_flow"):
+            try:
+                conversation_flow_enabled = (
+                    hasattr(self, "_is_conversation_flow_enabled")
+                    and self._is_conversation_flow_enabled()
+                )
+                if conversation_flow_enabled:
+                    self._handle_conversation_flow()
+            except Exception as e:
+                logger.warning("ConversationFlow: error in state machine: %s", e)
+
+        # Check for late goodbye trigger (legacy fallback)
+        if not (
+            hasattr(self, "_is_conversation_flow_enabled")
+            and self._is_conversation_flow_enabled()
+        ):
+            self._check_late_goodbye_trigger(current_time)
 
         # Sync state back to attributes for backward compatibility
         self._sync_state_to_attributes()

@@ -55,6 +55,11 @@ class Account(BaseAccount):
         # VAD preloader (dummy instance to preload model)
         self._vad_preloader: Optional[Any] = None
 
+        # Conversation flow settings
+        self.enable_conversation_flow: bool = True  # Enable multi-turn conversations
+        self.max_followup_questions: int = 2  # Max follow-up questions (+ 1 initial)
+        self.support_transfer_extension: Optional[str] = None  # Extension for human support
+
     def _preload_vad(self) -> None:
         """Preload VAD model before calls start to avoid blocking during calls.
 

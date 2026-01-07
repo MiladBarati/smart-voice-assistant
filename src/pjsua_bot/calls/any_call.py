@@ -29,6 +29,7 @@ from .mixins import (
     ASRSupportMixin,
     CallMediaHandlerMixin,
     CallStateHandlerMixin,
+    ConversationFlowMixin,
     EventLoggerMixin,
     IntentHandlerMixin,
     PlaybackMonitorMixin,
@@ -66,6 +67,7 @@ class AnyCall(
     EventLoggerMixin,
     ASRSupportMixin,
     IntentHandlerMixin,
+    ConversationFlowMixin,
     PlaybackMonitorMixin,
     GoodbyePlaybackMixin,
     RecordingCleanupMixin,
@@ -122,6 +124,7 @@ class AnyCall(
         self._init_vad_state()
         self._init_asr_support()
         self._init_intent_state()
+        self._init_conversation_flow_state()
 
     # ------------------------------------------------------------------#
     # Internal state initialisation helpers
