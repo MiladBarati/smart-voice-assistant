@@ -23,10 +23,10 @@ Usage:
             config=VADConfig(threshold=0.15),
             chunks_output_dir="/path/to/chunks"
         )
-        
+
         # Periodically process new audio
         vad.process_new_audio(lambda: time.time())
-        
+
         # Check for speech
         if vad.last_speech_time_monotonic:
             time_since_speech = time.time() - vad.last_speech_time_monotonic
