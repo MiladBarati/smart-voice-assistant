@@ -41,8 +41,8 @@ _OMNILINGUAL_AVAILABLE = ASRInferencePipeline is not None
 class ASRConfig:
     """Configuration for ASR service."""
 
-    # omnilingual-asr model cards: "omniASR_CTC_1B", "omniASR_CTC_350M", ...
-    model_name: str = "omniASR_CTC_1B"
+    # omnilingual-asr model cards: "omniASR_CTC_1B", "omniASR_CTC_300M", ...
+    model_name: str = "omniASR_CTC_300M"
     device: str = "auto"  # "auto", "cpu", or "cuda"
 
     # Language code in omnilingual format (e.g., "fas_Arab" for Farsi)

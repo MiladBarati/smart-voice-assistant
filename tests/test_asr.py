@@ -30,7 +30,7 @@ class TestASRConfig:
     def test_default_config(self) -> None:
         """Test default configuration values."""
         config = ASRConfig()
-        assert config.model_name == "omniASR_CTC_1B"
+        assert config.model_name == "omniASR_CTC_300M"
         assert config.device == "auto"
         assert config.language == "fas_Arab"
         assert config.target_language is None
@@ -44,7 +44,7 @@ class TestASRConfig:
     def test_custom_config(self) -> None:
         """Test custom configuration values."""
         config = ASRConfig(
-            model_name="omniASR_CTC_350M",
+            model_name="omniASR_CTC_300M",
             device="cpu",
             language="eng_Latn",
             target_language="fas_Arab",
@@ -55,7 +55,7 @@ class TestASRConfig:
             skip_on_error=False,
             log_errors=False,
         )
-        assert config.model_name == "omniASR_CTC_350M"
+        assert config.model_name == "omniASR_CTC_300M"
         assert config.device == "cpu"
         assert config.language == "eng_Latn"
         assert config.target_language == "fas_Arab"
@@ -110,16 +110,16 @@ class TestASRService:
         """Test initialization with default config."""
         with patch("pjsua_bot.asr._OMNILINGUAL_AVAILABLE", False):
             service = ASRService()
-            assert service.cfg.model_name == "omniASR_CTC_1B"
+            assert service.cfg.model_name == "omniASR_CTC_300M"
             assert service.available is False
             assert service._pipeline is None
 
     def test_init_with_custom_config(self) -> None:
         """Test initialization with custom config."""
-        config = ASRConfig(model_name="omniASR_CTC_350M", device="cpu")
+        config = ASRConfig(model_name="omniASR_CTC_300M", device="cpu")
         with patch("pjsua_bot.asr._OMNILINGUAL_AVAILABLE", False):
             service = ASRService(config)
-            assert service.cfg.model_name == "omniASR_CTC_350M"
+            assert service.cfg.model_name == "omniASR_CTC_300M"
             assert service.cfg.device == "cpu"
 
     def test_init_when_omnilingual_unavailable(self) -> None:
