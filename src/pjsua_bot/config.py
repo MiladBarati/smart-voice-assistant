@@ -3,9 +3,13 @@
 import argparse
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Literal, Optional
 
 from .utils import DEFAULT_RECORDING_PATH
+
+VALID_SATISFACTION_RETRIES = (2, 3)
+VALID_FLOW_MODES = ("legacy", "satisfaction")
+FlowMode = Literal["legacy", "satisfaction"]
 
 
 @dataclass
@@ -48,15 +52,27 @@ class BotConfig:
 
     # ASR
     enable_asr: bool = False
-    asr_model: str = "omniASR_CTC_1B"
+    asr_model: str = "omniASR_CTC_300M"
 
     # Intent
     enable_intent: bool = False
     intent_classifier: str = "rule-based"
     ollama_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen2.5:3b"
+    ollama_model: str = "gemma3:4b"
     ollama_use_cpu: bool = False
     faq_config: Optional[str] = None
+
+    # Conversation flow
+    # `legacy`: original "any other questions?" + repeat_or_support flow.
+    # `satisfaction`: new question -> answer -> satisfaction-check -> retry/escalate flow.
+    flow_mode: FlowMode = "legacy"
+    # Retry budget for the satisfaction flow; only NO satisfaction answers
+    # consume the budget. Must be 2 or 3.
+    max_satisfaction_retries: int = 2
+    # Extension to blind-transfer to when the satisfaction retry budget is
+    # exhausted. Empty/None means escalation will play the announcement and
+    # then hang up (no transfer).
+    support_transfer_extension: Optional[str] = None
 
     # Logging
     log_level: int = 3
@@ -102,5 +118,22 @@ class BotConfig:
             ollama_model=args.ollama_model,
             ollama_use_cpu=args.ollama_use_cpu,
             faq_config=args.faq_config,
+            flow_mode=args.flow_mode,
+            max_satisfaction_retries=args.max_satisfaction_retries,
+            support_transfer_extension=args.support_transfer_extension,
             log_level=args.log_level,
         )
+
+    def validate(self) -> None:
+        """Validate config values; raise ValueError on bad input."""
+        if self.flow_mode not in VALID_FLOW_MODES:
+            raise ValueError(
+                f"--flow-mode must be one of {VALID_FLOW_MODES!r}, "
+                f"got {self.flow_mode!r}"
+            )
+        if self.max_satisfaction_retries not in VALID_SATISFACTION_RETRIES:
+            raise ValueError(
+                f"--max-satisfaction-retries must be one of "
+                f"{VALID_SATISFACTION_RETRIES!r}, "
+                f"got {self.max_satisfaction_retries!r}"
+            )

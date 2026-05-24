@@ -253,6 +253,69 @@ class CallStateHandlerMixin:
             logger.error("Error collecting transcription: %s", exc, exc_info=True)
             return None, None
 
+    def _collect_satisfaction_flow_data(self) -> dict[str, Any] | None:
+        """Collect satisfaction-flow telemetry, if the flow was active.
+
+        Returns a dict with `turns`, `retry_count`, `resolution`, and
+        `escalation_*` fields when `flow_mode == "satisfaction"`, otherwise
+        None so the call record key is omitted entirely.
+        """
+        try:
+            flow_mode = getattr(self._acc_ref, "flow_mode", "legacy")
+            if flow_mode != "satisfaction":
+                return None
+
+            flow_state = getattr(self, "_flow_state", None)
+            if flow_state is None:
+                return None
+
+            turns_raw = getattr(flow_state, "turns", []) or []
+            turns: list[dict[str, Any]] = []
+            for turn in turns_raw:
+                turns.append(
+                    {
+                        "index": getattr(turn, "index", None),
+                        "question": getattr(turn, "question", None),
+                        "intent": getattr(turn, "intent", None),
+                        "intent_confidence": getattr(
+                            turn, "intent_confidence", None
+                        ),
+                        "answer_audio": getattr(turn, "answer_audio", None),
+                        "satisfaction": getattr(turn, "satisfaction", None),
+                        "classification_failed": getattr(
+                            turn, "classification_failed", False
+                        ),
+                    }
+                )
+
+            resolution = getattr(flow_state, "resolution", None)
+            if resolution is None and turns_raw:
+                # Caller hung up before the satisfaction state resolved.
+                resolution = "hangup_no_answer"
+
+            data: dict[str, Any] = {
+                "flow_mode": "satisfaction",
+                "turns": turns,
+                "retry_count": int(getattr(flow_state, "retry_count", 0)),
+                "max_satisfaction_retries": int(
+                    getattr(flow_state, "max_satisfaction_retries", 2)
+                ),
+                "resolution": resolution,
+            }
+
+            escalation_succeeded = getattr(flow_state, "escalation_succeeded", None)
+            if escalation_succeeded is not None:
+                data["escalation_succeeded"] = bool(escalation_succeeded)
+            if getattr(flow_state, "escalation_failed", False):
+                data["escalation_failed"] = True
+
+            return data
+        except Exception as exc:
+            logger.error(
+                "Error collecting satisfaction-flow data: %s", exc, exc_info=True
+            )
+            return None
+
     def _collect_intent_data(self) -> dict[str, Any] | None:
         """Collect intent classification data if available."""
         try:
@@ -376,6 +439,7 @@ class CallStateHandlerMixin:
         transcription_text: str | None,
         transcription_chunks: list[str] | None,
         intent_data: dict[str, Any] | None,
+        satisfaction_flow_data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Build the complete call record dictionary."""
         return {
@@ -418,6 +482,9 @@ class CallStateHandlerMixin:
                 else None
             ),
             "intent": intent_data if intent_data else None,
+            "satisfaction_flow": (
+                satisfaction_flow_data if satisfaction_flow_data else None
+            ),
             "host": socket.gethostname(),
             "ingest_ts": datetime.utcnow().isoformat() + "Z",
         }
@@ -505,6 +572,7 @@ class CallStateHandlerMixin:
                 self._collect_transcription_data()
             )
             intent_data = self._collect_intent_data()
+            satisfaction_flow_data = self._collect_satisfaction_flow_data()
 
             call_record = self._build_call_record(
                 start_iso=start_iso,
@@ -519,6 +587,7 @@ class CallStateHandlerMixin:
                 transcription_text=transcription_text,
                 transcription_chunks=transcription_chunks,
                 intent_data=intent_data,
+                satisfaction_flow_data=satisfaction_flow_data,
             )
 
             es_logger.log_call_record(call_record)

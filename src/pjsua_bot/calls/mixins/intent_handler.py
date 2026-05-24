@@ -6,11 +6,17 @@ import logging
 import os
 import threading
 import time
+import concurrent.futures
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Protocol, Tuple, cast
 
 from pjsua_bot.intent.faq_config import FAQS
 
 logger = logging.getLogger(__name__)
+
+# Global thread pool for intent classification to avoid blocking the main SIP thread
+_intent_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=5, thread_name_prefix="intent_classifier"
+)
 
 # Event type constants
 EVENT_INTENT_CLASSIFIED = "intent_classified"
@@ -61,6 +67,7 @@ class IntentHandlerMixin:
     _intent_response_stop_time: Optional[float] = None
     _intent_response_finished: bool = False
     _intent_response_finished_time: Optional[float] = None
+    _classification_future: Optional["concurrent.futures.Future"] = None
 
     def _get_account_attr(self, attr_name: str, default: object = None) -> object:
         """Get attribute from account reference with fallback.
@@ -121,6 +128,7 @@ class IntentHandlerMixin:
         self._intent_response_stop_time = None
         self._intent_response_finished = False
         self._intent_response_finished_time = None
+        self._classification_future = None
         self._intent_results: list[Dict[str, object]] = []
 
         if self._intent_enabled and self._intent_classifier:
@@ -207,6 +215,123 @@ class IntentHandlerMixin:
             logger.error("Intent: classification error: %s", exc, exc_info=True)
             return None
 
+    def _submit_classification_task(self) -> bool:
+        """Submit the intent classification task to the background thread pool.
+        
+        Returns:
+            True if task was submitted, False if not needed or already running/done.
+        """
+        if not self._intent_enabled or not self._intent_classifier:
+            return False
+            
+        if self._intent_classified or self._classification_future is not None:
+            return False
+            
+        # Get transcription text (thread-safe)
+        transcription_text = None
+        try:
+            asr_chunk_texts, asr_lock = self._get_asr_data()
+            if asr_lock is not None:
+                with asr_lock:
+                    if asr_chunk_texts:
+                        transcription_text = " ".join(t for t in asr_chunk_texts if t).strip()
+            else:
+                if asr_chunk_texts:
+                    transcription_text = " ".join(t for t in asr_chunk_texts if t).strip()
+        except Exception as exc:
+            logger.error("Intent: error getting transcription for async task: %s", exc)
+            return False
+
+        if not transcription_text:
+            return False
+
+        # Define the background worker function
+        def _do_classify(text: str) -> tuple[str, float, Any]:
+            return self._intent_classifier.classify(text)
+
+        logger.debug("Intent: submitting background classification task...")
+        self._classification_future = _intent_executor.submit(_do_classify, transcription_text)
+        return True
+
+    def _check_classification_future(self) -> bool:
+        """Check if background intent classification has finished and process the result.
+        
+        Returns:
+            True if classification just finished, False otherwise.
+        """
+        if self._classification_future is None:
+            return False
+            
+        if not self._classification_future.done():
+            return False
+            
+        try:
+            intent_name, confidence, faq_config = self._classification_future.result()
+            
+            self._intent_classified = True
+            self._classified_intent = intent_name
+            self._intent_confidence = confidence
+            self._classified_faq_config = faq_config
+            
+            logger.info(
+                "Intent: async classified as '%s' (confidence: %.2f)",
+                intent_name,
+                confidence,
+            )
+            
+            transcription_length = 0
+            try:
+                asr_chunk_texts, asr_lock = self._get_asr_data()
+                if asr_lock is not None:
+                    with asr_lock:
+                        if asr_chunk_texts:
+                            transcription_length = len(" ".join(t for t in asr_chunk_texts if t).strip())
+                else:
+                    if asr_chunk_texts:
+                        transcription_length = len(" ".join(t for t in asr_chunk_texts if t).strip())
+            except Exception:
+                pass
+                
+            self._collect_event(
+                event_type=EVENT_INTENT_CLASSIFIED,
+                intent_name=intent_name,
+                confidence=round(confidence, 3),
+                transcription_length=transcription_length,
+            )
+
+            # Only play answer audio when the conversation flow state expects
+            # one. Without this gate, classifying a satisfaction reply (which
+            # commonly comes back as `default` when ASR garbles a short
+            # utterance) would start `faq_default.wav` on top of the
+            # still-playing satisfaction prompt and produce audio collisions
+            # on the caller's line.
+            should_play = True
+            if hasattr(self, "_should_play_intent_audio_now"):
+                try:
+                    should_play = bool(self._should_play_intent_audio_now())
+                except Exception as gate_exc:
+                    logger.warning(
+                        "Intent: error checking play-audio gate, "
+                        "defaulting to play: %s",
+                        gate_exc,
+                    )
+
+            if should_play:
+                self._play_intent_response()
+            else:
+                logger.info(
+                    "Intent: skipping answer playback for intent '%s' "
+                    "(flow state does not expect an answer right now)",
+                    intent_name,
+                )
+
+        except Exception as exc:
+            logger.error("Intent: async classification error: %s", exc, exc_info=True)
+            self._intent_classified = True  # mark done to prevent retry
+            
+        self._classification_future = None
+        return True
+
     def _play_intent_response(self) -> None:
         """Play response audio for classified intent."""
         if self._intent_response_played:
@@ -259,6 +384,19 @@ class IntentHandlerMixin:
         """
         if not self._call_media:
             logger.warning("Intent: no call media available")
+            self._intent_response_finished = True
+            return
+
+        # Explicitly check if call is still active before doing playback initialization
+        call_active = False
+        try:
+            if hasattr(self, "isActive"):
+                call_active = self.isActive()
+        except Exception:
+            pass
+
+        if not call_active:
+            logger.warning("Intent: call disconnected before playback, discarding response.")
             self._intent_response_finished = True
             return
 

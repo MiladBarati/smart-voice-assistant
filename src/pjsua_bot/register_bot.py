@@ -198,10 +198,10 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--asr-model",
         type=str,
-        default="omniASR_CTC_1B",
+        default="omniASR_CTC_300M",
         help=(
-            "ASR model to use: omniASR_CTC_1B or omniASR_CTC_350M "
-            "(default: omniASR_CTC_1B)"
+            "ASR model to use: omniASR_CTC_1B or omniASR_CTC_300M "
+            "(default: omniASR_CTC_300M)"
         ),
     )
     parser.add_argument(
@@ -227,10 +227,10 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--ollama-model",
         type=str,
-        default="qwen2.5:3b",
+        default="gemma3:4b",
         help=(
-            "Ollama model name (default: qwen2.5:3b). "
-            "Using 1.5b/3b is recommended for GPUs with <8GB VRAM "
+            "Ollama model name (default: gemma3:4b). "
+            "Using 1.5b/3b/4b is recommended for GPUs with <8GB VRAM "
             "to coexist with ASR."
         ),
     )
@@ -246,8 +246,52 @@ def parse_arguments() -> argparse.Namespace:
         default=None,
         help="Path to custom FAQ JSON config file (optional)",
     )
+    parser.add_argument(
+        "--flow-mode",
+        choices=["legacy", "satisfaction"],
+        default="legacy",
+        help=(
+            "Conversation flow mode. 'legacy' = original any-other-questions "
+            "+ repeat_or_support flow (default). 'satisfaction' = new "
+            "question -> answer -> satisfaction-check -> retry/escalate flow."
+        ),
+    )
+    parser.add_argument(
+        "--max-satisfaction-retries",
+        type=int,
+        default=2,
+        help=(
+            "Maximum number of NO satisfaction answers before escalating to "
+            "human support. Must be 2 or 3 (default: 2). Only used when "
+            "--flow-mode satisfaction."
+        ),
+    )
+    parser.add_argument(
+        "--support-transfer-extension",
+        type=str,
+        default=None,
+        help=(
+            "Extension to blind-transfer to on escalation. When unset, the "
+            "bot plays the escalation announcement and then hangs up."
+        ),
+    )
+    parser.add_argument(
+        "--max-followup-questions",
+        type=int,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
 
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    if getattr(args, "max_followup_questions", None) is not None:
+        parser.error(
+            "--max-followup-questions has been removed. Use "
+            "--max-satisfaction-retries together with --flow-mode satisfaction "
+            "instead."
+        )
+
+    return args
 
 
 def setup_signal_handlers(stopping: dict) -> None:
@@ -288,8 +332,25 @@ def main() -> None:
     args = parse_arguments()
     config = BotConfig.from_args(args)
 
+    try:
+        config.validate()
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(2)
+
     # Setup logging
     setup_logging(config.log_level)
+
+    if (
+        config.flow_mode == "satisfaction"
+        and not config.support_transfer_extension
+    ):
+        logger.warning(
+            "Flow: --flow-mode satisfaction is enabled but "
+            "--support-transfer-extension is not configured. Calls that "
+            "exhaust the satisfaction retry budget will play the "
+            "escalation announcement and then hang up (no transfer)."
+        )
 
     # Test Elasticsearch connection
     logger.info("Testing Elasticsearch connection...")

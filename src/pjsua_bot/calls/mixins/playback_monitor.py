@@ -634,7 +634,7 @@ class PlaybackMonitorMixin:
         return None
 
     def _classify_and_play_intent(self) -> None:
-        """Classify intent from transcription and play response if available."""
+        """Initiate intent classification in the background."""
         if not self._has_intent_methods():
             return
 
@@ -648,17 +648,13 @@ class PlaybackMonitorMixin:
             return
 
         try:
-            classification = self._classify_intent()
-            if classification:
-                intent_name, confidence = classification
-                logger.info(
-                    "Intent: classified intent '%s' with confidence %.2f",
-                    intent_name,
-                    confidence,
-                )
-                self._play_intent_response()
+            # Submit to thread pool, check_playback_status will poll it
+            if hasattr(self, "_submit_classification_task"):
+                self._submit_classification_task()
+            else:
+                logger.warning("Intent: _submit_classification_task not found, cannot classify intent asynchronously")
         except Exception as exc:
-            logger.warning("Intent: error in intent classification: %s", exc)
+            logger.warning("Intent: error starting intent classification: %s", exc)
 
     def _should_trigger_goodbye_after_asr(
         self, chunks: list, current_time: float
@@ -833,6 +829,10 @@ class PlaybackMonitorMixin:
         This method orchestrates the playback lifecycle by delegating to
         focused helper methods.
         """
+        # Poll background intent classification task
+        if hasattr(self, "_check_classification_future"):
+            self._check_classification_future()
+
         # Always check intent response transition and goodbye status
         self._check_intent_response_transition()
         self.check_goodbye_status()

@@ -2218,6 +2218,13 @@ FAQS: Dict[str, Dict[str, Any]] = {
             "حتماً",
             "خب",
             "اوکی",
+            # Satisfaction-flow affirmatives ("yes that helped" / "thanks")
+            "حله",
+            "کافیه",
+            "ممنونم",
+            "متشکرم",
+            "کمک کرد",
+            "مفید بود",
             # English affirmative responses
             "yes",
             "yeah",
@@ -2227,6 +2234,11 @@ FAQS: Dict[str, Dict[str, Any]] = {
             "okay",
             "alright",
             "right",
+            # Satisfaction-flow English affirmatives
+            "helpful",
+            "that helped",
+            "thanks",
+            "thank you",
         ],
         "questions": [
             "بله",
@@ -2253,6 +2265,13 @@ FAQS: Dict[str, Dict[str, Any]] = {
             "ممنون نه",
             "خداحافظ",
             "لازم نیست",
+            # Satisfaction-flow negatives ("that wasn't helpful")
+            "مفید نبود",
+            "کمک نکرد",
+            "متوجه نشدم",
+            "نفهمیدم",
+            "جواب نشد",
+            "حل نشد",
             # English negative responses
             "no",
             "nope",
@@ -2260,6 +2279,12 @@ FAQS: Dict[str, Dict[str, Any]] = {
             "no thanks",
             "goodbye",
             "bye",
+            # Satisfaction-flow English negatives
+            "not helpful",
+            "didn't help",
+            "wasn't helpful",
+            "doesn't help",
+            "still confused",
         ],
         "questions": [
             "نه",

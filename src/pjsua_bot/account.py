@@ -62,6 +62,14 @@ class Account(BaseAccount):
             None  # Extension for human support
         )
 
+        # New satisfaction-flow settings. `flow_mode` selects which conversation
+        # state machine runs inside `ConversationFlowMixin`:
+        #   - "legacy": original any-other-questions + repeat_or_support flow
+        #   - "satisfaction": question -> answer -> satisfaction-check loop
+        self.flow_mode: str = "legacy"
+        # NO answers needed to trigger escalation (only valid as 2 or 3).
+        self.max_satisfaction_retries: int = 2
+
     def _preload_vad(self) -> None:
         """Preload VAD model before calls start to avoid blocking during calls.
 

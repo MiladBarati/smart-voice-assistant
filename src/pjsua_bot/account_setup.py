@@ -94,6 +94,10 @@ def configure_account(acc: Account, config: BotConfig) -> None:
     acc.username = config.user
     acc.domain = config.domain
 
+    acc.flow_mode = config.flow_mode
+    acc.max_satisfaction_retries = config.max_satisfaction_retries
+    acc.support_transfer_extension = config.support_transfer_extension
+
     # Get actual duration from WAV file or use fallback
     if config.play_file:
         actual_duration = get_wav_duration(config.play_file)
