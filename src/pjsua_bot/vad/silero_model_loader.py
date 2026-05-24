@@ -84,9 +84,29 @@ class SileroModelLoader:
 
     @classmethod
     def _get_cache_path(cls) -> str:
-        """Get the path to the Silero VAD cache directory."""
-        cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "torch", "hub")
-        return os.path.join(cache_dir, "snakers4_silero-vad_master")
+        """Get the path to the Silero VAD cache directory.
+
+        Dynamically checks for standard and manually downloaded/extracted directories.
+        """
+        hub_dir = os.path.join(os.path.expanduser("~"), ".cache", "torch", "hub")
+        default_path = os.path.join(hub_dir, "snakers4_silero-vad_master")
+        if not os.path.isdir(hub_dir):
+            return default_path
+
+        try:
+            # Look for existing directories starting with snakers4-silero-vad or snakers4_silero-vad
+            for item in os.listdir(hub_dir):
+                path = os.path.join(hub_dir, item)
+                if os.path.isdir(path) and (
+                    item.startswith("snakers4-silero-vad") or
+                    item.startswith("snakers4_silero-vad")
+                ):
+                    if os.path.exists(os.path.join(path, "hubconf.py")):
+                        return path
+        except Exception:
+            pass
+
+        return default_path
 
     @classmethod
     def clear_cache(cls, reason: str = "manual") -> None:
@@ -125,48 +145,90 @@ class SileroModelLoader:
             List of strategy dictionaries ordered by preference.
         """
         strategies = []
+        cache_path = cls._get_cache_path()
+        has_local_cache = os.path.exists(os.path.join(cache_path, "hubconf.py"))
 
-        # ONNX strategies (preferred for PyTorch 2.5+)
-        for force_reload in [False, True]:
+        # 1. Explicit Local Directory Loading (using source="local")
+        if has_local_cache:
             strategies.append(
                 {
-                    "force_reload": force_reload,
+                    "source": "local",
+                    "repo_or_dir": cache_path,
+                    "onnx": False,
+                    "name": f"Local TorchScript from {os.path.basename(cache_path)}",
+                }
+            )
+            if _ONNXRUNTIME_AVAILABLE:
+                strategies.append(
+                    {
+                        "source": "local",
+                        "repo_or_dir": cache_path,
+                        "onnx": True,
+                        "name": f"Local ONNX from {os.path.basename(cache_path)}",
+                    }
+                )
+
+        # 2. Standard github-based cached strategies (as fallback)
+        if _ONNXRUNTIME_AVAILABLE:
+            strategies.append(
+                {
+                    "source": "github",
+                    "force_reload": False,
                     "trust_repo": True,
                     "onnx": True,
-                    "name": (
-                        f"ONNX via torch.hub "
-                        f"({'force_reload' if force_reload else 'normal'})"
-                    ),
+                    "name": "ONNX via torch.hub (normal)",
                 }
             )
 
-        # TorchScript strategies with trust_repo
-        for force_reload in [True, False]:
+        strategies.append(
+            {
+                "source": "github",
+                "force_reload": False,
+                "trust_repo": True,
+                "onnx": False,
+                "name": "TorchScript normal with trust_repo",
+            }
+        )
+        strategies.append(
+            {
+                "source": "github",
+                "force_reload": False,
+                "trust_repo": False,
+                "onnx": False,
+                "name": "TorchScript normal (fallback)",
+            }
+        )
+
+        # 3. Remote/Download Strategies (Last resort fallback, requires internet download)
+        if _ONNXRUNTIME_AVAILABLE:
             strategies.append(
                 {
-                    "force_reload": force_reload,
+                    "source": "github",
+                    "force_reload": True,
                     "trust_repo": True,
-                    "onnx": False,
-                    "name": (
-                        f"TorchScript {'force_reload' if force_reload else 'normal'} "
-                        f"with trust_repo"
-                    ),
+                    "onnx": True,
+                    "name": "ONNX via torch.hub (force_reload)",
                 }
             )
 
-        # TorchScript fallback strategies (original behavior)
-        for force_reload in [True, False]:
-            strategies.append(
-                {
-                    "force_reload": force_reload,
-                    "trust_repo": False,
-                    "onnx": False,
-                    "name": (
-                        f"TorchScript {'force_reload' if force_reload else 'normal'} "
-                        f"(fallback)"
-                    ),
-                }
-            )
+        strategies.append(
+            {
+                "source": "github",
+                "force_reload": True,
+                "trust_repo": True,
+                "onnx": False,
+                "name": "TorchScript force_reload with trust_repo",
+            }
+        )
+        strategies.append(
+            {
+                "source": "github",
+                "force_reload": True,
+                "trust_repo": False,
+                "onnx": False,
+                "name": "TorchScript force_reload (fallback)",
+            }
+        )
 
         return strategies
 
@@ -221,6 +283,15 @@ class SileroModelLoader:
         Returns:
             Dictionary of kwargs for torch.hub.load.
         """
+        source = strategy.get("source", "github")
+        if source == "local":
+            return {
+                "repo_or_dir": strategy["repo_or_dir"],
+                "model": "silero_vad",
+                "source": "local",
+                "onnx": strategy["onnx"],
+            }
+
         kwargs = {
             "repo_or_dir": "snakers4/silero-vad",
             "model": "silero_vad",
