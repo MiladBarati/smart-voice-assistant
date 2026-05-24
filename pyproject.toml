@@ -3,7 +3,7 @@ name = "pjsua-installation"
 version = "1.0.0"
 description = "PJSUA2 SIP Bot with VAD, ASR, call recording, and Elasticsearch integration"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "elasticsearch==7.17.9", # Pin to specific version for ES 7.x/8.x server compatibility (avoids API v9)
     "python-dotenv>=1.0.0",
@@ -32,12 +32,8 @@ dev = [
 ]
 
 [tool.uv]
-# When using WSL, comment out the Windows-specific constraint below
-# and uncomment the Linux constraint
-# For Windows native (without omnilingual-asr):
-# required-environments = ["sys_platform == 'win32'"]
-# For WSL/Linux (with omnilingual-asr):
-required-environments = ["sys_platform == 'linux'"]
+# For macOS and Linux (WSL/native):
+required-environments = ["sys_platform == 'darwin' or sys_platform == 'linux'"]
 
 [tool.black]
 line-length = 88
