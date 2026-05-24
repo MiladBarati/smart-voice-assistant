@@ -40,6 +40,8 @@ class TestAnyCall:
         mock_account._asr_service = None
         mock_account._asr_available = False
         mock_account.max_followup_questions = 2  # Required for ConversationFlowMixin
+        mock_account.max_satisfaction_retries = 2
+        mock_account.flow_mode = "legacy"
         return mock_account
 
     def test_init(self) -> None:
