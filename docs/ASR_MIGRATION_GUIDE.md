@@ -92,7 +92,7 @@ asr = ASRService(config)
 from pjsua_bot.asr import ASRService, ASRConfig
 
 config = ASRConfig(
-    model_name="omniASR_CTC_1B",  # or "omniASR_CTC_350M"
+    model_name="omniASR_CTC_1B",  # or "omniASR_CTC_300M"
     device="auto",
     language="fas_Arab",  # omnilingual format
     batch_size=1
@@ -265,7 +265,7 @@ config = ASRConfig(
 
 ```python
 config = ASRConfig(
-    model_name="omniASR_CTC_350M",  # Smaller, faster model
+    model_name="omniASR_CTC_300M",  # Smaller, faster model
     device="cuda" if torch.cuda.is_available() else "cpu",
     language="fas_Arab",
     batch_size=4  # Higher batch size

@@ -45,7 +45,7 @@ This project provides Python scripts for interacting with SIP servers (like Aste
 - **Whisper-based ASR**: OpenAI Whisper models via transformers (Persian/Farsi and 100+ languages)
 - **Omnilingual ASR**: Meta SeamlessM4T v2 models for superior multilingual support (100+ languages with translation)
 - **Live Transcription**: Real-time ASR transcription during calls with chunk-based processing
-- **Model Selection**: Choose between `omniASR_CTC_1B` and `omniASR_CTC_350M` models
+- **Model Selection**: Choose between `omniASR_CTC_1B` and `omniASR_CTC_300M` models
 
 ### Intent Classification (NEW!)
 - **Rule-Based Classification**: Fast keyword matching with Persian text normalization
@@ -279,7 +279,7 @@ The `register_bot.py` script supports the following command-line arguments:
 - `--silence-after-speech-sec`: Seconds of silence after last caller speech to hang up (default: 3.0)
 - `--vad-threshold`: Silero VAD speech probability threshold (default: 0.5)
 - `--enable-asr`: Enable ASR for live and final transcription (default: False)
-- `--asr-model`: ASR model to use: `omniASR_CTC_1B` or `omniASR_CTC_350M` (default: omniASR_CTC_1B)
+- `--asr-model`: ASR model to use: `omniASR_CTC_1B` or `omniASR_CTC_300M` (default: omniASR_CTC_300M)
 
 #### Intent Classification
 - `--enable-intent`: Enable intent classification from transcription (default: False)
@@ -288,6 +288,77 @@ The `register_bot.py` script supports the following command-line arguments:
 - `--ollama-model`: Ollama model name (default: qwen2.5:3b). Using 1.5b/3b recommended for GPUs with <8GB VRAM
 - `--ollama-use-cpu`: Attempt to force CPU usage for Ollama (hint only; set OLLAMA_NUM_GPU=0 for true CPU mode)
 - `--faq-config`: Path to custom FAQ JSON config file (optional)
+
+#### Conversation Flow
+- `--flow-mode`: Selects which conversation state machine runs after the welcome
+  prompt. `legacy` (default) is the original "any other questions?" + repeat /
+  support flow. `satisfaction` switches to the new question → answer → satisfaction
+  check → retry / escalate flow.
+- `--max-satisfaction-retries`: Number of NO satisfaction answers allowed before
+  the call is escalated. Must be `2` or `3`; default `2`. Only used with
+  `--flow-mode satisfaction`.
+- `--support-transfer-extension`: Extension to blind-transfer to on escalation.
+  Required for `--flow-mode satisfaction` to actually transfer the caller; if
+  unset, the bot plays the escalation announcement and then hangs up.
+
+> **Removed (breaking)**: the legacy `--max-followup-questions` flag was removed.
+> If the bot is invoked with that flag it exits non-zero with a message pointing
+> to `--max-satisfaction-retries`.
+
+Example — enable the new satisfaction-driven flow with two retries and transfer
+unresolved calls to extension `1099`:
+
+```bash
+python -m pjsua_bot.register_bot \
+  --user 1001 --password 'pass' --domain pbx.example.com \
+  --stay-online --enable-vad --enable-asr --enable-intent \
+  --flow-mode satisfaction \
+  --max-satisfaction-retries 2 \
+  --support-transfer-extension 1099
+```
+
+##### Per-call telemetry
+
+When `--flow-mode satisfaction` is active, every call record sent to
+Elasticsearch on disconnect carries a new top-level `satisfaction_flow` object:
+
+```json
+{
+  "satisfaction_flow": {
+    "flow_mode": "satisfaction",
+    "turns": [
+      {
+        "index": 0,
+        "question": "...",
+        "intent": "slow_computer",
+        "intent_confidence": 0.91,
+        "answer_audio": "assets/audio/faq_slow_computer.wav",
+        "satisfaction": "no",
+        "classification_failed": false
+      }
+    ],
+    "retry_count": 1,
+    "max_satisfaction_retries": 2,
+    "resolution": "escalated",
+    "escalation_succeeded": true
+  }
+}
+```
+
+`resolution` is one of `resolved` (caller said YES), `escalated` (retry budget
+exhausted and the operator attempted a transfer), or `hangup_no_answer` (caller
+hung up mid-conversation or escalation could not be performed). The new audio
+prompts referenced in `turns[].answer_audio` and by the state machine are
+documented in [`assets/audio/README.md`](assets/audio/README.md).
+
+##### Migration plan / rollback
+
+This change ships in legacy-default mode so deployments must opt in. To roll
+forward in staging, add `--flow-mode satisfaction` to the bot's startup
+command. To roll back, remove the flag (the bot defaults to `legacy` and the
+new code path stays dormant). The legacy state machine is preserved unchanged
+under `flow_mode == "legacy"` and is planned for removal in a follow-up release
+once the satisfaction flow has been validated in production.
 
 #### Logging
 - `--log-level`: Endpoint log level 0-6, higher = more verbose (default: 3)
@@ -522,7 +593,7 @@ pjsua-installation/
 - **`asr.py`**: Automatic Speech Recognition (Omnilingual backend)
   - `ASRService` class using Meta SeamlessM4T v2
   - Support for 100+ languages with automatic detection
-  - Model selection: `omniASR_CTC_1B` or `omniASR_CTC_350M`
+  - Model selection: `omniASR_CTC_1B` or `omniASR_CTC_300M`
 
 #### Intent Classification Package (`src/pjsua_bot/intent/`) - NEW!
 

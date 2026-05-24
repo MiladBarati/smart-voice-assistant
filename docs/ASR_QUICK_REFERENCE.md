@@ -37,7 +37,7 @@ if asr.available:
 from pjsua_bot.asr import ASRConfig
 
 config = ASRConfig(
-    model_name="omniASR_CTC_1B",  # or "omniASR_CTC_350M"
+    model_name="omniASR_CTC_1B",  # or "omniASR_CTC_300M"
     language="fas_Arab",           # Farsi/Persian
     device="auto",                 # or "cpu" / "cuda"
     batch_size=1

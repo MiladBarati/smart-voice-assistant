@@ -223,7 +223,7 @@ Different models cache separately:
 ```python
 # Each model downloads once
 pipeline1 = ASRInferencePipeline(model_card="omniASR_CTC_1B")
-pipeline2 = ASRInferencePipeline(model_card="omniASR_CTC_350M")
+pipeline2 = ASRInferencePipeline(model_card="omniASR_CTC_300M")
 ```
 
 ### 4. **Disk Space Management**

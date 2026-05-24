@@ -204,7 +204,7 @@ pipeline = ASRInferencePipeline(model_card="omniASR_CTC_1B", device="cuda")
 
 ```python
 # Smaller model = faster inference
-pipeline = ASRInferencePipeline(model_card="omniASR_CTC_350M")  # Smaller
+pipeline = ASRInferencePipeline(model_card="omniASR_CTC_300M")  # Smaller
 ```
 
 **Trade-off:** Faster but slightly less accurate
